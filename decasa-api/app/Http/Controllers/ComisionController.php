@@ -12,12 +12,17 @@ use App\Models\Usuario;
 use App\Services\AnticiposComision;
 use App\Services\ComisionIndependientes;
 use App\Services\NotificacionService;
+use App\Support\ReglasComision;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ComisionController extends Controller
 {
+    // Las tres cifras de abajo son solo el valor por defecto de su regla: el
+    // cálculo no las lee directo, las pide a ReglasComision con el mes, la
+    // tienda y la persona de cada comisión (docs/plan-comisiones-personalizables.md).
+
     /** Lo que se paga cuando no hay pool de por medio. */
     public const PORCENTAJE_DIRECTO = 0.05;
 
@@ -1995,7 +2000,7 @@ class ComisionController extends Controller
         $acumulado  = $pasados->sum('diferencia');
         $metaFutura = collect($meses)->where('futuro', true)->sum('meta');
         // La deuda se guarda en pesos de comisión; en ventas es 1,19 ÷ 5% veces eso.
-        $deudaVentas = (float) ($info['deficit_inicial'] ?? 0) * self::IVA / self::PORCENTAJE_DIRECTO;
+        $deudaVentas = self::poolAVentas((float) ($info['deficit_inicial'] ?? 0), $tiendaId, self::mesDeReglasDelTrimestre($trimestre));
 
         // El saldo que se va arrastrando, mes a mes, en ventas: arranca con la
         // deuda que trae del trimestre anterior; cada mes suma lo que vendió
@@ -2041,9 +2046,9 @@ class ComisionController extends Controller
             // deuda en ventas. Mientras falten meses, "deja" es "dejaría si
             // terminara hoy con lo que falta en cero".
             'saldo_actual'    => round($saldo),
-            'deuda_en_ventas_final' => round((float) ($info['deficit_final'] ?? 0) * self::IVA / self::PORCENTAJE_DIRECTO),
+            'deuda_en_ventas_final' => round(self::poolAVentas((float) ($info['deficit_final'] ?? 0), $tiendaId, self::mesDeReglasDelTrimestre($trimestre))),
             'en_curso'        => collect($meses)->where('futuro', true)->isNotEmpty(),
-            'se_liquida_el'   => self::fechaLiquidacion($trimestre)->toDateString(),
+            'se_liquida_el'   => self::fechaLiquidacion($trimestre, $tiendaId)->toDateString(),
         ];
     }
 
@@ -2169,7 +2174,7 @@ class ComisionController extends Controller
                 'valor_orden' => round($valor),
                 'pct_pagado'  => $valor > 0 ? (int) round($pagado / $valor * 100) : 0,
                 // Con la mitad pagada, sea venta o restauración (dueño, 2026-10-23).
-                'cuenta'      => $valor > 0 && $pagado >= $valor * 0.5,
+                'cuenta'      => $valor > 0 && $pagado >= $valor * ReglasComision::numero('req_pagado_pct', (string) ($primera['mes_venta'] ?? ''), (int) $tiendaId),
                 'por_que'     => $porQue,
                 'canal'       => $primera['canal'] ?? null,
                 'fecha'       => $primera['fecha_venta'] ?? null,
@@ -2671,9 +2676,10 @@ class ComisionController extends Controller
     /** El último día de pago que ya llegó: el 20 de este mes o el del anterior. */
     private static function ultimoDiaDePago(Carbon $hoy): Carbon
     {
-        $dia = $hoy->copy()->startOfMonth()->day(20);
+        $diaPago = (int) ReglasComision::valor('dia_pago', $hoy->format('Y-m'));
+        $dia     = self::diaDelMes($hoy->copy()->startOfMonth(), $diaPago);
 
-        return $hoy->day >= 20 ? $dia : $dia->subMonthNoOverflow();
+        return $hoy->day >= $dia->day ? $dia : self::diaDelMes($hoy->copy()->startOfMonth()->subMonthNoOverflow(), $diaPago);
     }
 
     /** Lo listo de una tarjeta del resumen: lo mismo que suma la pantalla. */
@@ -2738,7 +2744,7 @@ class ComisionController extends Controller
     {
         $hoy        = self::hoy();
         $diaDePago  = self::ultimoDiaDePago($hoy);
-        $mesQueToca = $diaDePago->copy()->subMonthNoOverflow()->format('Y-m');
+        $mesQueToca = $diaDePago->copy()->subMonthsNoOverflow((int) ReglasComision::valor('meses_espera', $diaDePago->format('Y-m')))->format('Y-m');
         $meses      = $soloMes ? [$soloMes] : self::mesesConAlgoListo($mesQueToca);
 
         $bloques = collect();
@@ -3130,13 +3136,15 @@ class ComisionController extends Controller
     public function avisarDiaDePago(?Carbon $hoy = null): ?array
     {
         $hoy ??= self::hoy();
-        if ($hoy->day < 20) return null;
+        $diaPago = min((int) ReglasComision::valor('dia_pago', $hoy->format('Y-m')), $hoy->daysInMonth);
+        if ($hoy->day < $diaPago) return null;
 
-        $mes    = $hoy->copy()->startOfMonth()->subMonthNoOverflow()->format('Y-m');
+        $mes    = $hoy->copy()->startOfMonth()
+            ->subMonthsNoOverflow((int) ReglasComision::valor('meses_espera', $hoy->format('Y-m')))->format('Y-m');
         $nombre = Carbon::parse($mes . '-01')->locale('es')->isoFormat('MMMM [de] YYYY');
         // Con la fecha y no "Hoy": el aviso del 20 de octubre le saltó a alguien
         // en el celular el 26 y parecía que el día de pago era ese día.
-        $diaDePago = $hoy->copy()->day(20)->locale('es')->isoFormat('D [de] MMMM');
+        $diaDePago = $hoy->copy()->day($diaPago)->locale('es')->isoFormat('D [de] MMMM');
         $titulo    = "Día de pago ({$diaDePago}): comisiones de {$nombre}";
 
         // El título viejo también cuenta como "ya avisado": el de septiembre de
@@ -3217,8 +3225,6 @@ class ComisionController extends Controller
      */
     public static function sincronizarValorOrden(Orden $orden): int
     {
-        $valor = self::valorComisionable($orden);
-
         $cambiadas = self::sincronizarTienda($orden);
         self::sincronizarAbonoAlmacen($orden);
         self::sincronizarRestauracionEquipo($orden);
@@ -3231,6 +3237,9 @@ class ComisionController extends Controller
                      ->where(fn ($q) => $q->whereNull('origen')
                                           ->orWhereNotIn('origen', self::ORIGENES_REPARTIDOS))
                      ->where('estado', '!=', 'pagada')->get() as $c) {
+            // Por persona: en una compartida quien vendió y el covendedor
+            // pueden tener partes distintas (regla compartida_parte_vendedor).
+            $valor = self::valorComisionable($orden, (int) $c->vendedor_id);
             if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
             $c->update(['valor_orden' => $valor]);
             $cambiadas++;
@@ -3357,7 +3366,7 @@ class ComisionController extends Controller
                     [
                         'tienda_id'        => $covendedor->tienda_default_id,
                         'mes_venta'        => $mes,
-                        'valor_orden'      => $valorPrincipal,
+                        'valor_orden'      => self::valorComisionable($orden, (int) $covendedorId),
                         'fecha_venta'      => $fechaVentaStr,
                         'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $covendedor->tienda_default_id),
                         'estado'           => 'pendiente',
@@ -3573,6 +3582,7 @@ class ComisionController extends Controller
         // Lo dice la tienda. Donde no se comparte, la restauración es entera
         // de quien la hizo, tenga la tienda meta o no.
         if (! self::tiendaComparte((int) $orden->tienda_id)) return [];
+        if (! ReglasComision::si('restauracion_se_reparte', $mes, (int) $orden->tienda_id)) return [];
 
         $equipo = TiendaReemplazo::equipoElDia(
             (int) $orden->tienda_id, $fechaVenta->toDateString(),
@@ -3628,13 +3638,52 @@ class ComisionController extends Controller
      * `es_compartida`, así que la primera pasada de recalcular le devolvía el
      * valor entero a las compartidas con un almacén y les duplicaba la base.
      */
-    public static function valorComisionable(Orden $orden): float
+    public static function valorComisionable(Orden $orden, ?int $vendedorId = null): float
     {
+        $mes  = self::mesDeOrden($orden);
         $base = (float) $orden->valor_total - self::costoDatafono($orden);
 
-        $compartida = $orden->es_compartida || $orden->tienda_abonada_id;
+        // Con otro vendedor: a quien vendió le toca su parte (la mitad, hoy)
+        // y al covendedor el resto. Se multiplica por la parte en vez de
+        // dividir por 2: da exactamente lo mismo y deja cambiar la parte.
+        if ($orden->es_compartida) {
+            $parte = ReglasComision::numero('compartida_parte_vendedor', $mes);
+            $esCovendedor = $vendedorId !== null && $orden->covendedor_id
+                && $vendedorId === (int) $orden->covendedor_id && $vendedorId !== (int) $orden->vendedor_id;
 
-        return $compartida ? round($base / 2) : $base;
+            return round($base * ($esCovendedor ? 1 - $parte : $parte));
+        }
+
+        // Con el almacén que pasó el contacto: lo que no le suma al almacén
+        // es de quien vendió.
+        if ($orden->tienda_abonada_id) {
+            return round($base * (1 - ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $orden->tienda_abonada_id)));
+        }
+
+        return $base;
+    }
+
+    /** El mes 'YYYY-MM' de la venta, en hora de Colombia: el que manda en sus reglas. */
+    public static function mesDeOrden(Orden $orden): string
+    {
+        return Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->format('Y-m');
+    }
+
+    /**
+     * Lo pagado con los medios que cobran franquicia, según la regla de
+     * comisiones (la de descuentos y Finanzas es Orden::METODOS_CON_FRANQUICIA).
+     */
+    public static function pagadoConFranquicia(Orden $orden, string $mes): float
+    {
+        $metodos = (array) ReglasComision::valor('franquicia_metodos', $mes);
+
+        // Con los pagos ya cargados no se vuelve a preguntar (igual que
+        // Orden::pagadoConTarjeta): esto corre por cada orden del mes.
+        if ($orden->relationLoaded('pagos')) {
+            return (float) $orden->pagos->whereIn('metodo', $metodos)->sum('monto');
+        }
+
+        return (float) $orden->pagos()->whereIn('metodo', $metodos)->sum('monto');
     }
 
     /**
@@ -3651,7 +3700,62 @@ class ComisionController extends Controller
      */
     public static function costoDatafono(Orden $orden): float
     {
-        return round($orden->pagadoConTarjeta() * self::COSTO_TARJETA);
+        $mes = self::mesDeOrden($orden);
+
+        return round(self::pagadoConFranquicia($orden, $mes) * ReglasComision::numero('franquicia_pct', $mes));
+    }
+
+    /**
+     * Ventas → pesos de pool: (ventas ÷ 1,19) × 5 %, con las reglas de esa
+     * tienda y mes. Es la cuenta de siempre, `x / IVA * PORCENTAJE`, en el
+     * mismo orden para que dé la misma cifra al último decimal.
+     */
+    private static function ventasAPool(float $ventas, int $tiendaId, string $mes): float
+    {
+        return ReglasComision::sinIva($ventas, false, $mes, $tiendaId) * ReglasComision::numero('pct_pool', $mes, $tiendaId);
+    }
+
+    /** Al revés: pesos de pool (una deuda de trimestre) → ventas que hay que hacer. */
+    private static function poolAVentas(float $pesos, int $tiendaId, string $mes): float
+    {
+        $v = ReglasComision::si('iva_en_venta', $mes, $tiendaId)
+            ? $pesos * ReglasComision::numero('iva_divisor', $mes, $tiendaId)
+            : $pesos;
+
+        return $v / ReglasComision::numero('pct_pool', $mes, $tiendaId);
+    }
+
+    /** ¿Una venta ya suma a la meta? Lo que el cliente pagó contra la orden entera. */
+    private static function cuentaParaMeta(float $pagado, float $valorOrden, int $tiendaId, string $mes): bool
+    {
+        $pct = ReglasComision::numero('meta_req_pagado_pct', $mes, $tiendaId);
+
+        return $pct <= 0 || $pagado >= $valorOrden * $pct;
+    }
+
+    /** El mes cuyas reglas mandan en un trimestre: el último (el del cierre). */
+    private static function mesDeReglasDelTrimestre(string $trimestre): string
+    {
+        return self::mesesDeTrimestre($trimestre)[2];
+    }
+
+    /**
+     * El día de pago de lo vendido en un mes (o del trimestre que cierra ese
+     * mes): el `dia_pago` de `meses_espera` meses después. Hoy, el 20 del mes
+     * siguiente. Un día que no existe en ese mes (31 en febrero) cae en el último.
+     */
+    public static function diaDePagoDe(string $mes, ?int $tiendaId = null): Carbon
+    {
+        $dia    = (int) ReglasComision::valor('dia_pago', $mes, $tiendaId);
+        $espera = (int) ReglasComision::valor('meses_espera', $mes, $tiendaId);
+
+        return self::diaDelMes(Carbon::parse($mes . '-01')->addMonths($espera), $dia);
+    }
+
+    /** Ese día del mes de $fecha, sin pasarse al mes siguiente. */
+    private static function diaDelMes(Carbon $fecha, int $dia): Carbon
+    {
+        return $fecha->copy()->day(min($dia, $fecha->daysInMonth));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -3716,12 +3820,10 @@ class ComisionController extends Controller
         return $anio . '-Q' . $q;
     }
 
-    /** El día en que se liquida un trimestre: el 20 del mes siguiente a su cierre. */
-    private static function fechaLiquidacion(string $trimestre): Carbon
+    /** El día en que se liquida un trimestre: el día de pago después de su cierre (hoy, el 20 del mes siguiente). */
+    private static function fechaLiquidacion(string $trimestre, ?int $tiendaId = null): Carbon
     {
-        $ultimoMes = self::mesesDeTrimestre($trimestre)[2];
-
-        return Carbon::parse($ultimoMes . '-01')->addMonth()->day(20)->startOfDay();
+        return self::diaDePagoDe(self::mesDeReglasDelTrimestre($trimestre), $tiendaId)->startOfDay();
     }
 
     private static function trimestreSiguiente(string $trimestre): string
@@ -3781,7 +3883,7 @@ class ComisionController extends Controller
 
         // La deuda que trae del trimestre anterior, en ventas: también hay que
         // cubrirla antes de comisionar. Antes "falta vender" la olvidaba.
-        $deudaVentas = $deficitInicial * self::IVA / self::PORCENTAJE_DIRECTO;
+        $deudaVentas = self::poolAVentas($deficitInicial, $tiendaId, self::mesDeReglasDelTrimestre($trimestre));
 
         return [
             'acumulado'       => round($acumulado),
@@ -3820,7 +3922,7 @@ class ComisionController extends Controller
                 $q->from('orden_items')->select('orden_id')
                   ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
             })
-            ->whereRaw('(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = o.id) >= o.valor_total * 0.5')
+            ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
@@ -3838,6 +3940,19 @@ class ComisionController extends Controller
     }
 
     private ?array $totalesQueCuentan = null;
+
+    /**
+     * cuentaParaMeta() dentro de una consulta que suma muchas órdenes: lo que
+     * el cliente pagó contra la orden entera, con la regla de cada tienda y mes.
+     *
+     * @param string $orden  alias de la tabla de órdenes en la consulta
+     */
+    public static function sqlCuentaParaMeta(string $orden, string $tiendaSql, string $mesSql): string
+    {
+        $pct = ReglasComision::sql('meta_req_pagado_pct', $tiendaSql, $mesSql);
+
+        return "({$pct} <= 0 OR (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = {$orden}.id) >= {$orden}.valor_total * {$pct})";
+    }
 
     private function diferencialTrimestre(int $tiendaId, string $trimestre, $metas, $totalesTienda): float
     {
@@ -3927,7 +4042,7 @@ class ComisionController extends Controller
                     ];
                 } else {
                     $diferencial  = $this->diferencialTrimestre((int) $tiendaId, $trimestre, $metas, $totalesTienda);
-                    $poolBruto    = $diferencial / self::IVA * self::PORCENTAJE_DIRECTO;
+                    $poolBruto    = self::ventasAPool($diferencial, (int) $tiendaId, self::mesDeReglasDelTrimestre($trimestre));
                     $poolNeto     = $poolBruto - $deficitPrevio;
                     $info = [
                         'pool_bruto'      => $poolBruto,
@@ -3946,7 +4061,7 @@ class ComisionController extends Controller
                     // Uno ya liquidado que sigue abierto (llegó a la meta y no
                     // se ha pagado) no se vuelve a liquidar: solo se pone al día.
                     $liquidar = $persistir && ! ($guardado && $guardado->cerrado_at)
-                        && self::hoy()->gte(self::fechaLiquidacion($trimestre));
+                        && self::hoy()->gte(self::fechaLiquidacion($trimestre, (int) $tiendaId));
 
                     if ($persistir) {
                         DB::table('tienda_trimestres')->updateOrInsert(
@@ -3965,7 +4080,7 @@ class ComisionController extends Controller
                             self::anotar('trimestre_liquidado', (int) $tiendaId, null, [
                                 'trimestre' => $trimestre,
                                 'pool' => round($info['pool_pagado']),
-                                'deuda_que_deja_en_ventas' => round($info['deficit_final'] * self::IVA / self::PORCENTAJE_DIRECTO),
+                                'deuda_que_deja_en_ventas' => round(self::poolAVentas($info['deficit_final'], (int) $tiendaId, self::mesDeReglasDelTrimestre($trimestre))),
                             ]);
                         }
                     }
@@ -4023,12 +4138,10 @@ class ComisionController extends Controller
     {
         if (self::esTiendaTrimestral($tiendaId)) {
             $mesCierre = intdiv($fechaVenta->month - 1, 3) * 3 + 3; // 3, 6, 9 o 12
-            return Carbon::create($fechaVenta->year, $mesCierre, 1)
-                ->addMonth()->day(20)->toDateString();
+            return self::diaDePagoDe(sprintf('%04d-%02d', $fechaVenta->year, $mesCierre), $tiendaId)->toDateString();
         }
 
-        return Carbon::create($fechaVenta->year, $fechaVenta->month, 1)
-            ->addMonth()->day(20)->toDateString();
+        return self::diaDePagoDe($fechaVenta->format('Y-m'), $tiendaId)->toDateString();
     }
 
     /**
@@ -4134,7 +4247,7 @@ class ComisionController extends Controller
             if (! $esParte && ! $esVentaPool) continue;
 
             // Contra la orden: el cliente paga la orden, no el pedazo de cada uno.
-            $cuenta = $esVentaPool && (float) $f->pagado >= (float) $f->orden_valor * 0.5;
+            $cuenta = $esVentaPool && self::cuentaParaMeta((float) $f->pagado, (float) $f->orden_valor, $tiendaId, $mes);
             if ($cuenta) $ventas += (float) $f->valor_orden;
 
             $personas[$vid] ??= ['pagado' => 0.0, 'portadores' => [], 'parte_id' => null];
@@ -4154,7 +4267,7 @@ class ComisionController extends Controller
         $ventas += (float) ($this->abonadoQueCuenta[$clave] ?? 0);
 
         $pool = ($meta > 0 && $ventas >= $meta)
-            ? ($ventas - $meta) / self::IVA * self::PORCENTAJE_DIRECTO
+            ? self::ventasAPool($ventas - $meta, $tiendaId, $mes)
             : 0.0;
 
         return $this->libros[$clave] = ['ventas' => $ventas, 'pool' => $pool, 'personas' => $personas];
@@ -4575,7 +4688,7 @@ class ComisionController extends Controller
             } else {
                 // Trimestre anterior a la línea base: sin arrastre, se floorea en 0.
                 $diferencial  = $this->diferencialTrimestre($c->tienda_id, $trimestre, $metas, $totalesTienda);
-                $comisionPool = max(0, $diferencial / self::IVA * self::PORCENTAJE_DIRECTO);
+                $comisionPool = max(0, self::ventasAPool($diferencial, (int) $c->tienda_id, self::mesDeReglasDelTrimestre($trimestre)));
                 $metaCumplida = $diferencial > 0;
             }
         } else {
@@ -4583,7 +4696,7 @@ class ComisionController extends Controller
             $metaCumplida = $meta > 0 && $totalTienda >= $meta;
 
             // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%
-            $comisionPool = $metaCumplida ? ($totalTienda - $meta) / self::IVA * self::PORCENTAJE_DIRECTO : 0;
+            $comisionPool = $metaCumplida ? self::ventasAPool($totalTienda - $meta, (int) $c->tienda_id, $c->mes_venta) : 0;
         }
 
         // Comisión de cada asesor: su parte del pool.
@@ -4683,23 +4796,28 @@ class ComisionController extends Controller
             }
         }
 
+        // Las reglas de esta comisión: las de su mes de venta, su tienda y su persona.
+        $mesC    = (string) $c->mes_venta;
+        $tiendaC = (int) $c->tienda_id;
+        $quienC  = (int) $c->vendedor_id;
+
         if ($usaLibro) {
             $montoComision = $montoLibro;
         } elseif ($esPartePool) {
             $montoComision = round($comisionAsesor);
         } elseif ($esAbono) {
-            $montoComision = $esRestauracion
-                ? round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO)
-                : round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
+            $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, $esRestauracion, $mesC, $tiendaC)
+                * ReglasComision::numero('almacen_pct', $mesC, $tiendaC));
         } elseif ($esRestauracion) {
-            $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);
+            $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, true, $mesC, $tiendaC)
+                * ReglasComision::numero('pct_restauracion', $mesC, $tiendaC, $quienC));
         } elseif (! $tieneMeta) {
             // Una FV2 marcada "no se resta el IVA" se comisiona entera. Solo
             // aquí, en el 5% directo de quien la vendió: en el pool la venta
             // se funde con las del resto de la tienda y no tiene cuenta propia.
-            $montoComision = $sinDescontarIva
-                ? round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO)
-                : round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
+            $montoComision = round(($sinDescontarIva ? (float) $c->valor_orden
+                    : ReglasComision::sinIva((float) $c->valor_orden, false, $mesC, $tiendaC))
+                * ReglasComision::numero('pct_individual', $mesC, $tiendaC, $quienC));
         } else {
             // La comisión de esta orden es proporcional a su valor dentro del total del vendedor
             $montoComision = ($totalVendedor > 0 && $comisionAsesor > 0)
@@ -4728,7 +4846,7 @@ class ComisionController extends Controller
         // Cuánto de esta orden entró por datáfono. Sale de los pagos que ya
         // vienen cargados, no de una consulta nueva: en el resumen serían
         // decenas de consultas para pintar una línea.
-        $pagadoTarjeta = (float) ($c->orden?->pagos?->whereIn('metodo', Orden::METODOS_CON_FRANQUICIA)->sum('monto') ?? 0);
+        $pagadoTarjeta = (float) ($c->orden?->pagos?->whereIn('metodo', (array) ReglasComision::valor('franquicia_metodos', $mesC))->sum('monto') ?? 0);
         // El 50% cobrado es un requisito de la ORDEN: hasta que el cliente no
         // ha abonado la mitad, esa venta no paga comisión. Una parte de pool no
         // tiene orden detrás —sale de lo que vendió el equipo, que ya cumplió
@@ -4751,7 +4869,9 @@ class ComisionController extends Controller
         // llegar la fecha, y en Norte la R-1099 salía lista con el 37 % pagado
         // cuando la tienda la dejaba por fuera. Sigue sin empujar la meta ni
         // entrar al pool: solo cambia cuándo se puede cobrar.
-        $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
+        $exigePago = ! $esRestauracion || ReglasComision::si('req_pagado_restauracion', $mesC, $tiendaC);
+        $req50     = $esPartePool || ! $exigePago
+            || $pagado >= ($baseReq50 * ReglasComision::numero('req_pagado_pct', $mesC, $tiendaC));
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
@@ -4815,7 +4935,7 @@ class ComisionController extends Controller
             // lo que se llevó la franquicia, que es plata que nunca llegó a la
             // caja y sobre la que nadie comisiona.
             'pagado_tarjeta'   => round($pagadoTarjeta),
-            'costo_datafono'   => round($pagadoTarjeta * self::COSTO_TARJETA),
+            'costo_datafono'   => round($pagadoTarjeta * ReglasComision::numero('franquicia_pct', $mesC)),
             'atrasada'         => $atrasada,
             'dias_restantes'   => (int) $diasRestantes,
             'estado_calculado' => $estadoCalculado,

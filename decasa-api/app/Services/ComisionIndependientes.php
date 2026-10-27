@@ -6,6 +6,7 @@ use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\StatsController;
 use App\Models\Orden;
 use App\Models\Usuario;
+use App\Support\ReglasComision;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -84,15 +85,17 @@ class ComisionIndependientes
      * haya pagado el 50% se mide contra la orden de verdad, no contra la base
      * ya recortada.
      */
-    private static function conLaBaseQueDeVerdadComisiona(object $o): object
+    private static function conLaBaseQueDeVerdadComisiona(object $o, string $mes): object
     {
         $o->valor_orden = (float) $o->valor_orden;
 
         $base = $o->valor_orden - round(
-            (float) $o->con_tarjeta * ComisionController::COSTO_TARJETA
+            (float) $o->con_tarjeta * ReglasComision::numero('franquicia_pct', $mes)
         );
 
-        $o->valor_total = $o->es_compartida ? round($base / 2) : $base;
+        $o->valor_total = $o->es_compartida
+            ? round($base * ReglasComision::numero('compartida_parte_vendedor', $mes))
+            : $base;
 
         return $o;
     }
@@ -121,17 +124,17 @@ class ComisionIndependientes
             return ['mes' => $mes, 'base' => 0.0, 'base_venta' => 0.0, 'base_restauracion' => 0.0,
                     'base_restauracion_almacenes' => 0.0, 'bolson_restauraciones' => 0.0,
                     'base_lista' => 0.0, 'base_pendiente' => 0.0,
-                    'se_cobra_el' => Carbon::parse($mes.'-01')->addMonth()->day(20)->toDateString(),
-                    'llego_la_fecha' => false, 'porcentaje' => self::PORCENTAJE,
+                    'se_cobra_el' => ComisionController::diaDePagoDe($mes)->toDateString(),
+                    'llego_la_fecha' => false, 'porcentaje' => ReglasComision::numero('indep_pct_venta', $mes),
                     'comision_restauraciones' => 0.0, 'comision_restauraciones_lista' => 0.0,
                     'independientes' => [], 'almacenes' => [], 'ordenes' => [],
                     'restauraciones_almacenes' => []];
         }
 
-        $ordenes = self::ordenesDelMes($desde, $hasta)
+        $ordenes = self::ordenesDelMes($desde, $hasta, $mes)
             ->whereIn('o.vendedor_id', $independientes->pluck('id'))
             ->get()
-            ->map(fn ($o) => self::conLaBaseQueDeVerdadComisiona($o));
+            ->map(fn ($o) => self::conLaBaseQueDeVerdadComisiona($o, $mes));
 
         // Una restauración no le suma a la meta del almacén aunque se comparta.
         $idsRestauracion = self::idsDeRestauracion($ordenes->pluck('id')->all());
@@ -141,7 +144,7 @@ class ComisionIndependientes
         // bolsón por el valor entero. `es_compartida` entre dos asesores de
         // tienda no la parte aquí —eso es cómo se reparten ellos su 5%, no
         // cuánto entra al bolsón—, así que se ignora.
-        $deAlmacenes = self::ordenesDelMes($desde, $hasta)
+        $deAlmacenes = self::ordenesDelMes($desde, $hasta, $mes)
             ->whereNotIn('o.vendedor_id', $independientes->pluck('id'))
             ->whereIn('o.id', function ($q) {
                 $q->from('orden_items')->select('orden_id')
@@ -149,15 +152,24 @@ class ComisionIndependientes
                   ->havingRaw('COUNT(*) = SUM(es_restauracion)');
             })
             ->get()
-            ->map(function ($o) {
+            ->map(function ($o) use ($mes) {
                 $o->es_compartida = false;
-                return self::conLaBaseQueDeVerdadComisiona($o);
+                return self::conLaBaseQueDeVerdadComisiona($o, $mes);
             });
+
+        // Las reglas del mes (ReglasComision). Las de porcentaje que se pueden
+        // cambiar por persona se piden adentro, con cada independiente.
+        $pctCobrar      = ReglasComision::numero('req_pagado_pct', $mes);
+        $restEspera     = ReglasComision::si('req_pagado_restauracion', $mes);
+        $pctBolson      = ReglasComision::numero('indep_pct_bolson', $mes);
+        $conAlmacenes   = ReglasComision::si('bolson_incluye_almacenes', $mes);
+        $pctVentaDe     = fn ($vendedorId) => ReglasComision::numero('indep_pct_venta', $mes, null, (int) $vendedorId);
+        $pctBolsonDe    = fn ($vendedorId) => ReglasComision::numero('indep_pct_bolson', $mes, null, (int) $vendedorId);
 
         // Se cobra igual que en las tiendas: cuando el cliente ha pagado la
         // mitad Y llega el 20 del mes siguiente a la venta.
         $hoy       = Carbon::today(StatsController::TZ_NEGOCIO);
-        $seCobraEl = Carbon::parse($mes . '-01')->addMonth()->day(20);
+        $seCobraEl = ComisionController::diaDePagoDe($mes);
         $llegoLaFecha = $hoy->gte($seCobraEl);
 
         // Contra el valor de la ORDEN, no contra la base que comisiona: esa ya
@@ -169,30 +181,36 @@ class ComisionIndependientes
         // deben tener el 50 % pagado las restauraciones"). Antes se pagaban con
         // solo llegar la fecha; el bolsón crecía con restauraciones que el
         // cliente apenas había abonado (R-1113 de Henry, $0 pagado, ya "lista").
-        $estaLista = fn ($o) => $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2;
-        $listas            = $ordenes->filter($estaLista);
+        $estaLista = fn ($o, bool $esRestauracion) => $llegoLaFecha
+            && (($esRestauracion && ! $restEspera) || (float) $o->pagado >= (float) $o->valor_orden * $pctCobrar);
+        $listas            = $ordenes->filter(fn ($o) => $estaLista($o, in_array($o->id, $idsRestauracion, true)));
         // Las de los almacenes son todas restauraciones: la misma regla.
-        $deAlmacenesListas = $deAlmacenes->filter($estaLista);
+        $deAlmacenesListas = $deAlmacenes->filter(fn ($o) => $estaLista($o, true));
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
-        $pagaPor = function ($grupo) use ($idsRestauracion) {
+        $pagaPor = function ($grupo, int $tiendaId) use ($idsRestauracion, $mes) {
             $venta = (float) $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum('valor_total');
             $rest  = (float) $grupo->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum('valor_total');
-            return ($venta / self::IVA + $rest) * self::PORCENTAJE;
+            return (ReglasComision::sinIva($venta, false, $mes, $tiendaId) + ReglasComision::sinIva($rest, true, $mes, $tiendaId))
+                * ReglasComision::numero('almacen_pct', $mes, $tiendaId);
         };
 
         /** Solo la parte de restauración de un grupo — lo que se reparte. */
-        $pagaRestauracion = fn ($grupo) => (float) $grupo
+        $pagaRestauracion = fn ($grupo, float $pct) => ReglasComision::sinIva((float) $grupo
             ->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
-            ->sum('valor_total') * self::PORCENTAJE;
+            ->sum('valor_total'), true, $mes) * $pct;
 
         /** Solo la parte de venta de un grupo — de quien la hizo, nadie más. */
         /** A una FV2 marcada no se le quita el IVA: ver `ivaDe()`. */
-        $pagaVenta = fn ($grupo) => (float) $grupo
+        $pagaVenta = fn ($grupo, float $pct) => (float) $grupo
             ->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-            ->sum(fn ($o) => (float) $o->valor_total / self::ivaDe($o)) * self::PORCENTAJE;
+            ->sum(fn ($o) => (float) $o->valor_total / self::ivaDe($o, $mes)) * $pct;
+
+        /** El bolsón con un porcentaje: lo de los independientes y, si la regla lo dice, lo de los almacenes. */
+        $bolson = fn ($ordenesGrupo, $almacenesGrupo, float $pct) => $pagaRestauracion($ordenesGrupo, $pct)
+            + ($conAlmacenes ? (float) $almacenesGrupo->sum('valor_total') * $pct : 0.0);
 
         $base          = (float) $ordenes->sum('valor_total');
         $baseLista     = (float) $listas->sum('valor_total');
@@ -210,11 +228,10 @@ class ComisionIndependientes
 
         // El bolsón de las restauraciones: se suman TODAS, de cualquiera de
         // los independientes y de cualquier almacén, y cada uno cobra el 5%
-        // de esa suma completa. Esto sí es igual para todos.
-        $comisionRestauraciones      = $pagaRestauracion($ordenes)
-            + $baseRestAlmacenes * self::PORCENTAJE;
-        $comisionRestauracionesLista = $pagaRestauracion($listas)
-            + (float) $deAlmacenesListas->sum('valor_total') * self::PORCENTAJE;
+        // de esa suma completa. Esto sí es igual para todos (salvo que a
+        // alguien se le ponga otro porcentaje del bolsón: se calcula abajo).
+        $comisionRestauraciones      = $bolson($ordenes, $deAlmacenes, $pctBolson);
+        $comisionRestauracionesLista = $bolson($listas, $deAlmacenesListas, $pctBolson);
 
         // Lo que ya se les pagó este mes. Se lleva por orden (la venta está
         // pagada o no) y el bolsón por monto, porque no cuelga de ninguna
@@ -229,16 +246,21 @@ class ComisionIndependientes
         // La venta es de quien la hizo: cada uno cobra solo sobre sus propias
         // órdenes, sin sumarse con las del otro independiente.
         $porIndependiente = $independientes->map(function ($u) use (
-            $ordenes, $listas, $idsRestauracion, $pagaVenta,
-            $comisionRestauraciones, $comisionRestauracionesLista, $pagos, $ordenPagada
+            $ordenes, $listas, $idsRestauracion, $pagaVenta, $bolson, $pctVentaDe, $pctBolsonDe,
+            $deAlmacenes, $deAlmacenesListas, $pagos, $ordenPagada
         ) {
             $suyas       = $ordenes->where('vendedor_id', $u->id);
             $suyasListas = $listas->where('vendedor_id', $u->id);
             $venta       = (float) $suyas->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum('valor_total');
 
-            $comisionVenta      = $pagaVenta($suyas);
-            $comisionVentaLista = $pagaVenta($suyasListas);
+            $pctVenta  = $pctVentaDe($u->id);
+            $pctBolsonSuyo = $pctBolsonDe($u->id);
+            $comisionRestauraciones      = $bolson($ordenes, $deAlmacenes, $pctBolsonSuyo);
+            $comisionRestauracionesLista = $bolson($listas, $deAlmacenesListas, $pctBolsonSuyo);
+
+            $comisionVenta      = $pagaVenta($suyas, $pctVenta);
+            $comisionVentaLista = $pagaVenta($suyasListas, $pctVenta);
 
             $comisionTotal  = $comisionVenta + $comisionRestauraciones;
             $comisionLista  = $comisionVentaLista + $comisionRestauracionesLista;
@@ -248,7 +270,7 @@ class ComisionIndependientes
             $ventasSinPagar = $suyasListas->reject(fn ($o) => isset($ordenPagada[$u->id . '_' . $o->id]));
             $bolsonPagado   = (float) $pagos->where('vendedor_id', $u->id)
                 ->where('origen', self::ORIGEN_BOLSON)->sum('monto_comision');
-            $ventasPorPagar = round($pagaVenta($ventasSinPagar));
+            $ventasPorPagar = round($pagaVenta($ventasSinPagar, $pctVenta));
             $bolsonPorPagar = max(0, round($comisionRestauracionesLista) - round($bolsonPagado));
 
             return [
@@ -276,21 +298,22 @@ class ComisionIndependientes
         // Cada almacén cobra sobre lo que se compartió con él.
         $almacenes = $ordenes->whereNotNull('tienda_abonada_id')
             ->groupBy('tienda_abonada_id')
-            ->map(function ($grupo) use ($idsRestauracion, $listas, $pagaPor) {
+            ->map(function ($grupo) use ($idsRestauracion, $listas, $pagaPor, $mes) {
                 $idsListas = $listas->pluck('id')->all();
+                $tiendaId  = (int) $grupo->first()->tienda_abonada_id;
                 $compartido = (float) $grupo->sum('valor_total');
                 // A la meta solo le suma la mitad de lo que NO es restauración.
                 $paraMeta = (float) $grupo
                     ->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-                    ->sum('valor_total') / 2;
+                    ->sum('valor_total') * ReglasComision::numero('almacen_fraccion_meta', $mes, $tiendaId);
 
                 return [
-                    'tienda_id'   => (int) $grupo->first()->tienda_abonada_id,
+                    'tienda_id'   => $tiendaId,
                     'nombre'      => $grupo->first()->almacen,
                     'compartido'  => $compartido,
-                    'comision'    => round($pagaPor($grupo)),
+                    'comision'    => round($pagaPor($grupo, $tiendaId)),
                     'comision_lista' => round(
-                        $pagaPor($grupo->filter(fn ($o) => in_array($o->id, $idsListas, true)))
+                        $pagaPor($grupo->filter(fn ($o) => in_array($o->id, $idsListas, true)), $tiendaId)
                     ),
                     'suma_a_meta' => $paraMeta,
                     'ordenes'     => $grupo->count(),
@@ -305,12 +328,12 @@ class ComisionIndependientes
             // Las que subieron los almacenes: no son "vendido" de ningún
             // independiente, pero sí le suman al bolsón.
             'base_restauracion_almacenes' => $baseRestAlmacenes,
-            'bolson_restauraciones'       => $baseRest + $baseRestAlmacenes,
+            'bolson_restauraciones'       => $baseRest + ($conAlmacenes ? $baseRestAlmacenes : 0.0),
             'base_lista'     => $baseLista,
             'base_pendiente' => $basePendiente,
             'se_cobra_el'    => $seCobraEl->toDateString(),
             'llego_la_fecha' => $llegoLaFecha,
-            'porcentaje'     => self::PORCENTAJE,
+            'porcentaje'     => ReglasComision::numero('indep_pct_venta', $mes),
             // El bolsón de restauraciones: un solo número, igual para todos
             // los independientes — es lo único que de verdad se comparte.
             'comision_restauraciones'       => round($comisionRestauraciones),
@@ -329,14 +352,14 @@ class ComisionIndependientes
                 'almacen'        => $o->almacen,
                 'es_restauracion'=> in_array($o->id, $idsRestauracion, true),
                 'suma_a_meta'    => ($o->tienda_abonada_id && ! in_array($o->id, $idsRestauracion, true))
-                                    ? (float) $o->valor_total / 2 : 0.0,
+                                    ? (float) $o->valor_total * ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id) : 0.0,
                 'pagado'         => (float) $o->pagado,
-                'pago_completo'  => (float) $o->pagado >= (float) $o->valor_orden / 2,
+                'pago_completo'  => (float) $o->pagado >= (float) $o->valor_orden * $pctCobrar,
                 'lista'          => $listas->contains('id', $o->id),
                 'pagada'         => isset($ordenPagada[$o->vendedor_id . '_' . $o->id]),
                 'paga'           => round(in_array($o->id, $idsRestauracion, true)
-                                    ? (float) $o->valor_total * self::PORCENTAJE
-                                    : (float) $o->valor_total / self::ivaDe($o) * self::PORCENTAJE),
+                                    ? ReglasComision::sinIva((float) $o->valor_total, true, $mes) * $pctBolsonDe($o->vendedor_id)
+                                    : (float) $o->valor_total / self::ivaDe($o, $mes) * $pctVentaDe($o->vendedor_id)),
                 // Una FV2 marcada: a su venta no se le quitó el IVA.
                 'sin_descontar_iva' => (bool) $o->sin_descontar_iva,
             ])->values()->all(),
@@ -354,7 +377,7 @@ class ComisionIndependientes
                 'fecha'      => $o->created_at,
                 'pagado'     => (float) $o->pagado,
                 'lista'      => $deAlmacenesListas->contains('id', $o->id),
-                'paga'       => round((float) $o->valor_total * self::PORCENTAJE),
+                'paga'       => round(ReglasComision::sinIva((float) $o->valor_total, true, $mes) * $pctBolson),
             ])->values()->all(),
         ];
     }
@@ -367,13 +390,15 @@ class ComisionIndependientes
      * para quien la vendió: el almacén con el que se comparte cobra con la
      * regla de siempre.
      */
-    private static function ivaDe(object $o): float
+    private static function ivaDe(object $o, string $mes): float
     {
-        return ! empty($o->sin_descontar_iva) ? 1.0 : self::IVA;
+        if (! empty($o->sin_descontar_iva) || ! ReglasComision::si('iva_en_venta', $mes)) return 1.0;
+
+        return ReglasComision::numero('iva_divisor', $mes);
     }
 
     /** Las órdenes del mes con lo que hace falta para comisionarlas. */
-    private static function ordenesDelMes(string $desde, string $hasta)
+    private static function ordenesDelMes(string $desde, string $hasta, string $mes)
     {
         return DB::table('ordenes as o')
             ->join('usuarios as u', 'u.id', '=', 'o.vendedor_id')
@@ -397,7 +422,7 @@ class ComisionIndependientes
             )
             ->selectSub(
                 DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')
-                    ->whereColumn('orden_id', 'o.id')->whereIn('metodo', Orden::METODOS_CON_FRANQUICIA),
+                    ->whereColumn('orden_id', 'o.id')->whereIn('metodo', (array) ReglasComision::valor('franquicia_metodos', $mes)),
                 'con_tarjeta'
             )
             ->orderBy('o.created_at');
@@ -416,12 +441,16 @@ class ComisionIndependientes
      */
     public static function abonadoParaMeta(bool $soloConLaMitadPagada = false): array
     {
+        // El mes de cada orden en hora de Colombia, y las reglas de cada
+        // almacén y mes dentro del SQL (ReglasComision::sql).
+        $mesSql = "DATE_FORMAT(CONVERT_TZ(ordenes.created_at,'+00:00','" . self::DESFASE_COLOMBIA . "'),'%Y-%m')";
+
         return DB::table('ordenes')
             ->whereNotNull('tienda_abonada_id')
             // Para el pool: una venta cuenta cuando el cliente ya pagó la
             // mitad, igual que las de la propia tienda.
             ->when($soloConLaMitadPagada, fn ($q) => $q->whereRaw(
-                '(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = ordenes.id) >= ordenes.valor_total / 2'
+                ComisionController::sqlCuentaParaMeta('ordenes', 'ordenes.tienda_abonada_id', $mesSql)
             ))
             ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q, 'ordenes'))
@@ -439,12 +468,14 @@ class ComisionIndependientes
                 // Los medios con franquicia salen de la misma lista que usa el
                 // resto del módulo: escritos aquí a mano, uno nuevo (como pasó
                 // con Addi) movía la comisión pero no la meta.
+                // La lista y el porcentaje son los de la regla de comisiones
+                // (franquicia_metodos, franquicia_pct), y lo que le suma al
+                // almacén, su parte (almacen_fraccion_meta, la mitad hoy).
                 'SUM(valor_total - ROUND(COALESCE(' .
                 '  (SELECT SUM(p.monto) FROM pagos p' .
-                '   WHERE p.orden_id = ordenes.id AND p.metodo IN (' .
-                implode(',', array_fill(0, count(Orden::METODOS_CON_FRANQUICIA), '?')) . ')), 0) * ' .
-                ComisionController::COSTO_TARJETA . ')) / 2 as total',
-                Orden::METODOS_CON_FRANQUICIA
+                '   WHERE p.orden_id = ordenes.id AND ' . ReglasComision::sqlEnLista('franquicia_metodos', 'p.metodo', $mesSql) . '), 0) * ' .
+                ReglasComision::sql('franquicia_pct', 'ordenes.tienda_abonada_id', $mesSql) . ')) * ' .
+                ReglasComision::sql('almacen_fraccion_meta', 'ordenes.tienda_abonada_id', $mesSql) . ' as total'
             )
             ->groupBy('tienda_abonada_id', 'mes')
             ->get()

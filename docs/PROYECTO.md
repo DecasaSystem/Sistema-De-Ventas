@@ -499,6 +499,14 @@ entregada"). Solo supervisor.
   sesión (botón Ayuda en Comisiones y enlace en las estadísticas del vendedor).
   **Si cambia una regla de comisiones, cambiar también la ayuda.**
 - Datáfono: lo pagado con tarjeta/Addi descuenta la franquicia del comisionable.
+- **Reglas en un solo sitio** (2026-10-27, Fase 0 de `docs/plan-comisiones-personalizables.md`):
+  el cálculo ya no tiene cifras propias (5 %, ÷ 1,19, 5,5 %, 50 %, día 20, la mitad de una
+  compartida, el bolsón…); las pide a `App\Support\ReglasComision::valor($clave, $mes, $tienda,
+  $persona)`, que hoy devuelve el valor de siempre. **Una cifra nueva de comisiones va al
+  catálogo, no suelta en el código**, y se pide con el mes de la venta (no el de hoy). Dentro
+  de SQL, con `ReglasComision::sql()` (literal, nunca `?`). La lista de medios con franquicia
+  de comisiones es la regla `franquicia_metodos`; `Orden::METODOS_CON_FRANQUICIA` sigue siendo
+  la de descuentos y Finanzas.
 
 ### 6.11 Costos de fabricación y cotizador IA
 `FichaTecnicaController`, `MaterialController`, `ConfiguracionCostosController`,

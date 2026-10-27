@@ -385,6 +385,15 @@ escribiendo precios (Fase 1b).
   Archivo: `Downloads/Conciliacion ordenes Pereira ago-sep 2026.xlsx`.
   Leer producción solo lectura con `.env.lectura-produccion` (raíz del repo principal), con
   permiso del usuario.
+- **Comisiones personalizables** (`docs/plan-comisiones-personalizables.md`). Pedido del dueño
+  (2026-10-26): que las reglas de comisión no estén fijas en el código "por si algún día cambia
+  el funcionamiento de todo, sin dañar nada". **Fase 0 hecha el 2026-10-27, sin subir, sin
+  migración**, rama `claude/comisiones-module-analysis-c42e66`: catálogo `App\Support\ReglasComision`
+  con los valores de hoy y todo el cálculo pidiéndolos ahí. **No cambió ni un peso**: prueba
+  diferencial byte a byte (8.000 órdenes, todos los caminos, pagos incluidos) y suite completa.
+  Antes de la Fase 1 (tabla de reglas con fecha + foto al pagar) faltan las decisiones del
+  dueño del §8 del plan: alcance, quién cambia reglas, meses pasados, excepciones por
+  persona, Estadísticas con la compartida, esquemas nuevos. Mismo patrón que `CostoEmpleador`.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no
