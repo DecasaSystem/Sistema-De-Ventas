@@ -292,6 +292,48 @@ class ReglasComision
         return $out;
     }
 
+    /**
+     * Las excepciones de tienda y de persona que rigen en un mes: para que la
+     * Ayuda, el desglose y el Excel digan "en Norte el pool va en partes
+     * iguales" en vez de la regla general (Fase 3). Por cada tienda o persona,
+     * la última fila hasta ese mes; una nula es "sin excepción" y no sale.
+     *
+     * @return list<array{clave: string, alcance: string, alcance_id: int, valor: mixed}>
+     */
+    public static function excepcionesDelMes(string $mes): array
+    {
+        $out = [];
+        foreach (self::filas() as $clave => $filas) {
+            $alcances = self::CATALOGO[$clave]['alcances'] ?? [];
+            $ultima = [];
+            foreach ($filas as $f) {
+                if ($f->desde_mes > $mes) break;
+                if ($f->alcance === 'general' || ! in_array($f->alcance, $alcances, true)) continue;
+                $ultima[$f->alcance . ':' . $f->alcance_id] = $f;
+            }
+            foreach ($ultima as $f) {
+                if ($f->valor === null) continue;
+                $out[] = ['clave' => $clave, 'alcance' => $f->alcance, 'alcance_id' => (int) $f->alcance_id, 'valor' => $f->valor];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Un valor de regla dicho para una persona: "5%", "Sí", "Partes iguales", "tarjeta, addi". */
+    public static function valorTexto(string $clave, mixed $valor): string
+    {
+        $regla = self::CATALOGO[$clave] ?? null;
+
+        return match ($regla['tipo'] ?? null) {
+            'fraccion' => ComisionController::pctTexto((float) $valor),
+            'si_no'    => $valor ? 'Sí' : 'No',
+            'opcion'   => $regla['opciones'][$valor]['nombre'] ?? (string) $valor,
+            'lista'    => implode(', ', (array) $valor),
+            default    => rtrim(rtrim(number_format((float) $valor, 4, ',', ''), '0'), ','),
+        };
+    }
+
     /** Hay al menos una regla cambiada (para no hacer trabajo de más). */
     public static function hayCambios(): bool
     {

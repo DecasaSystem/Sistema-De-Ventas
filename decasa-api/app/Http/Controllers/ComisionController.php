@@ -699,14 +699,25 @@ class ComisionController extends Controller
             $c, $metas, $totalesTienda, $totalesVendedor, $pools, $hoy
         ));
 
-        $explica = [
-            'restauracion_5' => 'restauración: 5% del valor, aparte del pool y sin depender de la meta',
-            'restauracion_equipo' => 'restauración de la tienda: ese 5% se parte entre quienes estaban ese día',
-            'sin_meta_5'     => 'no está en una tienda con meta: valor ÷ 1,19 × 5%, sin dividir con nadie',
-            'pool'           => 'por el pool de la tienda, a prorrata de lo que vendió ese mes',
-            'abono_almacen'  => 'su parte del 5% que dejó un independiente al compartir una venta con su tienda',
-        ];
         $primera = $filas->first();
+
+        // Con las reglas de ese mes y de su tienda: si alguien cambió el
+        // porcentaje, el asistente no puede seguir diciendo 5% (Fase 3).
+        $tiendaRegla = isset($primera['tienda_id']) ? (int) $primera['tienda_id'] : null;
+        $pctRest = self::pctTexto(ReglasComision::numero('pct_restauracion', $mes, $tiendaRegla, $vendedorId));
+        $restIva = ReglasComision::si('iva_en_restauracion', $mes, $tiendaRegla) ? 'sin IVA' : 'sin quitarle el IVA';
+        $explica = [
+            'restauracion_5' => "restauración: {$pctRest} del valor ({$restIva}), aparte del pool y sin depender de la meta",
+            'restauracion_equipo' => ReglasComision::valor('reparto_restauracion', $mes, $tiendaRegla) === 'autor_primero'
+                ? "restauración de la tienda: de ese {$pctRest}, quien la hizo se lleva su parte y el resto se parte entre los demás que estaban ese día"
+                : "restauración de la tienda: ese {$pctRest} se parte entre quienes estaban ese día",
+            'sin_meta_5'     => 'no reparte pool: valor ' . self::cuentaDeVenta('pct_individual', $mes, $tiendaRegla, $vendedorId) . ', sin dividir con nadie',
+            'pool'           => ReglasComision::valor('reparto_pool', $mes, $tiendaRegla) === 'iguales'
+                ? 'por el pool de la tienda, en partes iguales entre el equipo'
+                : 'por el pool de la tienda, según los días que estuvo cada quien',
+            'abono_almacen'  => 'su parte del ' . self::pctTexto(ReglasComision::numero('almacen_pct', $mes, $tiendaRegla))
+                . ' que dejó un independiente al compartir una venta con su tienda',
+        ];
 
         return [
             'tipo'      => 'vendedor',
@@ -746,10 +757,44 @@ class ComisionController extends Controller
                 'pct_pagado_por_el_cliente' => $f['pct_pagado'],
             ])->values()->all(),
             'para_cobrar_hacen_falta_dos_cosas' =>
-                'que llegue la fecha de pago (el 20 del mes siguiente; en Pereira y Circunvalar '
-                . 'el 20 del mes siguiente al cierre del trimestre) y que el cliente haya pagado '
-                . 'al menos el 50% de la orden.',
+                'que llegue la fecha de pago (' . self::cuandoSePagaTexto($mes, $tiendaRegla)
+                . '; en las tiendas trimestrales, contando desde el cierre del trimestre) y que el cliente haya pagado '
+                . 'al menos el ' . self::pctTexto(ReglasComision::numero('req_pagado_pct', $mes, $tiendaRegla)) . ' de la orden.',
         ];
+    }
+
+    /** Una fracción como la dicen las pantallas: 0,05 → "5%", 0,055 → "5,5%". */
+    public static function pctTexto(float $fraccion): string
+    {
+        return rtrim(rtrim(number_format($fraccion * 100, 2, ',', ''), '0'), ',') . '%';
+    }
+
+    /**
+     * La cuenta de una venta en palabras, con las reglas de ese mes: "÷ 1,19 ×
+     * 5%", o "× 5%" si en esa tienda a la venta no se le quita el IVA. Las
+     * notas del asistente la tenían escrita a mano (Fase 3).
+     */
+    private static function cuentaDeVenta(string $clavePct, string $mes, ?int $tiendaId, ?int $usuarioId = null): string
+    {
+        $pct = self::pctTexto(ReglasComision::numero($clavePct, $mes, $tiendaId, $usuarioId));
+        if (! ReglasComision::si('iva_en_venta', $mes, $tiendaId)) return "× {$pct}";
+
+        $divisor = rtrim(rtrim(number_format(ReglasComision::numero('iva_divisor', $mes), 4, ',', ''), '0'), ',');
+
+        return "÷ {$divisor} × {$pct}";
+    }
+
+    /** "el 20 del mes siguiente", con el día y la espera que rigen ese mes. */
+    private static function cuandoSePagaTexto(string $mes, ?int $tiendaId): string
+    {
+        $dia   = (int) ReglasComision::numero('dia_pago', $mes, $tiendaId);
+        $espera = (int) ReglasComision::numero('meses_espera', $mes, $tiendaId);
+
+        return match ($espera) {
+            0       => "el {$dia} del mismo mes",
+            1       => "el {$dia} del mes siguiente",
+            default => "el {$dia}, {$espera} meses después",
+        };
     }
 
     /** Cómo va la meta de una tienda, para el asistente de la página. */
@@ -767,7 +812,8 @@ class ComisionController extends Controller
                 'tienda' => $tienda?->nombre, 'mes' => $mes,
                 'tiene_meta' => false,
                 'vendio' => $ventas,
-                'nota' => 'Esta tienda no tiene meta, así que no hay pool: cada quien cobra el 5% de lo suyo.',
+                'nota' => 'Esta tienda no tiene meta, así que no hay pool: cada quien cobra lo suyo '
+                        . self::cuentaDeVenta('pct_individual', $mes, $tiendaId) . '.',
             ];
         }
 
@@ -788,9 +834,20 @@ class ComisionController extends Controller
                 'trimestre'    => $cuenta,
                 'pool_del_trimestre' => $cuenta['pool_pagado'],
                 'le_falta_vender'    => $cuenta['falta_para_cobrar'],
-                'nota' => 'Esta tienda liquida por trimestre: se suman (lo que tiene la mitad pagada − la meta) '
-                        . 'de los tres meses, se descuenta lo que arrastra del trimestre anterior, ÷ 1,19 × 5%, '
-                        . 'y se reparte por los días que estuvo cada quien en el trimestre.',
+                'nota' => (function () use ($mes, $tiendaId) {
+                    // El trimestre se calcula con las reglas de su último mes.
+                    $mesRegla = self::mesesDeTrimestre(self::trimestreDeMes($mes))[2];
+                    $pagado   = self::pctTexto(ReglasComision::numero('meta_req_pagado_pct', $mesRegla, $tiendaId));
+
+                    return "Esta tienda liquida por trimestre: se suman (lo que tiene el {$pagado} pagado − la meta) "
+                        . 'de los tres meses'
+                        . (ReglasComision::si('arrastra_deuda_trimestre', $mesRegla, $tiendaId)
+                            ? ', se descuenta lo que arrastra del trimestre anterior, ' : ', ')
+                        . self::cuentaDeVenta('pct_pool', $mesRegla, $tiendaId) . ', '
+                        . (ReglasComision::valor('reparto_pool', $mesRegla, $tiendaId) === 'iguales'
+                            ? 'y se reparte en partes iguales entre el equipo.'
+                            : 'y se reparte por los días que estuvo cada quien en el trimestre.');
+                })(),
             ];
         }
 
@@ -820,8 +877,14 @@ class ComisionController extends Controller
                 'dias'   => (int) round($this->diasDe($mes, $tiendaId)[$vid] ?? 0),
                 'parte'  => $suma > 0 ? round($pool * $peso / $suma) : 0,
             ])->values()->all(),
-            'nota' => 'El pool es (lo que tiene la mitad pagada − la meta) ÷ 1,19 × 5%, repartido entre el equipo '
-                    . 'según los días que estuvo cada quien. Las restauraciones no entran aquí.',
+            'nota' => 'El pool es (lo que tiene el '
+                    . self::pctTexto(ReglasComision::numero('meta_req_pagado_pct', $mes, $tiendaId)) . ' pagado − la meta) '
+                    . self::cuentaDeVenta('pct_pool', $mes, $tiendaId) . ', repartido entre el equipo '
+                    . (ReglasComision::valor('reparto_pool', $mes, $tiendaId) === 'iguales'
+                        ? 'en partes iguales.' : 'según los días que estuvo cada quien.')
+                    . (ReglasComision::si('restauracion_suma_meta', $mes, $tiendaId)
+                        ? ' En esta tienda las restauraciones cuentan como ventas: suman a la meta y entran al pool.'
+                        : ' Las restauraciones no entran aquí.'),
         ];
     }
 

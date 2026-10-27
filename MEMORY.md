@@ -399,16 +399,22 @@ escribiendo precios (Fase 1b).
   API. **Fase 2** (sin migración nueva): pantalla Comisiones →
   Reglas con simulador y el interruptor "Reglas de comisión" en la ficha del trabajador.
   **Al subir, nadie tiene el permiso**: el primero lo da un supervisor con acceso a Comisiones
-  (después, solo quien ya lo tiene). Faltan Fase 3 (que Ayuda, desglose, Excel y asistente
-  lean las reglas: hoy dicen "5 %" fijo y "se reparte por días").
+  (después, solo quien ya lo tiene).
   **Fase 4 hecha el 2026-10-27, sin subir** (sin migración): repartos como reglas de tipo
   opción (bolsón cada uno/se reparte y quién entra, pool por días/iguales, restauración
   iguales/autor primero, restauraciones como ventas por tienda, no arrastrar deuda trimestral,
-  compartida por tienda/persona). Decisión que tomé yo y **falta que el dueño confirme**: con
-  "restauraciones como ventas" la restauración entra al pool (÷1,19) y deja de pagarse aparte,
-  para no pagar doble. Tramos/bono del pool y forzar cobro individual: el dueño dijo "no por ahora".
+  compartida por tienda/persona). Con "restauraciones como ventas" la restauración entra al pool (÷1,19) y deja de pagarse
+  aparte, para no pagar doble (confirmado por el dueño el 2026-10-27). Tramos/bono del pool y forzar cobro individual: el dueño dijo "no por ahora".
   Trampa: el simulador no muestra reglas que cambian lo guardado en cada renglón
   (`ReglasComision::SE_VEN_AL_RECALCULAR`); avisa y se ven tras el recálculo.
+  El dueño confirmó la semántica de "restauraciones como ventas" (2026-10-27) y la Fase 4 quedó
+  en el commit 55f6b86 (sin push).
+  **Fase 3 hecha el 2026-10-27, sin subir, sin migración**: Ayuda, desglose, totales de la tienda,
+  detalle de la comisión, Excel y asistente leen las reglas (`GET /comisiones/reglas/vigentes`,
+  `utils/reglasComision.js`). Con las reglas de siempre dicen lo mismo que antes; no cambió
+  ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con
+  esas funciones, nunca a mano. Quien no tiene Comisiones recibe solo la regla general (la Ayuda
+  es de todos, las excepciones por persona no).
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no

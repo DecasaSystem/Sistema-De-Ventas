@@ -17,6 +17,8 @@
  * carga al pulsar el botón, no con la app: pesa y solo lo usa esta pantalla.
  */
 
+import { reglasPara, num, divisor, cuentaVenta, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
+
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
@@ -25,8 +27,8 @@ const ESTADO = { pendiente: 'Pendiente', lista: 'Lista para pagar', pagada: 'Pag
 const FORMA = {
   pool:                'Pool del equipo',
   parte_pool:          'Parte del equipo',
-  sin_meta_5:          'Individual 5%',
-  restauracion_5:      'Restauración 5%',
+  sin_meta_5:          'Individual',
+  restauracion_5:      'Restauración',
   restauracion_equipo: 'Restauración de la tienda (repartida)',
   abono_almacen:       'Lo que dejó un independiente',
   fuera_del_pool:      'Fuera del pool',
@@ -41,6 +43,14 @@ const CANAL = {
 const FMT_PESOS = '"$"#,##0;[Red]-"$"#,##0'
 const FMT_ENTERO = '#,##0'
 const FMT_PCT = '0.0"%"'
+
+// Las reglas de comisión que rigen en el mes (utils/reglasComision): los
+// textos decían "÷ 1,19 × 5%" y "por días" a mano y con una regla cambiada
+// el libro habría explicado una cuenta que no es (Fase 3). Se fijan al armar
+// el libro; sin ellas, las de siempre.
+let VIGENTES = null
+/** Las reglas de una fila: su tienda y su persona. */
+const R = (c = {}) => reglasPara(VIGENTES, { tiendaId: c.tienda_id ?? null, usuarioId: c.vendedor_id ?? null })
 
 const VERDE = 'FF166534', VERDE_CLARO = 'FFDCFCE7', GRIS = 'FFF3F4F6', GRIS_TEXTO = 'FF6B7280'
 const AMBAR = 'FFFEF3C7', ROJO_CLARO = 'FFFEE2E2'
@@ -201,47 +211,52 @@ function comoSeCalculo(c) {
   const monto = n(c.monto_comision)
   const dias  = n(c.parte_dias), todos = n(c.partes_dias)
   const parte = todos > 0 ? `${dias} de ${todos} días` : (c.divisor_asesores > 1 ? `÷ ${c.divisor_asesores}` : 'todo')
+  const r = R(c)
+  const mitad = partePagada(r.meta_req_pagado_pct)
+  const cuentaPool = cuentaVenta(r, 'pct_pool')
 
   switch (c.forma_pago) {
     case 'pool': {
       if (c.periodicidad !== 'trimestral') {
         // Mensual: el pool se mira en la tienda con lo que ya tiene la mitad pagada.
         if (!c.meta_cumplida) {
-          return `Con la mitad pagada la tienda lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}: todavía no hay pool que repartir.`
+          return `Con ${mitad} la tienda lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}: todavía no hay pool que repartir.`
         }
         if (!c.req_50_pct) {
-          return `Esta venta todavía no cuenta: el cliente no ha pagado la mitad. Cuando la pague entra al pool de toda la tienda.`
+          return `Esta venta todavía no cuenta: el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando lo pague entra al pool de toda la tienda.`
         }
-        return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con la mitad pagada − ${pesos(c.meta_tienda)} meta) ÷ 1,19 × 5%. `
+        return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
              + `Su parte (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Se le paga en sus ventas que ya cuentan: esta lleva ${pesos(monto)}.`
       }
       if (!c.meta_cumplida) {
-        return `La tienda no llegó a la meta (con la mitad pagada lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} este mes): sin excedente no hay pool que repartir.`
+        return `La tienda no llegó a la meta (con ${mitad} lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} este mes): sin excedente no hay pool que repartir.`
       }
       const propor = n(c.total_vendedor_mes) > 0 ? valor / n(c.total_vendedor_mes) : 1
-      return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con la mitad pagada − ${pesos(c.meta_tienda)} meta) ÷ 1,19 × 5%. `
+      return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
            + `Su parte (${parte}) = ${pesos(c.comision_asesor)}. `
            + `Esta orden pesa ${(propor * 100).toFixed(1)}% de lo que vendió en la tienda → ${pesos(monto)}.`
     }
     case 'parte_pool':
       return c.meta_cumplida
         ? `Su parte del pool (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
-        : `La tienda no llegó a la meta con lo que tiene la mitad pagada: no hay pool. ${pesos(0)}.`
+        : `La tienda no llegó a la meta con lo que tiene ${mitad}: no hay pool. ${pesos(0)}.`
     case 'fuera_del_pool':
       return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga comisión. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
-        return `FV2 especial, sin restar el IVA: ${pesos(valor)} × 5% = ${pesos(monto)}.`
+        return `FV2 especial, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
       }
-      return `${pesos(valor)} ÷ 1,19 (sin IVA) × 5% = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
+      return `${pesos(valor)} ${cuentaVenta(r, 'pct_individual')} = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
     case 'restauracion_5':
-      return `Restauración: ${pesos(valor)} × 5% = ${pesos(monto)}. Sin IVA de por medio, sin pool, sin meta.`
+      return `Restauración: ${pesos(valor)}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${pesos(monto)}. ${r.iva_en_restauracion ? 'Sin' : 'Sin quitarle el IVA,'} pool ni meta.`
     case 'restauracion_equipo':
-      return `Su pedazo de una restauración de la tienda: ${pesos(valor)} × 5% = ${pesos(monto)}. El 5% se partió entre los que estaban ese día.`
+      return r.reparto_restauracion === 'autor_primero'
+        ? `Su pedazo de una restauración de la tienda: ${pesos(valor)} → ${pesos(monto)}. Del ${num(r.pct_restauracion)}%, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% y el resto se partió entre los demás que estaban ese día.`
+        : `Su pedazo de una restauración de la tienda: ${pesos(valor)} → ${pesos(monto)}. El ${num(r.pct_restauracion)}% se partió entre los que estaban ese día.`
     case 'abono_almacen':
       return c.es_restauracion
-        ? `Su parte de lo que dejó un independiente (restauración): ${pesos(valor)} × 5% = ${pesos(monto)}.`
-        : `Su parte de lo que dejó un independiente: ${pesos(valor)} ÷ 1,19 × 5% = ${pesos(monto)}. No le suma a la meta.`
+        ? `Su parte de lo que dejó un independiente (restauración): ${pesos(valor)} × ${num(r.almacen_pct)}% = ${pesos(monto)}.`
+        : `Su parte de lo que dejó un independiente: ${pesos(valor)} ${cuentaVenta(r, 'almacen_pct')} = ${pesos(monto)}. No le suma a la meta.`
     default:
       return ''
   }
@@ -252,7 +267,7 @@ function porQueEsteEstado(c) {
   const e = c.estado_calculado ?? c.estado
   if (e === 'pagada') return `Pagada el ${fecha(c.fecha_pago)}${c.pagada_por?.nombre ? ' por ' + c.pagada_por.nombre : ''}.`
   const faltan = []
-  if (!c.req_50_pct)     faltan.push(`el cliente lleva pagado ${n(c.pct_pagado)}% (se necesita 50%)`)
+  if (!c.req_50_pct)     faltan.push(`el cliente lleva pagado ${n(c.pct_pagado)}% (se necesita ${num(R(c).req_pagado_pct)}%)`)
   if (!c.req_mes_vencido) faltan.push(`se paga desde el ${fecha(c.fecha_disponible)}`)
   if (['pool', 'parte_pool'].includes(c.forma_pago) && !c.meta_cumplida && c.periodicidad !== 'trimestral') {
     faltan.push('la tienda no ha llegado a la meta')
@@ -332,7 +347,7 @@ function hojaResumen(wb, ctx) {
 
   seccion(ws, 'Los tres estados')
   fichas(ws, [
-    ['Pendiente', 'Todavía no cumple algo: el cliente no ha pagado la mitad, no ha llegado la fecha de pago, o la tienda no ha llegado a la meta.'],
+    ['Pendiente', `Todavía no cumple algo: el cliente no ha pagado ${laParte(R().req_pagado_pct)}, no ha llegado la fecha de pago, o la tienda no ha llegado a la meta.`],
     ['Lista para pagar', 'Cumple todo. El monto se sigue recalculando hasta que se marque pagada.'],
     ['Pagada', 'Ya se pagó: el monto quedó congelado y no cambia aunque cambie el mes.'],
   ])
@@ -366,7 +381,7 @@ function hojaPorVendedor(wb, ctx) {
     const porPool = de('pool').length + de('parte_pool').length > 0
     const comoCobra = porPool
       ? 'Pool del equipo'
-      : (de('sin_meta_5').length ? 'Individual 5%' : (restau.length ? 'Restauraciones' : 'Otros'))
+      : (de('sin_meta_5').length ? 'Individual' : (restau.length ? 'Restauraciones' : 'Otros'))
 
     return {
       vendedor: p.vendedor_nombre, tienda: p.tienda_nombre, como: comoCobra,
@@ -413,7 +428,7 @@ function hojaPorVendedor(wb, ctx) {
     { titulo: 'Parte del equipo (sin vender)', campo: 'parte_equipo', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Por restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'De independientes', campo: 'de_indep', fmt: 'pesos', ancho: 15, total: 'suma' },
-    { titulo: 'Individual 5%', campo: 'individual', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Individual', campo: 'individual', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'COMISIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Pendientes', campo: 'pendientes', fmt: 'entero', ancho: 10, total: 'suma' },
     { titulo: 'Listas', campo: 'listas', fmt: 'entero', ancho: 8, total: 'suma' },
@@ -436,7 +451,7 @@ function hojaPorVendedor(wb, ctx) {
 function hojaPorTienda(wb, ctx) {
   const ws = wb.addWorksheet('Por tienda')
   titulo(ws, `Por tienda — ${mesEnPalabras(ctx.mes)}`,
-    'Cada tienda contra su meta. El pool es lo que pasa de la meta, sin IVA, al 5%; se parte entre el equipo por días.')
+    `Cada tienda contra su meta. El pool es lo que pasa de la meta ${cuentaVenta(R(), 'pct_pool')}; se parte entre el equipo ${R().reparto_pool === 'iguales' ? 'en partes iguales' : 'por días'}.`)
 
   const indepIds = new Set((ctx.indep?.independientes ?? []).map(i => i.vendedor_id))
   const porTienda = new Map()
@@ -464,7 +479,9 @@ function hojaPorTienda(wb, ctx) {
 
       return {
         tienda: m.nombre,
-        comparte: m.comisiones_compartidas ? 'Sí — pool del equipo' : 'No — cada uno el 5% de lo suyo',
+        comparte: m.comisiones_compartidas
+          ? `Sí — pool del equipo (${num(R(m).pct_pool)}%, ${R(m).reparto_pool === 'iguales' ? 'partes iguales' : 'por días'})`
+          : `No — cada uno el ${num(R(m).pct_individual)}% de lo suyo`,
         periodicidad: trimestral ? `Trimestral (${p.trimestre})` : 'Mensual',
         meta: meta || null,
         ventas,
@@ -531,7 +548,7 @@ function hojaDetalle(wb, ctx) {
     { titulo: 'Cómo se paga', campo: c => FORMA[c.forma_pago] ?? 'Pool del equipo', ancho: 22 },
     { titulo: 'Valor (base comisionable)', campo: c => n(c.valor_orden), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Pagado por el cliente %', campo: c => c.forma_pago === 'parte_pool' ? null : n(c.pct_pagado), fmt: 'pct', ancho: 11 },
-    { titulo: 'Cumple 50% pagado', campo: c => c.forma_pago === 'parte_pool' ? '' : siNo(c.req_50_pct), ancho: 10, color: c => c.forma_pago !== 'parte_pool' && !c.req_50_pct ? AMBAR : null },
+    { titulo: `Cumple ${num(R().req_pagado_pct)}% pagado`, campo: c => c.forma_pago === 'parte_pool' ? '' : siNo(c.req_50_pct), ancho: 10, color: c => c.forma_pago !== 'parte_pool' && !c.req_50_pct ? AMBAR : null },
     { titulo: 'Pagado con tarjeta o Addi', campo: c => n(c.pagado_tarjeta), fmt: 'pesos', ancho: 14 },
     { titulo: 'Costo datáfono', campo: c => n(c.costo_datafono), fmt: 'pesos', ancho: 13 },
     { titulo: 'COMISIÓN', campo: c => n(c.monto_comision), fmt: 'pesos', ancho: 15, total: 'suma', color: () => VERDE_CLARO },
@@ -558,7 +575,10 @@ function hojaIndependientes(wb, ctx) {
   const ws = wb.addWorksheet('Independientes')
   ws.getColumn(1).width = 26
   titulo(ws, `Independientes — ${mesEnPalabras(ctx.mes)}`,
-    `Cobran el ${Math.round(n(d.porcentaje) * 100)}% fijo de lo suyo (sin IVA). Las restauraciones se suman todas en un bolsón y cada uno cobra el ${Math.round(n(d.porcentaje) * 100)}% de ese total.`)
+    `Cobran el ${num(R().indep_pct_venta)}% fijo de lo suyo${R().iva_en_venta ? ' (sin IVA)' : ''}. Las restauraciones se suman todas en un bolsón y `
+    + (R().bolson_modo === 'se_reparte'
+      ? `el ${num(R().indep_pct_bolson)}% de ese total se reparte entre ellos.`
+      : `cada uno cobra el ${num(R().indep_pct_bolson)}% de ese total.`))
 
   fichas(ws, [
     ['Vendieron entre todos', n(d.base), 'pesos'],
@@ -597,7 +617,7 @@ function hojaIndependientes(wb, ctx) {
       { titulo: 'Tipo', campo: o => o.es_restauracion ? 'Restauración' : 'Venta', ancho: 12 },
       { titulo: 'Valor', campo: o => n(o.valor), fmt: 'pesos', ancho: 15, total: 'suma' },
       { titulo: 'Pagado por el cliente', campo: o => n(o.pagado), fmt: 'pesos', ancho: 15 },
-      { titulo: 'Cumple 50%', campo: o => siNo(o.pago_completo), ancho: 9, color: o => o.pago_completo ? null : AMBAR },
+      { titulo: `Cumple ${num(R().req_pagado_pct)}%`, campo: o => siNo(o.pago_completo), ancho: 9, color: o => o.pago_completo ? null : AMBAR },
       { titulo: 'Compartida con', campo: o => o.almacen ?? '', ancho: 20 },
       { titulo: 'Le suma a la meta del almacén', campo: o => n(o.suma_a_meta), fmt: 'pesos', ancho: 15 },
       { titulo: 'Paga', campo: o => n(o.paga), fmt: 'pesos', ancho: 14, total: 'suma' },
@@ -606,7 +626,7 @@ function hojaIndependientes(wb, ctx) {
   }
 
   if (d.almacenes?.length && !ctx.vendedorId) {
-    seccion(ws, 'Almacenes que ayudaron', 'Un independiente cerró la venta con un contacto del almacén: la mitad le cuenta a la meta del almacén y su gente se reparte el 5% de esa mitad.')
+    seccion(ws, 'Almacenes que ayudaron', `Un independiente cerró la venta con un contacto del almacén: ${laParte(R().almacen_fraccion_meta)} le cuenta a la meta del almacén y su gente se reparte el ${num(R().almacen_pct)}%.`)
     tabla(ws, [
       { titulo: 'Almacén', campo: 'nombre', ancho: 26 },
       { titulo: 'Órdenes compartidas', campo: 'ordenes', fmt: 'entero', ancho: 12, total: 'suma' },
@@ -772,11 +792,11 @@ function hojaReemplazos(wb, ctx) {
     if (trimestral) {
       explicar(ws, ['• El pool se calcula por trimestre (ver la hoja de la tienda en Comisiones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
     } else if (!filaPool || pool <= 0) {
-      explicar(ws, ['• Este mes la tienda no pasó la meta con lo que tiene la mitad pagada: el pool es $0 y no hay nada que repartir.'])
+      explicar(ws, [`• Este mes la tienda no pasó la meta con lo que tiene ${partePagada(R({ tienda_id: tiendaId }).meta_req_pagado_pct)}: el pool es $0 y no hay nada que repartir.`])
     } else {
       const porDia = pool / diasMes
       explicar(ws, [
-        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ÷ 1,19 × 5% = ${pesos(pool)}.`,
+        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ${cuentaVenta(R({ tienda_id: tiendaId }), 'pct_pool')} = ${pesos(pool)}.`,
         `• Un día del pool vale ${pesos(pool)} ÷ ${diasMes} días = ${pesos(porDia)}. Ese valor se parte entre los que estaban ese día.`,
       ])
     }
@@ -842,11 +862,17 @@ function hojaComoSeCalcula(wb) {
   ws.getColumn(1).width = 120
   titulo(ws, 'Cómo se calcula una comisión', 'Las reglas en palabras, para leer los números de las otras hojas.')
 
+  // Las reglas generales del mes. Las de una tienda o una persona pueden ser
+  // otras: se avisa abajo y la cuenta de cada fila ya va con las suyas.
+  const r = R()
+  const ivaVenta = r.iva_en_venta ? ` (÷${divisor(r.iva_divisor)})` : ''
+  const porDias = r.reparto_pool !== 'iguales'
+
   parrafos(ws, [
     '1. Cuándo nace',
     '• Cada vez que se confirma una orden de venta (no borradores ni cotizaciones) se crea una comisión con el vendedor, la tienda, el mes y el valor.',
-    '• Si la venta es compartida (dos vendedores, o un independiente con un almacén) el valor se parte a la mitad para cada uno.',
-    '• Lo pagado con datáfono no comisiona completo: la franquicia se queda con el 5,5% de eso, y ese pedazo se descuenta de la base.',
+    `• Si la venta es compartida entre dos vendedores, quien la registró comisiona sobre el ${num(r.compartida_parte_vendedor)}% y el compañero sobre el resto. Con un independiente y un almacén, cada uno por su lado.`,
+    `• Lo pagado con ${mediosConFranquicia(r)} no comisiona completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso, y ese pedazo se descuenta de la base.`,
     '',
     '2. A qué tienda le cuenta',
     '• Una venta FÍSICA es de la tienda donde se hizo la orden.',
@@ -854,31 +880,43 @@ function hojaComoSeCalcula(wb) {
     '• Un independiente no tiene tienda: todo lo suyo queda en la tienda de la orden.',
     '',
     '3. Tienda que reparte (pool del equipo)',
-    '• Pool = (Vendido en la tienda − Meta) ÷ 1,19 × 5%. Si no llega a la meta, el pool es $0.',
-    '• El pool se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
-    '• Con un reemplazo es una regla de 3: pool × días de la persona ÷ días de todos. Cada día el pool se parte en partes iguales entre los que estaban. La hoja "Reemplazos" tiene la cuenta completa, día por día.',
+    `• Pool = (Vendido en la tienda con ${partePagada(r.meta_req_pagado_pct)} − Meta) ${cuentaVenta(r, 'pct_pool')}. Si no llega a la meta, el pool es $0.`,
+    ...(porDias
+      ? [
+          '• El pool se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
+          '• Con un reemplazo es una regla de 3: pool × días de la persona ÷ días de todos. Cada día el pool se parte en partes iguales entre los que estaban. La hoja "Reemplazos" tiene la cuenta completa, día por día.',
+        ]
+      : ['• El pool se parte en PARTES IGUALES entre los del equipo del mes, sin mirar cuántos días estuvo cada uno.']),
     '• Lo de cada persona se reparte entre sus órdenes a prorrata del valor: la orden más grande se lleva más.',
     '• Quien es del equipo y no vendió cobra su parte igual (fila "Parte del equipo").',
-    '• Quien vende en la tienda sin ser del equipo ni reemplazo cobra el 5% de lo suyo (÷1,19), por fuera del pool. Sus ventas sí empujan la meta.',
+    `• Quien vende en la tienda sin ser del equipo ni reemplazo cobra el ${num(r.pct_individual)}% de lo suyo${ivaVenta}, por fuera del pool. Sus ventas sí empujan la meta.`,
     '',
     '4. Tienda que no reparte, o sin meta (Tienda Virtual, Vía Jardines, independientes)',
-    '• Cada uno cobra el 5% de lo suyo: Valor ÷ 1,19 × 5%. Nada se divide.',
-    '• Los independientes además juntan todas sus restauraciones en un bolsón y cada uno cobra el 5% de ese total.',
+    `• Cada uno cobra el ${num(r.pct_individual)}% de lo suyo: Valor ${cuentaVenta(r, 'pct_individual')}. Nada se divide.`,
+    r.bolson_modo === 'se_reparte'
+      ? `• Los independientes además juntan todas sus restauraciones en un bolsón y el ${num(r.indep_pct_bolson)}% de ese total se reparte entre ellos.`
+      : `• Los independientes además juntan todas sus restauraciones en un bolsón y cada uno cobra el ${num(r.indep_pct_bolson)}% de ese total.`,
     '',
     '5. Restauraciones',
-    '• Valor × 5%, sin quitar IVA, sin pool, sin meta. No le suman a la meta de la tienda.',
-    '• En una tienda que reparte, ese 5% se parte entre los que estaban en la tienda ese día.',
+    `• Valor${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}%, ${r.iva_en_restauracion ? 'sin' : 'sin quitar IVA, sin'} pool, sin meta. No le suman a la meta de la tienda.`,
+    r.reparto_restauracion === 'autor_primero'
+      ? `• En una tienda que reparte, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% de esa comisión y el resto se parte entre los demás que estaban ese día.`
+      : `• En una tienda que reparte, ese ${num(r.pct_restauracion)}% se parte entre los que estaban en la tienda ese día.`,
     '',
     '6. Cuándo se puede pagar (estado "Lista")',
-    '• El cliente ya pagó al menos el 50% de la orden.',
-    '• Ya llegó la fecha: el 20 del mes siguiente a la venta. En Unicentro Pereira y Circunvalar, el 20 del mes siguiente al cierre del trimestre.',
-    '• Si va por pool, la tienda cumplió la meta (en trimestrales se netean los tres meses y un déficit se arrastra al trimestre siguiente).',
+    `• El cliente ya pagó al menos el ${num(r.req_pagado_pct)}% de la orden.`,
+    `• Ya llegó la fecha: ${cuandoSePaga(r)} a la venta. En las tiendas trimestrales, contando desde el cierre del trimestre.`,
+    `• Si va por pool, la tienda cumplió la meta (en trimestrales se netean los tres meses${r.arrastra_deuda_trimestre ? ' y un déficit se arrastra al trimestre siguiente' : '; cada trimestre arranca de cero'}).`,
     '• Hasta que se marque pagada el monto se recalcula: si cambian las ventas del mes, cambia. Al pagarla queda congelada.',
     '',
     '7. Columnas que confunden',
-    '• "Valor (base comisionable)": el valor de la orden menos el costo del datáfono, y a la mitad si es compartida. No es lo que pagó el cliente.',
+    '• "Valor (base comisionable)": el valor de la orden menos el costo del datáfono, y solo la parte de cada uno si es compartida. No es lo que pagó el cliente.',
     '• "Vendido para la meta": suma de las ventas de la tienda que cuentan contra la meta (sin restauraciones, sin canceladas, sin independientes, más lo que un independiente le abonó).',
     '• "Su parte del pool": días suyos sobre días de todo el equipo. En trimestrales, los días del trimestre entero.',
+    ...(VIGENTES?.excepciones?.length
+      ? ['', '8. Excepciones de este mes',
+         '• Algunas tiendas o personas tienen reglas distintas a las de arriba (Comisiones → Reglas). La cuenta de cada fila del Detalle ya va con las suyas.']
+      : []),
   ])
   return ws
 }
@@ -896,6 +934,7 @@ function hojaComoSeCalcula(wb) {
  * @param {Array}    datos.reemplazos     respuesta de /comisiones/reemplazos .reemplazos
  * @param {Object}   datos.reparto        { tienda_id: reparto } de /comisiones/reemplazos
  * @param {Object}   datos.filtros        { vista, estado, vendedorId, vendedorNombre, agrupacion }
+ * @param {Object}  [datos.reglas]        las reglas del mes (cargarReglasVigentes); sin ellas, las de siempre
  * @param {string}  [datos.generadoPor]
  */
 export async function exportarComisionesExcel(datos) {
@@ -924,6 +963,7 @@ export async function armarLibro(datos) {
   wb.created = new Date()
 
   const f = datos.filtros
+  VIGENTES = datos.reglas ?? null
   // Los independientes no van por las filas de comisiones: cobran un
   // porcentaje fijo y reparten las restauraciones entre ellos, así que sus
   // filas dicen otra cosa. Van en su hoja, con sus números.

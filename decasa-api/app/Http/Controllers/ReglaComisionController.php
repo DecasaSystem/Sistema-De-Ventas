@@ -103,6 +103,48 @@ class ReglaComisionController extends Controller
         ]);
     }
 
+    /**
+     * GET /api/comisiones/reglas/vigentes?mes=YYYY-MM
+     *
+     * Lo que rige en un mes, corto, para los textos (Fase 3): la Ayuda, el
+     * desglose, los totales de la tienda y el Excel decían "5 %" y "por días"
+     * escritos a mano; con una regla cambiada habrían dicho 5 % mientras se
+     * pagaba 6 %. La pantalla resuelve cada caso igual que el cálculo:
+     * persona > tienda > general.
+     */
+    public function vigentes(Request $request)
+    {
+        $mes = (string) $request->query('mes', '');
+        if (! preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $mes)) {
+            $mes = ComisionController::hoy()->format('Y-m');
+        }
+
+        // La Ayuda la abre cualquiera (dueño, 2026-10-15): la regla general no
+        // es de nadie. Quién tiene una excepción (a qué persona se le paga
+        // distinto) sí: eso solo lo ve quien tiene Comisiones.
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['mes' => $mes, 'general' => ReglasComision::foto($mes), 'excepciones' => []]);
+        }
+
+        $excepciones = ReglasComision::excepcionesDelMes($mes);
+        $ids      = collect($excepciones)->groupBy('alcance');
+        $tiendas  = Tienda::whereIn('id', $ids->get('tienda', collect())->pluck('alcance_id'))->pluck('nombre', 'id');
+        $personas = Usuario::whereIn('id', $ids->get('usuario', collect())->pluck('alcance_id'))->pluck('nombre', 'id');
+
+        return response()->json([
+            'mes'         => $mes,
+            'general'     => ReglasComision::foto($mes),
+            // Con nombres, para decirlas en palabras ("Norte: pool en partes iguales").
+            'excepciones' => array_map(fn ($e) => $e + [
+                'alcance_nombre' => $e['alcance'] === 'tienda'
+                    ? ($tiendas[$e['alcance_id']] ?? "Tienda #{$e['alcance_id']}")
+                    : ($personas[$e['alcance_id']] ?? "#{$e['alcance_id']}"),
+                'regla'       => ReglasComision::CATALOGO[$e['clave']]['nombre'],
+                'valor_texto' => ReglasComision::valorTexto($e['clave'], $e['valor']),
+            ], $excepciones),
+        ]);
+    }
+
     // POST /api/comisiones/reglas
     public function guardar(Request $request)
     {

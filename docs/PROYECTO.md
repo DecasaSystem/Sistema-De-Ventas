@@ -526,6 +526,12 @@ entregada"). Solo supervisor.
   una tienda (suman a meta y pool, ya no se pagan aparte), no arrastrar la deuda trimestral, y
   la parte de la compartida por tienda o persona. Ver `docs/plan-comisiones-personalizables.md`.
   Detalle y decisiones del dueño en `docs/plan-comisiones-personalizables.md`.
+- **Textos que leen las reglas** (2026-10-27, Fase 3, sin migración): la Ayuda, el desglose,
+  los totales de la tienda, el detalle de cada comisión, el Excel y el asistente dicen el
+  porcentaje, el divisor del IVA, el día de pago y el reparto que rigen, no "5 %" fijo. Salen de
+  `GET /comisiones/reglas/vigentes` (general + excepciones del mes; sin Comisiones, solo la
+  general) y `utils/reglasComision.js` en la app. Un texto nuevo de comisiones con una cifra
+  de regla se escribe con esas funciones, no a mano.
 
 ### 6.11 Costos de fabricación y cotizador IA
 `FichaTecnicaController`, `MaterialController`, `ConfiguracionCostosController`,

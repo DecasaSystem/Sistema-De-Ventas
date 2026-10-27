@@ -470,4 +470,59 @@ class ReglasDeComisionTest extends TestCase
 
         $this->assertSame('2026-11-05', DB::table('comisiones')->where('orden_id', $id)->value('fecha_disponible'));
     }
+
+    // ── Fase 3: los textos dicen lo que rige ─────────────────────────────
+
+    public function test_las_reglas_vigentes_para_los_textos(): void
+    {
+        Carbon::setTestNow('2026-10-26 10:00:00');
+        $this->regla('reparto_pool', 'iguales', '2026-10', 'tienda', self::NORTE);
+        $this->regla('pct_individual', 0.07, '2026-11', 'usuario', self::LAURA);
+
+        $r = $this->actingAs(Usuario::find(self::JEFE))->getJson('/api/comisiones/reglas/vigentes?mes=2026-10')->assertOk();
+        $this->assertEquals(0.05, $r->json('general.pct_pool'));
+        $this->assertSame('dias', $r->json('general.reparto_pool'));
+        $this->assertCount(1, $r->json('excepciones'));
+        $this->assertSame('Decasa Norte', $r->json('excepciones.0.alcance_nombre'));
+        $this->assertSame('Partes iguales', $r->json('excepciones.0.valor_texto'));
+
+        // La de Laura rige desde noviembre.
+        $this->actingAs(Usuario::find(self::JEFE))->getJson('/api/comisiones/reglas/vigentes?mes=2026-11')
+            ->assertOk()->assertJsonCount(2, 'excepciones')->assertJsonPath('excepciones.1.valor_texto', '7%');
+
+        // Sin Comisiones: la regla general sí (la Ayuda es de todos), a quién
+        // se le paga distinto no.
+        $this->actingAs(Usuario::find(self::PAOLA))->getJson('/api/comisiones/reglas/vigentes?mes=2026-10')
+            ->assertOk()->assertJsonPath('general.pct_individual', 0.05)->assertJsonCount(0, 'excepciones');
+    }
+
+    public function test_el_asistente_explica_con_las_reglas_del_mes(): void
+    {
+        Carbon::setTestNow('2026-10-26 10:00:00');
+        $controlador = app(ComisionController::class);
+
+        // Con las de siempre dice lo mismo que antes.
+        $this->assertStringContainsString('÷ 1,19 × 5%', $controlador->avanceMetaParaAgente(self::FERIA, self::MES)['nota']);
+        $this->assertStringContainsString('según los días', $controlador->avanceMetaParaAgente(self::NORTE, self::MES)['nota']);
+
+        $this->regla('pct_individual', 0.06, '2026-10', 'tienda', self::FERIA);
+        $this->assertStringContainsString('÷ 1,19 × 6%', $controlador->avanceMetaParaAgente(self::FERIA, self::MES)['nota']);
+        $this->regla('iva_en_venta', false, '2026-10', 'tienda', self::FERIA);
+        $nota = $controlador->avanceMetaParaAgente(self::FERIA, self::MES)['nota'];
+        $this->assertStringContainsString('× 6%', $nota);
+        $this->assertStringNotContainsString('÷', $nota);
+
+        $this->regla('reparto_pool', 'iguales', '2026-10', 'tienda', self::NORTE);
+        $this->assertStringContainsString('en partes iguales', $controlador->avanceMetaParaAgente(self::NORTE, self::MES)['nota']);
+
+        // Las reglas del prompt del chat, con la excepción de Norte.
+        $prompt = (fn () => $this->reglasDeComisiones())->call(app(\App\Services\AgentService::class));
+        $this->assertStringContainsString('(ventas de la tienda QUE YA TIENEN EL 50% PAGADO − meta) ÷ 1,19 × 5%', $prompt);
+        $this->assertStringContainsString('la franquicia del 5,5% no se comisiona', $prompt);
+        $this->assertStringContainsString('tienda Decasa Norte: Cómo se reparte el pool = Partes iguales', $prompt);
+
+        $this->regla('pct_pool', 0.06, '2026-10');
+        $prompt = (fn () => $this->reglasDeComisiones())->call(app(\App\Services\AgentService::class));
+        $this->assertStringContainsString('− meta) ÷ 1,19 × 6%', $prompt);
+    }
 }

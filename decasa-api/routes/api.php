@@ -903,6 +903,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Reglas del cálculo con fecha (porcentajes, día de pago, 50 %…): las
         // ve quien tiene Comisiones, las cambia quien tiene "Reglas de comisión".
         Route::get('/reglas',                    [ReglaComisionController::class, 'index']);
+        // Lo que rige en un mes, para los textos de Ayuda, desglose y Excel.
+        Route::get('/reglas/vigentes',           [ReglaComisionController::class, 'vigentes']);
         Route::post('/reglas',                   [ReglaComisionController::class, 'guardar'])->middleware('role:supervisor');
         Route::post('/reglas/simular',           [ReglaComisionController::class, 'simular'])->middleware('role:supervisor');
         Route::delete('/reglas/{id}',            [ReglaComisionController::class, 'quitar'])->middleware('role:supervisor')->whereNumber('id');

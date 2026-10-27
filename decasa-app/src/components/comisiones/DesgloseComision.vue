@@ -11,7 +11,7 @@
  *  2. Cómo se cobró lo vendido, que es otra magnitud (pesos vendidos, no
  *     comisión) y por eso va en su propia barra y no mezclada con la primera.
  *     Es lo que explica por qué la base no cuadra con lo vendido: de lo que
- *     entra por datáfono, la franquicia se queda un 5,5% sobre el que nadie
+ *     entra por datáfono, la franquicia se queda un pedazo sobre el que nadie
  *     comisiona.
  *
  * Los colores salen de una paleta categórica validada para daltonismo, en
@@ -23,6 +23,7 @@
  * tonos del modo oscuro sobre un fondo blanco los dejaría ilegibles.
  */
 import { computed } from 'vue'
+import { DEFECTO, num, mediosConFranquicia } from '@/utils/reglasComision'
 
 const props = defineProps({
   desglose: { type: Object, default: null },
@@ -30,7 +31,13 @@ const props = defineProps({
   total:    { type: Number, default: 0 },
   /** Lo que vendió, para la barra de cómo se cobró. */
   ventas:   { type: Number, default: 0 },
+  /** Las reglas de esta persona ese mes (utils/reglasComision), para los textos. */
+  reglas:   { type: Object, default: () => DEFECTO },
 })
+
+const r = computed(() => props.reglas ?? DEFECTO)
+const medios = computed(() => mediosConFranquicia(r.value))
+const Medios = computed(() => medios.value.charAt(0).toUpperCase() + medios.value.slice(1))
 
 /** Orden fijo: cada origen tiene su color, pase lo que pase. */
 const ORIGENES = [
@@ -40,7 +47,7 @@ const ORIGENES = [
   // que lo que le queda a cada uno no es el 5% del valor.
   { clave: 'restauraciones',   label: 'Restauraciones',        color: '#1baf7a' },
   { clave: 'de_independiente', label: 'De un independiente',   color: '#eda100' },
-  { clave: 'individual',       label: 'Sus ventas al 5%',      color: '#e87ba4' },
+  { clave: 'individual',       label: 'Sus ventas',            color: '#e87ba4' },
 ]
 
 const COLOR_TARJETA  = '#4a3aa7'
@@ -54,6 +61,8 @@ const partes = computed(() => {
   if (!d) return []
 
   const filas = ORIGENES
+    // "Sus ventas al 5%" con el porcentaje que rige para esta persona.
+    .map(o => o.clave === 'individual' ? { ...o, label: `${o.label} al ${num(r.value.pct_individual)}%` } : o)
     .map(o => ({ ...o, monto: Number(d[o.clave]?.comision ?? 0), ordenes: d[o.clave]?.ordenes ?? 0, base: Number(d[o.clave]?.base ?? 0) }))
     .filter(f => f.monto > 0)
 
@@ -181,7 +190,7 @@ const cobro = computed(() => {
 
       <div v-if="cobro.vaLaBarra" class="flex h-2.5 rounded overflow-hidden" style="gap: 2px">
         <div :style="{ flex: `${cobro.pctEfectivo} 0 0`, background: COLOR_EFECTIVO, minWidth: '3px' }" title="Efectivo o transferencia" />
-        <div :style="{ flex: `${cobro.pctTarjeta} 0 0`, background: COLOR_TARJETA, minWidth: '3px' }" title="Tarjeta" />
+        <div :style="{ flex: `${cobro.pctTarjeta} 0 0`, background: COLOR_TARJETA, minWidth: '3px' }" :title="Medios" />
       </div>
 
       <div class="mt-1.5 space-y-0.5 text-[11px]">
@@ -192,12 +201,12 @@ const cobro = computed(() => {
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-sm shrink-0" :style="{ background: COLOR_TARJETA }" />
-          <span class="text-gray-600 flex-1">Con tarjeta o Addi</span>
+          <span class="text-gray-600 flex-1">Con {{ medios }}</span>
           <span class="text-gray-700 tabular-nums">{{ cop(cobro.tarjeta) }}</span>
         </div>
         <div class="flex items-center gap-1.5 pt-0.5">
           <span class="w-2 h-2 shrink-0" />
-          <span class="text-gray-400 flex-1">Se lo llevó el datáfono / Addi (5,5%)</span>
+          <span class="text-gray-400 flex-1">Se lo llevó la franquicia ({{ num(r.franquicia_pct) }}%)</span>
           <span class="text-gray-400 tabular-nums">− {{ cop(cobro.costo) }}</span>
         </div>
       </div>

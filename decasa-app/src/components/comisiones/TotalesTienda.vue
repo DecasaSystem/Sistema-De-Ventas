@@ -11,11 +11,24 @@
  * la pantalla se vuelve larguísima.
  */
 import { computed, ref } from 'vue'
+import { DEFECTO, num, cuentaVenta } from '@/utils/reglasComision'
 
 const props = defineProps({
   resumen: { type: Object, default: null },
   tienda:  { type: String, default: '' },
+  /**
+   * Las reglas que rigen para esta tienda ese mes (utils/reglasComision): los
+   * textos decían "5%" y "÷ 1,19" a mano. En una trimestral el pool sale de
+   * las reglas del último mes del trimestre: si alguien cambió una a mitad de
+   * trimestre, el texto puede quedar un mes atrás; la cifra no.
+   */
+  reglas:  { type: Object, default: () => DEFECTO },
 })
+
+const r = computed(() => props.reglas ?? DEFECTO)
+const pctMeta = computed(() => num(r.value.meta_req_pagado_pct) + '%')
+const pctCobro = computed(() => num(r.value.req_pagado_pct) + '%')
+const cuentaPool = computed(() => cuentaVenta(r.value, 'pct_pool'))
 
 const cop = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO')
 
@@ -32,6 +45,8 @@ const tipos = computed(() =>
 )
 
 const p = computed(() => props.resumen?.pool ?? null)
+// Cómo se repartió de verdad: lo dice el servidor (regla reparto_pool).
+const iguales = computed(() => p.value?.reparto_modo === 'iguales')
 const esTrimestral = computed(() => p.value?.periodicidad === 'trimestral')
 const excedente = computed(() => p.value ? Math.max(0, p.value.ventas_cuentan - p.value.meta) : 0)
 const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.value.ventas_cuentan) : 0)
@@ -98,7 +113,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
           <span class="text-gray-700 tabular-nums">{{ cop(resumen.vendido) }}</span>
         </div>
         <div v-if="resumen.datafono > 0" class="flex justify-between">
-          <span class="text-gray-400">− Datáfono / Addi (5,5% de {{ cop(resumen.tarjeta) }})</span>
+          <span class="text-gray-400">− Datáfono / Addi ({{ num(r.franquicia_pct) }}% de {{ cop(resumen.tarjeta) }})</span>
           <span class="text-gray-400 tabular-nums">− {{ cop(resumen.datafono) }}</span>
         </div>
         <div class="flex justify-between border-t border-indigo-100 pt-0.5">
@@ -123,11 +138,11 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
         </p>
         <template v-if="!esTrimestral">
           <div class="flex justify-between">
-            <span class="text-gray-600">Ventas que cuentan (con el 50% pagado)</span>
+            <span class="text-gray-600">Ventas que cuentan (con el {{ pctMeta }} pagado)</span>
             <span class="text-gray-700 tabular-nums">{{ cop(p.ventas_cuentan) }}</span>
           </div>
           <div v-if="p.sin_mitad > 0" class="flex justify-between">
-            <span class="text-amber-700">Aún sin el 50% · {{ p.ordenes_sin_mitad }} {{ p.ordenes_sin_mitad === 1 ? 'orden' : 'órdenes' }} (no cuentan)</span>
+            <span class="text-amber-700">Aún sin el {{ pctMeta }} · {{ p.ordenes_sin_mitad }} {{ p.ordenes_sin_mitad === 1 ? 'orden' : 'órdenes' }} (no cuentan)</span>
             <span class="text-amber-700 tabular-nums">{{ cop(p.sin_mitad) }}</span>
           </div>
           <div class="flex justify-between">
@@ -141,7 +156,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
             </span>
           </div>
           <div class="flex justify-between">
-            <span class="text-gray-400">÷ 1,19 × 5%</span>
+            <span class="text-gray-400">{{ cuentaPool }}</span>
             <span class="text-gray-700 tabular-nums font-semibold">{{ cop(p.pool) }}</span>
           </div>
         </template>
@@ -178,7 +193,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
                 <p class="text-[10px] text-gray-400">
                   Este mes {{ m.diferencia >= 0 ? 'le sobraron' : 'le faltaron' }} {{ cop(Math.abs(m.diferencia)) }}<template v-if="m.deuda > 0">; queda debiendo {{ cop(m.deuda) }} para los meses siguientes</template>.
                 </p>
-                <p v-if="m.sin_mitad > 0" class="text-[10px] text-amber-700">+ {{ cop(m.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)</p>
+                <p v-if="m.sin_mitad > 0" class="text-[10px] text-amber-700">+ {{ cop(m.sin_mitad) }} vendido sin el {{ pctMeta }} pagado (todavía no cuenta)</p>
               </template>
             </div>
           </div>
@@ -194,7 +209,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
               </div>
               <template v-if="tri.pool_pagado > 0">
                 <div class="flex justify-between border-t border-indigo-100 pt-0.5">
-                  <span class="font-semibold text-gray-700">Pool que se reparte <span class="font-normal text-gray-400">(saldo ÷ 1,19 × 5%)</span></span>
+                  <span class="font-semibold text-gray-700">Pool que se reparte <span class="font-normal text-gray-400">(saldo {{ cuentaPool }})</span></span>
                   <span class="font-semibold text-gray-800 tabular-nums">{{ cop(tri.pool_pagado) }}</span>
                 </div>
               </template>
@@ -219,7 +234,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
           <!-- Lo que falta -->
           <p v-if="!tri.cerrado && tri.meses_restantes && tri.falta_para_cobrar > 0"
              class="text-[11px] text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5">
-            Para que el trimestre dé comisión, en lo que queda hay que vender (con el 50% pagado)
+            Para que el trimestre dé comisión, en lo que queda hay que vender (con el {{ pctMeta }} pagado)
             <strong>{{ cop(tri.falta_para_cobrar) }}</strong>: las metas que faltan,
             lo que va por debajo<template v-if="tri.deficit_inicial > 0"> y la deuda que arrastra</template>.
           </p>
@@ -235,7 +250,8 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
         <!-- El reparto real: por los días que estuvo cada quien -->
         <div v-if="p.reparto?.length" class="pt-1 space-y-0.5">
           <p class="text-[10px] font-semibold text-gray-500 uppercase">
-            Reparto por días ({{ p.dias_total }} días en total)
+            <template v-if="iguales">Reparto en partes iguales ({{ p.reparto.length }} personas)</template>
+            <template v-else>Reparto por días ({{ p.dias_total }} días en total)</template>
           </p>
           <div v-for="r in p.reparto" :key="r.vendedor_id" class="flex justify-between">
             <span class="text-gray-600">
@@ -243,10 +259,10 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
             </span>
             <span class="text-gray-700 tabular-nums">{{ cop(r.parte) }}</span>
           </div>
-          <p class="text-[10px] text-gray-400">Pool × días de cada uno ÷ días de todos.</p>
+          <p class="text-[10px] text-gray-400">{{ iguales ? 'Pool ÷ los del equipo: lo mismo para todos, sin mirar los días.' : 'Pool × días de cada uno ÷ días de todos.' }}</p>
         </div>
         <div v-else-if="p.integrantes > 0" class="flex justify-between">
-          <span class="text-gray-400">÷ {{ p.integrantes }} integrantes (por días si hubo reemplazos)</span>
+          <span class="text-gray-400">÷ {{ p.integrantes }} integrantes{{ iguales ? '' : ' (por días si hubo reemplazos)' }}</span>
           <span class="text-gray-700 tabular-nums">{{ cop(p.pool / p.integrantes) }} c/u</span>
         </div>
 
@@ -304,7 +320,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
                 <span class="truncate">{{ o.cliente ?? 'Sin cliente' }} · {{ o.vendedores.join(', ') }}</span>
                 <span
                   :class="['shrink-0 font-semibold', o.cuenta ? 'text-green-700' : 'text-amber-700']"
-                  :title="o.cuenta ? 'Ya tiene el 50% pagado' : 'Todavía no tiene el 50% pagado'"
+                  :title="o.cuenta ? `Ya tiene el ${pctCobro} pagado` : `Todavía no tiene el ${pctCobro} pagado`"
                 >{{ o.pct_pagado }}% pagado{{ o.cuenta ? '' : ' · no cuenta' }}</span>
               </div>
               <div v-if="POR_QUE[o.por_que] || o.valor_real !== o.valor_orden || reemplazoDelDia(o.fecha)" class="flex flex-wrap gap-1 mt-0.5">

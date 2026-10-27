@@ -2,7 +2,8 @@
 
 Estado: **Fase 0 hecha y subida a `main` (2026-10-27, commit 7e51c47, sin migración)**;
 **Fases 1 y 2 hechas y subidas a `main` (2026-10-27, commit 12d38e3, traen migración)**;
-**Fase 4 hecha (2026-10-27, sin subir)**; Fase 3 (textos) sin empezar.
+**Fase 4 hecha (2026-10-27, commit 55f6b86, sin subir)**; **Fase 3 (textos) hecha (2026-10-27, sin
+subir, sin migración)**.
 Decisiones del dueño en el §8. Pedido del dueño: "que sea
 personalizado… ahora es algo fijo que yo hago en el código; que sea totalmente
 personalizable por si algún día cambian el funcionamiento de todo, sin dañar nada".
@@ -249,6 +250,25 @@ comisiones" (solo viaja si se movió). Revisada en 375 px y en oscuro con datos 
 sacados del backend.
 
 **Fase 3 — Textos desde las reglas** (Ayuda, desglose, Excel, asistente).
+
+*Cómo quedó (2026-10-27, sin subir, sin migración):* `GET /comisiones/reglas/vigentes?mes=`
+da lo que rige ese mes (`general` = `ReglasComision::foto`) y las excepciones de tienda y
+persona (`ReglasComision::excepcionesDelMes`, con nombre y valor en palabras). Quien no tiene
+Comisiones recibe la general sin excepciones: la Ayuda es de todos, pero a quién se le paga
+distinto no. En la app, `utils/reglasComision.js` la carga una vez por mes, la resuelve igual
+que el cálculo (persona > tienda > general) y la escribe ("÷ 1,19 × 5%", "la mitad pagada",
+"el 20 del mes siguiente"); sin conexión usa `DEFECTO` (lo de siempre). La leen: la Ayuda (con
+los ejemplos recalculados y un aviso de las excepciones del mes), `DesgloseComision`,
+`TotalesTienda` (el reparto dice "por días" o "partes iguales" con el `reparto_modo` del
+servidor), el detalle de cada comisión en `ComisionesView` (incluido el "Sin IVA (÷1,19)" que
+calculaba la pantalla) y el Excel (cada fila con las reglas de su tienda y persona; la hoja
+"Cómo se calcula" con las generales y un aviso si hay excepciones). En el servidor:
+`resumenParaAgente` / `avanceMetaParaAgente` y las reglas del prompt del asistente
+(`AgentService::reglasDeComisiones`, que además lista las excepciones del mes). Con las reglas
+de siempre los textos dicen lo mismo que antes. Ningún cálculo cambió: solo palabras.
+Límite conocido: en una trimestral los textos usan las reglas del mes que se mira y el pool
+las del último mes del trimestre; si una regla cambia a mitad de trimestre, el texto puede
+quedar un mes atrás (la cifra no). Pruebas en `ReglasDeComisionTest` (vigentes y asistente).
 
 **Fase 4 — Los repartos como opciones** (diseño 2026-10-27; **hecha el 2026-10-27, sin
 subir, sin migración nueva**: piezas 1–7 menos la 8 y la 9, que el dueño dejó para después;

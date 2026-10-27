@@ -18,6 +18,9 @@ import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import { pesos } from '@/utils/pesos'
+// Los textos de Comisiones (Ayuda, desglose, Excel) guardan las reglas del
+// mes mientras la app está abierta: con una regla nueva hay que olvidarlas.
+import { olvidarReglasVigentes } from '@/utils/reglasComision'
 
 const router = useRouter()
 const toast  = useToast()
@@ -183,6 +186,7 @@ async function guardar(confirmado = false) {
   guardando.value = true
   try {
     await api.post('/comisiones/reglas', datosRegla)
+    olvidarReglasVigentes()
     toast.success('Regla guardada. Las comisiones se recalculan en unos minutos.')
     cerrar()
     await cargar()
@@ -216,6 +220,7 @@ async function quitar(fila) {
       return
     }
   }
+  olvidarReglasVigentes()
   toast.success('Regla quitada. Las comisiones se recalculan en unos minutos.')
   await cargar()
 }

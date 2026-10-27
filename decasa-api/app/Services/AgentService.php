@@ -10,6 +10,7 @@ use App\Services\Costos\CostoCalculator;
 use App\Services\Costos\FewShotProvider;
 use App\Services\Costos\FichaRetriever;
 use App\Services\Costos\SanityChecker;
+use App\Support\ReglasComision;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -2640,11 +2641,28 @@ class AgentService
                 'tipo'           => 'independiente',
                 'mes'            => $mes,
                 'vendedor'       => $vendedor->nombre,
-                'como_se_calcula' => 'Sus ventas son de cada uno: 5% de lo suyo, dividido por 1,19 primero. '
-                                   . 'Las restauraciones sí se reparten: se suman TODAS —las de los independientes '
-                                   . 'y las que suben los almacenes, que cuentan como si un independiente las '
-                                   . 'hubiera compartido con esa tienda— en un solo bolsón (sin dividir por 1,19) '
-                                   . 'y cada uno cobra el 5% de ese bolsón completo, sin importar quién hizo cuál.',
+                // Con las reglas de ese mes y de esa persona (Fase 3): decía 5% fijo.
+                'como_se_calcula' => (function () use ($mes, $vendedorId) {
+                    $pct = fn (string $c) => \App\Http\Controllers\ComisionController::pctTexto(
+                        ReglasComision::numero($c, $mes, null, $vendedorId));
+                    $divisor = ReglasComision::valorTexto('iva_divisor', ReglasComision::valor('iva_divisor', $mes));
+                    $venta = ReglasComision::si('iva_en_venta', $mes)
+                        ? "{$pct('indep_pct_venta')} de lo suyo, dividido por {$divisor} primero"
+                        : "{$pct('indep_pct_venta')} de lo suyo, sin quitarle el IVA";
+                    if (! ReglasComision::si('entra_al_bolson', $mes, null, $vendedorId)) {
+                        return "Sus ventas son de cada uno: {$venta}. No entra al bolsón de restauraciones.";
+                    }
+                    $cobro = ReglasComision::valor('bolson_modo', $mes) === 'se_reparte'
+                        ? "el {$pct('indep_pct_bolson')} de ese bolsón se reparte en partes iguales entre los independientes que entran"
+                        : "cada uno cobra el {$pct('indep_pct_bolson')} de ese bolsón completo, sin importar quién hizo cuál";
+                    $almacenes = ReglasComision::si('bolson_incluye_almacenes', $mes)
+                        ? '—las de los independientes y las que suben los almacenes, que cuentan como si un '
+                          . 'independiente las hubiera compartido con esa tienda— '
+                        : '—solo las de los independientes— ';
+
+                    return "Sus ventas son de cada uno: {$venta}. Las restauraciones sí se reparten: se suman TODAS "
+                        . $almacenes . "en un solo bolsón (sin dividir por {$divisor}) y {$cobro}.";
+                })(),
                 'vendido_entre_todos' => $indep['base'],
                 'de_eso_ventas'       => $indep['base_venta'],
                 'de_eso_restauracion' => $indep['base_restauracion'],
@@ -3226,23 +3244,97 @@ EOT;
         return implode("\n\n", $partes);
     }
 
-    /** Las reglas de comisiones: solo van en el prompt de quien tiene el módulo. */
+    /**
+     * Las reglas de comisiones: solo van en el prompt de quien tiene el módulo.
+     *
+     * Las cifras salen de las reglas del mes en curso (Fase 3 de
+     * docs/plan-comisiones-personalizables.md): si alguien cambia el
+     * porcentaje en Comisiones → Reglas, el asistente no puede seguir
+     * explicando con 5%. Con las reglas de siempre dice lo mismo que antes.
+     */
     private function reglasDeComisiones(): string
     {
-        return <<<'EOT'
+        $mes = \App\Http\Controllers\ComisionController::hoy()->format('Y-m');
+        $r   = fn (string $clave) => ReglasComision::valor($clave, $mes);
+        $pct = fn (string $clave) => \App\Http\Controllers\ComisionController::pctTexto((float) $r($clave));
+        $iva = $r('iva_en_venta')
+            ? '÷ ' . ReglasComision::valorTexto('iva_divisor', $r('iva_divisor')) . ' × '
+            : '× ';
+        $dia   = (int) $r('dia_pago');
+        $cuando = match ((int) $r('meses_espera')) {
+            0 => "el día {$dia} del mismo mes",
+            1 => "el día {$dia} del mes siguiente",
+            default => "el día {$dia}, " . (int) $r('meses_espera') . ' meses después',
+        };
+        $pagado    = $pct('req_pagado_pct');
+        $pagadoMeta = $pct('meta_req_pagado_pct');
+        $restIva   = $r('iva_en_restauracion') ? 'se le quita el IVA' : 'no se le quita el IVA';
+        $restEspera = $r('req_pagado_restauracion') ? "también espera el {$pagado} pagado y la fecha" : 'espera solo la fecha';
+        $repartoPool = $r('reparto_pool') === 'iguales'
+            ? 'en partes iguales entre los del equipo, sin mirar los días'
+            : 'partido por los días que trabajó cada uno (los reemplazos se registran con quien de verdad cubrió)';
+        $metodos   = implode(' y ', array_map('ucfirst', (array) $r('franquicia_metodos')));
+        $bolson    = $r('bolson_modo') === 'se_reparte'
+            ? 'el ' . $pct('indep_pct_bolson') . ' del bolsón se reparte en partes iguales entre ellos'
+            : 'cada uno cobra el ' . $pct('indep_pct_bolson') . ' del bolsón completo';
+        $compartida = $pct('compartida_parte_vendedor');
+        $pctRest    = $pct('pct_restauracion');
+        $pctIndiv   = $pct('pct_individual');
+        $pctPool    = $pct('pct_pool');
+        $franquicia = $pct('franquicia_pct');
+        $indepVenta = $pct('indep_pct_venta');
+        $almacen    = $pct('almacen_pct');
+        $almacenMeta = $pct('almacen_fraccion_meta');
+        $ivaVenta = $r('iva_en_venta')
+            ? '÷' . ReglasComision::valorTexto('iva_divisor', $r('iva_divisor'))
+            : 'sin quitarle el IVA';
+        $deuda = $r('arrastra_deuda_trimestre')
+            ? 'si cierra en rojo, la deuda se descuenta del siguiente'
+            : 'cada trimestre arranca de cero (la deuda no pasa al siguiente)';
+
+        $texto = <<<EOT
 COMISIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una comisión a mano ni inventes montos. Estas reglas son para explicar el POR QUÉ:
-- Para cobrar hacen falta las tres: (1) el cliente pagó al menos el 50% de la orden, (2) llegó el día 20 del mes siguiente (o el pago del trimestre en las trimestrales), (3) la tienda llegó a la meta (si tiene meta).
-- Restauración → 5% del valor completo (no se le quita el IVA), para quien la hizo. No pasa por el pool, no suma a la meta, pero también espera el 50% pagado y el 20.
-- Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor ÷ 1,19 × 5%, individual.
-- Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira…) → pool de la tienda = (ventas de la tienda QUE YA TIENEN EL 50% PAGADO − meta) ÷ 1,19 × 5%. Si con eso no llega a la meta, el pool es $0. Una venta sin el 50% pagado no suma a la meta hasta que pague la mitad. Todos los del equipo cobran igual, partido por los días que trabajó cada uno (los reemplazos se registran con quien de verdad cubrió).
-- Tarjeta (crédito o débito) y Addi: la franquicia del 5,5% no se comisiona.
+- Para cobrar hacen falta las tres: (1) el cliente pagó al menos el {$pagado} de la orden, (2) llegó {$cuando} (o el pago del trimestre en las trimestrales), (3) la tienda llegó a la meta (si tiene meta).
+- Restauración → {$pctRest} del valor completo ({$restIva}), para quien la hizo. No pasa por el pool, no suma a la meta, pero {$restEspera}.
+- Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor {$iva}{$pctIndiv}, individual.
+- Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira…) → pool de la tienda = (ventas de la tienda QUE YA TIENEN EL {$pagadoMeta} PAGADO − meta) {$iva}{$pctPool}. Si con eso no llega a la meta, el pool es $0. Una venta sin ese pago no suma a la meta hasta que lo complete. Todos los del equipo cobran igual, {$repartoPool}.
+- Venta compartida entre dos vendedores: quien la registró comisiona sobre el {$compartida} y el compañero sobre el resto.
+- {$metodos}: la franquicia del {$franquicia} no se comisiona.
 - Un supervisor puede marcar una orden "fuera del pool" (no suma a meta ni pool y no paga comisión), con motivo.
 - A qué tienda le cuenta una venta: lo FÍSICO es de la tienda donde se hizo la orden; lo DIGITAL (WhatsApp, Instagram, página) es de la tienda del vendedor cuando vendió.
-- Trimestrales (Pereira): se suman los tres meses antes de comparar con la meta; los abonos que completan la mitad cuentan hasta el día en que se paga el trimestre; si cierra en rojo, la deuda se descuenta del siguiente.
+- Trimestrales (Pereira): se suman los tres meses antes de comparar con la meta; los abonos que completan la mitad cuentan hasta el día en que se paga el trimestre; {$deuda}.
 - Anticipos de comisión: se restan al pagar; lo que no alcance se descuenta del siguiente pago. Un "abono" es una parte de una comisión ya lista que se dio antes de pagarla toda. Si se juntan meses atrasados se pagan del más viejo al más nuevo.
 - Si una orden se cancela, su comisión desaparece y deja de contar a la meta.
-INDEPENDIENTES (Flabio, Henry): sin tienda ni meta. Venta: 5% de lo suyo (÷1,19). Restauraciones: se juntan TODAS las del mes en un bolsón y cada uno cobra el 5% del bolsón completo. Si comparten con un almacén, el independiente cobra lo suyo igual y el almacén cobra su propio 5%, partido entre su equipo; a la meta del almacén le suma la mitad de la venta (si es venta, no restauración).
+INDEPENDIENTES (Flabio, Henry): sin tienda ni meta. Venta: {$indepVenta} de lo suyo ({$ivaVenta}). Restauraciones: se juntan TODAS las del mes en un bolsón y {$bolson}. Si comparten con un almacén, el independiente cobra lo suyo igual y el almacén cobra su propio {$almacen}, partido entre su equipo; a la meta del almacén le suma el {$almacenMeta} de la venta (si es venta, no restauración).
 EOT;
+
+        return $texto . $this->excepcionesDeComisiones($mes);
+    }
+
+    /**
+     * Las reglas que son distintas para una tienda o una persona este mes:
+     * sin esto, el asistente explicaría la cuenta de Norte con la regla general
+     * aunque Norte reparta en partes iguales. Vacío si no hay ninguna.
+     */
+    private function excepcionesDeComisiones(string $mes): string
+    {
+        $excepciones = ReglasComision::excepcionesDelMes($mes);
+        if (! $excepciones) return '';
+
+        $ids = collect($excepciones)->groupBy('alcance');
+        $tiendas  = \App\Models\Tienda::whereIn('id', $ids->get('tienda', collect())->pluck('alcance_id'))->pluck('nombre', 'id');
+        $personas = Usuario::whereIn('id', $ids->get('usuario', collect())->pluck('alcance_id'))->pluck('nombre', 'id');
+
+        $lineas = array_map(function ($e) use ($tiendas, $personas) {
+            $quien = $e['alcance'] === 'tienda'
+                ? 'tienda ' . ($tiendas[$e['alcance_id']] ?? "#{$e['alcance_id']}")
+                : ($personas[$e['alcance_id']] ?? "persona #{$e['alcance_id']}");
+
+            return "- {$quien}: " . ReglasComision::CATALOGO[$e['clave']]['nombre'] . ' = '
+                . ReglasComision::valorTexto($e['clave'], $e['valor']);
+        }, $excepciones);
+
+        return "\nEXCEPCIONES este mes (mandan sobre lo de arriba para esa tienda o persona):\n" . implode("\n", $lineas);
     }
 
     public function chat(array $messages, Usuario $usuario): string
