@@ -441,6 +441,19 @@ escribiendo precios (Fase 1b).
   cambió ninguna regla de plata. Trampa: en un pool, el monto por orden es solo cómo se
   reparte la parte de la persona sobre sus ventas que ya cuentan (a prorrata); la cuenta real
   es la de la tienda (pool × días ÷ días del equipo − lo ya pagado). El libro lo dice así.
+- **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
+  rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
+  (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF
+  como raw). Pedido del usuario: comprobantes de pago y anexo en
+  papel también en PDF. `POST /upload/foto` acepta PDF solo en `UploadController::CARPETAS_CON_PDF`
+  (facturas, comprobantes, anexos, borradores) y lo sube a Cloudinary como **raw** con `.pdf` en
+  el nombre (subido como imagen, Cloudinary no deja verlo en cuentas sin esa opción: 401). La
+  app reconoce el PDF por el enlace (`esUrlDePdf` en `utils/cloudinary.js`; `cloudinaryOpt` no
+  le mete transformaciones) y lo muestra con `components/common/TarjetaPdf.vue` (abre en otra
+  pestaña, no en el visor). `urlToBase64` devuelve null con un PDF (DomPDF no lo pinta). Para
+  aceptar PDF en otra pantalla: agregar su carpeta a la lista y usar `esPdf`/`nombreParaSubir`
+  (`utils/comprimirImagen.js`). No se probó una subida real a Cloudinary antes de subir (no hay
+  credenciales aquí): si un PDF no abre, revisar primero la respuesta de `raw/upload`.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no

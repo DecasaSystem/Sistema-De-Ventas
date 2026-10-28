@@ -21,6 +21,8 @@
  */
 export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, skipBytes = 1_048_576 } = {}) {
   if (!archivo || archivo.size <= skipBytes) return archivo
+  // Un PDF (comprobante del banco, anexo escaneado) no es una imagen: va tal cual.
+  if (esPdf(archivo)) return archivo
 
   try {
     const fuente = await decodificar(archivo, maxDim)
@@ -122,6 +124,23 @@ export async function fotoSigueAhi(archivo) {
 }
 
 /**
+ * ¿Es un PDF? El comprobante de pago y el anexo de Nueva orden también se
+ * pueden adjuntar en PDF (pedido del usuario, 2026-10-28): muchos bancos dan
+ * el comprobante de la transferencia así.
+ *
+ * @param {File|Blob} archivo
+ */
+export function esPdf(archivo) {
+  if (!archivo) return false
+  return archivo.type === 'application/pdf' || /\.pdf$/i.test(archivo.name || '')
+}
+
+/** Nombre con que se sube: "factura.jpg", o "factura.pdf" si es un PDF. */
+export function nombreParaSubir(archivo, base) {
+  return `${base}.${esPdf(archivo) ? 'pdf' : 'jpg'}`
+}
+
+/**
  * Error para cuando una foto ya no está en el teléfono: la pantalla muestra
  * el mensaje tal cual (no es un problema de conexión).
  */
@@ -143,8 +162,10 @@ export async function comprimirAlTomar(archivo) {
   // sirve nunca. Se copia a memoria ahora, que el archivo todavía está.
   if (blob === archivo) {
     try {
-      return new File([await archivo.arrayBuffer()], archivo.name || 'foto.jpg', {
-        type: archivo.type || 'image/jpeg', lastModified: archivo.lastModified || Date.now(),
+      // Un PDF también se copia (mismo problema), sin cambiarle el tipo.
+      const pdf = esPdf(archivo)
+      return new File([await archivo.arrayBuffer()], archivo.name || (pdf ? 'documento.pdf' : 'foto.jpg'), {
+        type: archivo.type || (pdf ? 'application/pdf' : 'image/jpeg'), lastModified: archivo.lastModified || Date.now(),
       })
     } catch {
       return archivo

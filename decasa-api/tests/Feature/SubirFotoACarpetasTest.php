@@ -56,6 +56,33 @@ class SubirFotoACarpetasTest extends TestCase
             ->assertJsonMissingValidationErrors('foto');
     }
 
+    public function test_el_comprobante_y_el_anexo_aceptan_pdf_y_van_como_raw(): void
+    {
+        // Pedido del usuario (2026-10-28): comprobantes y anexos en PDF.
+        $pdf = UploadedFile::fake()->createWithContent('comprobante.pdf', "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
+
+        $this->subir('facturas', $pdf)->assertOk();
+
+        // Como raw y con ".pdf" en el nombre: así el enlace dice que es un PDF.
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/raw/upload')
+            && str_ends_with((string) collect($req->data())->firstWhere('name', 'public_id')['contents'], '.pdf'));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/image/upload'));
+    }
+
+    public function test_un_pdf_en_otra_carpeta_se_rechaza(): void
+    {
+        $pdf = UploadedFile::fake()->createWithContent('catalogo.pdf', "%PDF-1.4\n%%EOF");
+
+        $this->subir('productos', $pdf)->assertStatus(422)->assertJsonValidationErrors('foto');
+    }
+
+    public function test_una_foto_en_facturas_sigue_yendo_como_imagen(): void
+    {
+        $this->subir('facturas', UploadedFile::fake()->image('f.jpg'))->assertOk();
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/image/upload'));
+    }
+
     public function test_una_carpeta_que_no_existe_se_sigue_rechazando(): void
     {
         $this->subir('cualquiera', UploadedFile::fake()->image('x.jpg'))->assertStatus(422);
