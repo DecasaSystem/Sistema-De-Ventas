@@ -166,7 +166,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `src/stores/` | `auth` (sesión, perfiles alternos, todos los `puedeX`), `notificaciones`, `modulos` (nombres personalizados), `pasos`, `despacho`, `surtidos`, `consultas`, `appearance` (modo oscuro, tamaño de letra) |
 | `src/composables/` | `useRealtime` (Echo), `useToast`, `usePushNotifications`, `usePwaInstall`, `useBorradorLocal` (borradores en el aparato), `useFiltrosRecordados`, `useTelas`, `useTiposProceso`, sockets de despacho/surtidos |
 | `src/components/` | Por dominio: `ordenes/`, `despacho/`, `produccion/`, `inventario/`, `costos/`, `comisiones/`, `reportes/`, `gestion/`, `encargos/`, `anexo/`, `common/` (BadgeEstado, InputPesos, MoneyDisplay, ComboInput, IconoPicker…) + `AgentChat`, `BocetoCanvas`, `FirmaCanvas`, `DireccionColombia` |
-| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `whatsapp`, `navegacion` |
+| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `excelListas`, `whatsapp`, `navegacion` |
 | `src/constants/` | `iconos.js`, `specsConfig.js` (especificaciones por categoría de mueble) |
 | `src/data/` | `colombia.js` (departamentos/ciudades), `telasCatalogo.js` |
 | `src/assets/main.css` | Tailwind + overrides de modo oscuro |
@@ -518,6 +518,17 @@ entregada"). Solo supervisor.
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
+  "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
+  `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →
+  `resumenDelMes($mes, conDetalle: true)`), con más campos por orden (valor entero, pagado,
+  medios de pago, tarjeta, franquicia; `ordenParaElExcel`), la cuenta del pool de cada
+  tarjeta (`cuentaDeLaTarjeta`), lo que debía de anticipos al corte (`debe_al_corte`), el
+  bolsón de los independientes y `tiendas` (la cuenta de cada tienda y mes, sin su lista de
+  órdenes). Hojas: Resumen (por persona, por tienda, total general), Por persona (mes por
+  mes, de dónde sale cada peso), Por tienda (meta, pool, reparto, trimestre, bolsón), Todas
+  las órdenes (con filtro) y Cómo se calcula. El libro no calcula plata: los totales son los
+  de la respuesta; la diferencia de redondeo del bolsón va en su propio renglón.
 - **Abonos** (2026-10-19): dar una parte de una comisión ya lista y el resto después.
   Listas → "Registrar abono" (`POST /comisiones/abonos`, supervisor). Es un renglón
   `anticipo` de `comision_anticipos` con el mes de esa comisión y clave `abono:…`

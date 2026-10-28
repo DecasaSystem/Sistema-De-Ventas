@@ -452,8 +452,13 @@ class ComisionController extends Controller
      * Las tarjetas del mes: una por persona y tienda, con lo que lleva, lo que
      * está listo y lo que debe de anticipos. Es lo que muestra la pantalla y
      * lo que usa el aviso del día de pago, para que digan lo mismo.
+     *
+     * Con $conDetalle cada orden trae además lo que el Excel de Listas
+     * necesita para explicarla (lo pagado, la tarjeta, la franquicia) y cada
+     * tarjeta la cuenta de su pool. No cambia ninguna cifra: son los mismos
+     * renglones enriquecidos, solo que se mandan más campos.
      */
-    public function resumenDelMes(string $mes): \Illuminate\Support\Collection
+    public function resumenDelMes(string $mes, bool $conDetalle = false): \Illuminate\Support\Collection
     {
         // Los totales van primero a propósito: dejan listos los cachés del
         // cálculo (restauraciones, reemplazos, equipos) y todo lo que sigue los
@@ -487,9 +492,9 @@ class ComisionController extends Controller
         // juntas salía una sola tarjeta con la tienda de la primera orden, el
         // pool de una mezclado con el de la otra y una "parte del asesor" que
         // no era la de ninguna. Cada tienda es un reparto distinto.
-        $grouped = $enriquecidas->groupBy(fn ($i) => $i['vendedor_id'] . '_' . $i['tienda_id'])->map(function ($items) {
+        $grouped = $enriquecidas->groupBy(fn ($i) => $i['vendedor_id'] . '_' . $i['tienda_id'])->map(function ($items) use ($conDetalle) {
             $first = $items->first();
-            return [
+            return ($conDetalle ? ['cuenta' => self::cuentaDeLaTarjeta($items)] : []) + [
                 'vendedor_id'     => (int) $first['vendedor_id'],
                 'vendedor_nombre' => $first['vendedor_nombre'],
                 'tienda_id'       => (int) $first['tienda_id'],
@@ -528,7 +533,7 @@ class ComisionController extends Controller
                     'fecha_venta'    => $i['fecha_venta'],
                     'cliente_nombre' => $i['cliente_nombre'] ?? null,
                     'canal'          => $i['canal'] ?? null,
-                ])->values(),
+                ] + ($conDetalle ? self::ordenParaElExcel($i) : []))->values(),
             ];
         })->keyBy(fn ($f) => $f['vendedor_id'] . '_' . $f['tienda_id']);
 
@@ -605,7 +610,42 @@ class ComisionController extends Controller
                 'monto_comision'   => $o['paga'],
                 'estado'           => $o['pagada'] ? 'pagada' : ($o['lista'] ? 'lista' : 'pendiente'),
                 'fecha_venta'      => $o['fecha'],
-            ])->values();
+            ] + ($conDetalle ? [
+                // Lo mismo que trae una orden de tienda para el Excel, con los
+                // datos que ya calculó el servicio (no se vuelve a preguntar).
+                'cliente_nombre'    => $o['cliente'] ?? null,
+                'valor_total_orden' => round((float) ($o['valor_orden_entera'] ?? $o['valor'])),
+                'pagado'            => round((float) $o['pagado']),
+                'pct_pagado'        => (float) ($o['valor_orden_entera'] ?? 0) > 0
+                    ? round((float) $o['pagado'] / (float) $o['valor_orden_entera'] * 100) : 0,
+                'req_50_pct'        => (bool) $o['pago_completo'],
+                'pagado_tarjeta'    => round((float) ($o['con_tarjeta'] ?? 0)),
+                'costo_datafono'    => round((float) ($o['con_tarjeta'] ?? 0) * ReglasComision::numero('franquicia_pct', $mes)),
+                'es_compartida'     => (bool) ($o['es_compartida'] ?? false),
+                'almacen'           => $o['almacen'] ?? null,
+                'tipo_orden'        => $o['es_restauracion'] ? 'restauracion'
+                    : (str_starts_with((string) $o['referencia'], 'FV2') ? 'fv2' : 'venta'),
+            ] : []))->values();
+
+            if ($conDetalle) {
+                // Lo que el bolsón le suma: no cuelga de ninguna orden suya,
+                // así que el Excel lo pone en su propio renglón, con las
+                // restauraciones de todos que lo arman.
+                $fila['independiente'] = [
+                    'por_pagar_ventas'        => (float) $i['por_pagar_ventas'],
+                    'por_pagar_bolson'        => (float) $i['por_pagar_bolson'],
+                    'bolson_lista'            => (float) ($i['comision_restauraciones_lista'] ?? 0),
+                    'bolson_restauraciones'   => collect($indep['ordenes'])->where('es_restauracion', true)->where('lista', true)
+                        ->map(fn ($o) => ['referencia' => $o['referencia'], 'cliente' => $o['cliente'] ?? null,
+                                          'vendedor' => $o['vendedor'], 'valor' => (float) $o['valor'], 'fecha' => $o['fecha']])
+                        ->merge(collect(ReglasComision::si('bolson_incluye_almacenes', $mes) ? ($indep['restauraciones_almacenes'] ?? []) : [])
+                            ->where('lista', true)
+                            ->map(fn ($o) => ['referencia' => $o['referencia'], 'cliente' => $o['cliente'] ?? null,
+                                              'vendedor' => $o['vendedor'] . ' (' . ($o['almacen'] ?? 'almacén') . ')',
+                                              'valor' => (float) $o['valor'], 'fecha' => $o['fecha']]))
+                        ->values()->all(),
+                ];
+            }
 
             // El desglose real: sus ventas son solo suyas, las restauraciones
             // se reparten con el otro independiente. Las dos suman el total,
@@ -2011,6 +2051,61 @@ class ComisionController extends Controller
      *
      * @param  \Illuminate\Support\Collection  $items  Comisiones ya enriquecidas.
      */
+    /**
+     * Lo de una orden que el Excel de Listas necesita para explicarla, sacado
+     * del renglón ya enriquecido (las mismas cifras que se pagan): cuánto vale
+     * la orden entera, cuánto pagó el cliente y con qué, y lo que la franquicia
+     * de la tarjeta le restó a la base.
+     */
+    private static function ordenParaElExcel(array $i): array
+    {
+        $orden = $i['orden'] ?? [];
+        $pagos = collect($orden['pagos'] ?? []);
+
+        return [
+            'valor_total_orden' => round((float) ($orden['valor_total'] ?? 0)),
+            'pagado'            => round((float) $pagos->sum('monto')),
+            'pct_pagado'        => $i['pct_pagado'] ?? 0,
+            'req_50_pct'        => (bool) ($i['req_50_pct'] ?? false),
+            'pagado_tarjeta'    => (float) ($i['pagado_tarjeta'] ?? 0),
+            'costo_datafono'    => (float) ($i['costo_datafono'] ?? 0),
+            // "efectivo: $2.000.000 · tarjeta: $1.000.000", para ver por qué se restó o no.
+            'medios_de_pago'    => $pagos->groupBy(fn ($p) => $p['metodo'] ?? 'sin_metodo')
+                ->map(fn ($p) => round((float) $p->sum('monto')))->all(),
+            'es_compartida'     => (bool) ($orden['es_compartida'] ?? false),
+            'origen'            => $i['origen'] ?? null,
+            'tipo_orden'        => $i['tipo_orden'] ?? null,
+            'fecha_disponible'  => isset($i['fecha_disponible']) ? substr((string) $i['fecha_disponible'], 0, 10) : null,
+        ];
+    }
+
+    /**
+     * La cuenta del pool de una tarjeta (persona y tienda en un mes), para el
+     * Excel de Listas: el pool de la tienda, su parte por días y lo que ya se
+     * le pagó de ese pool. Sale de una fila del pool, donde ya están con la
+     * regla del 50 % y el libro de la tienda.
+     */
+    private static function cuentaDeLaTarjeta($items): array
+    {
+        $delPool  = fn ($i) => in_array($i['forma_pago'] ?? null, ['pool', self::ORIGEN_PARTE_POOL], true);
+        $filaPool = $items->first($delPool);
+        $pagadas  = $items->where('estado_calculado', 'pagada');
+
+        return [
+            'por_pool'         => $filaPool !== null,
+            'meta_tienda'      => $filaPool ? round((float) $filaPool['meta_tienda']) : null,
+            'total_tienda_mes' => $filaPool ? round((float) $filaPool['total_tienda_mes']) : null,
+            'meta_cumplida'    => $filaPool ? (bool) $filaPool['meta_cumplida'] : null,
+            'comision_pool'    => $filaPool ? (float) $filaPool['comision_pool'] : null,
+            'comision_asesor'  => $filaPool ? (float) $filaPool['comision_asesor'] : null,
+            'parte_dias'       => $filaPool ? (int) $filaPool['parte_dias'] : null,
+            'partes_dias'      => $filaPool ? (int) $filaPool['partes_dias'] : null,
+            'trimestre'        => $filaPool['trimestre'] ?? null,
+            'ya_pagado_pool'   => round((float) $pagadas->filter($delPool)->sum(fn ($i) => (float) $i['monto_comision'])),
+            'ya_pagado'        => round((float) $pagadas->sum(fn ($i) => (float) $i['monto_comision'])),
+        ];
+    }
+
     private function desglosarComision($items): array
     {
         $porForma = fn (string $forma) => $items->where('forma_pago', $forma);
@@ -2848,7 +2943,8 @@ class ComisionController extends Controller
             return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
         }
 
-        return response()->json($this->loQueHayPorPagar($mes));
+        // ?detalle=1: lo mismo, con lo que necesita el Excel para explicarlo.
+        return response()->json($this->loQueHayPorPagar($mes, $request->boolean('detalle')));
     }
 
     /**
@@ -2862,8 +2958,13 @@ class ComisionController extends Controller
      * meses juntos descontaban dos veces el anticipo del más viejo.
      *
      * Con $soloMes se mira un mes, como hacía la pantalla antes.
+     *
+     * Con $conDetalle (el Excel de Listas) cada bloque trae la cuenta de su
+     * pool, lo que debía de anticipos a su corte y las órdenes con lo pagado y
+     * la tarjeta, y aparte va la cuenta de cada tienda en cada mes. Las cifras
+     * son las mismas: sale del mismo resumen.
      */
-    public function loQueHayPorPagar(?string $soloMes = null): array
+    public function loQueHayPorPagar(?string $soloMes = null, bool $conDetalle = false): array
     {
         $hoy        = self::hoy();
         $diaDePago  = self::ultimoDiaDePago($hoy);
@@ -2871,13 +2972,28 @@ class ComisionController extends Controller
         $meses      = $soloMes ? [$soloMes] : self::mesesConAlgoListo($mesQueToca);
 
         $bloques = collect();
+        $tiendas = [];
         foreach ($meses as $mes) {
-            foreach ($this->resumenDelMes($mes) as $t) {
+            foreach ($this->resumenDelMes($mes, $conDetalle) as $t) {
                 $lista = round(self::loListoDe($t));
                 if ($lista <= 0) continue;
 
                 $seCobra = self::calcularFechaDisponible(Carbon::parse($mes . '-01'), (int) $t['tienda_id']);
-                $bloques->push([
+
+                // La cuenta de la tienda, una vez por tienda y mes (todas las
+                // tarjetas de la tienda traen la misma). Sin la lista de todas
+                // sus órdenes: el Excel explica lo que se paga, no el mes entero.
+                $claveTienda = $mes . '_' . (int) $t['tienda_id'];
+                if ($conDetalle && empty($t['es_independiente']) && ! empty($t['resumen_tienda']) && ! isset($tiendas[$claveTienda])) {
+                    $tiendas[$claveTienda] = ['mes' => $mes, 'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre']]
+                        + collect($t['resumen_tienda'])->except('detalle')->all();
+                }
+
+                $bloques->push(($conDetalle ? [
+                    'cuenta'        => $t['cuenta'] ?? null,
+                    'independiente' => $t['independiente'] ?? null,
+                    'comision_mes'  => (float) ($t['comision_total'] ?? 0),
+                ] : []) + [
                     'mes'              => $mes,
                     'vendedor_id'      => (int) $t['vendedor_id'],
                     'vendedor_nombre'  => $t['vendedor_nombre'],
@@ -2901,7 +3017,7 @@ class ComisionController extends Controller
         $abonos  = AnticiposComision::abonosPorMes($bloques->pluck('vendedor_id')->unique()->values()->all());
         $bloques = $bloques->map(fn ($b) => $b + ['abonos' => (float) ($abonos[$b['vendedor_id']][$b['mes']] ?? 0)]);
 
-        $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) {
+        $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) use ($conDetalle) {
             $nombre = $suyos->first()['vendedor_nombre'];
             $suyos  = $suyos->sortBy(fn ($b) => $b['mes'] . '_' . str_pad((string) $b['tienda_id'], 6, '0', STR_PAD_LEFT))->values();
 
@@ -2909,14 +3025,17 @@ class ComisionController extends Controller
             // en los bloques anteriores. Es lo que va a pasar al pagar en orden.
             $descontado    = 0.0;
             $quedaDebiendo = 0.0;
-            $suyos = $suyos->map(function ($b) use (&$descontado, &$quedaDebiendo) {
+            $suyos = $suyos->map(function ($b) use (&$descontado, &$quedaDebiendo, $conDetalle) {
                 $debe = max(0.0, $b['debe'] - $descontado);
                 $se   = min($debe, $b['lista']);
                 $descontado   += $se;
                 $quedaDebiendo = $debe - $se;
+                // El Excel dice de dónde sale el descuento: lo que debía a ese
+                // corte, ya sin lo descontado en los meses anteriores.
+                $alCorte = $conDetalle ? ['debe_al_corte' => $debe] : [];
                 unset($b['debe'], $b['vendedor_id'], $b['vendedor_nombre']);
 
-                return $b + ['se_descuenta' => $se, 'entregar' => $b['lista'] - $se];
+                return $b + $alCorte + ['se_descuenta' => $se, 'entregar' => $b['lista'] - $se];
             });
 
             return [
@@ -2953,7 +3072,7 @@ class ComisionController extends Controller
             'lista'        => $personas->sum('lista'),
             'se_descuenta' => $personas->sum('se_descuenta'),
             'entregar'     => $personas->sum('entregar'),
-        ];
+        ] + ($conDetalle ? ['tiendas' => array_values($tiendas)] : []);
     }
 
     /**

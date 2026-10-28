@@ -299,6 +299,8 @@ class ComisionIndependientes
                 // compartido de restauraciones. Las dos suman el total.
                 'comision_ventas_propias' => round($comisionVenta),
                 'comision_restauraciones' => round($comisionRestauraciones),
+                // Lo del bolsón que ya está listo (lo explica el Excel de Listas).
+                'comision_restauraciones_lista' => round($comisionRestauracionesLista),
                 // Lo ya pagado (lo que de verdad quedó registrado) y lo que
                 // falta pagarle de lo que ya está listo.
                 'comision_pagada'          => round((float) $pagos->where('vendedor_id', $u->id)->sum('monto_comision')),
@@ -375,6 +377,11 @@ class ComisionIndependientes
                                     : (float) $o->valor_total / self::ivaDe($o, $mes) * $pctVentaDe($o->vendedor_id)),
                 // Una FV2 marcada: a su venta no se le quitó el IVA.
                 'sin_descontar_iva' => (bool) $o->sin_descontar_iva,
+                // Para explicar la base en el Excel de Listas: la orden entera
+                // y lo pagado con tarjeta (lo que se le resta).
+                'valor_orden_entera' => (float) $o->valor_orden,
+                'con_tarjeta'        => (float) $o->con_tarjeta,
+                'es_compartida'      => (bool) $o->es_compartida,
             ])->values()->all(),
             // Aparte de `ordenes`: esas son de los independientes y la
             // pantalla las filtra por vendedor. Estas no son de ninguno.

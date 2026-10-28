@@ -430,4 +430,63 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertSame('2026-09', $abono['mes']);
         $this->assertArrayNotHasKey('clave', $abono);
     }
+
+    // ── El Excel de Listas (?detalle=1) ──────────────────────────────────────
+    // Tiene que cuadrar peso a peso con Listas: mismas cifras, más campos.
+
+    public function test_el_detalle_del_excel_dice_las_mismas_cifras_que_listas(): void
+    {
+        // Una venta de octubre pagada con tarjeta: la franquicia le resta a la base.
+        $orden = Orden::create(['tienda_id' => self::EDEN, 'vendedor_id' => self::JUAN,
+            'estado' => 'entregado', 'valor_total' => 2_000_000]);
+        DB::table('ordenes')->where('id', $orden->id)->update(['created_at' => '2026-10-12 15:00:00']);
+        DB::table('orden_items')->insert(['orden_id' => $orden->id, 'precio_unitario' => 2_000_000]);
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 2_000_000, 'metodo' => 'tarjeta', 'created_at' => '2026-10-12 15:00:00']);
+        ComisionController::crearParaOrden($orden->fresh());
+        $this->abonar(50_000)->assertOk();
+
+        $sin = $this->jefe()->getJson('/api/comisiones/por-pagar')->assertOk()->json();
+        $con = $this->jefe()->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json();
+
+        // Los totales y cada bloque, idénticos.
+        foreach (['lista', 'se_descuenta', 'entregar'] as $campo) {
+            $this->assertEquals($sin[$campo], $con[$campo], $campo);
+        }
+        $this->assertArrayNotHasKey('tiendas', $sin);
+        foreach ($sin['personas'][0]['bloques'] as $k => $b) {
+            $d = $con['personas'][0]['bloques'][$k];
+            foreach (['mes', 'lista', 'se_descuenta', 'entregar', 'abonos', 'atrasada'] as $campo) {
+                $this->assertEquals($b[$campo], $d[$campo], "bloque {$k}: {$campo}");
+            }
+            // Las órdenes suman lo listo del bloque.
+            $this->assertEquals($d['lista'], round(collect($d['ordenes_listas'])->sum('monto_comision')));
+            $this->assertArrayNotHasKey('debe_al_corte', $b);
+        }
+
+        [$sep, $oct] = $con['personas'][0]['bloques'];
+
+        // La cuenta del pool: su parte entera (Juan está solo) y lo que debía.
+        $this->assertTrue($sep['cuenta']['por_pool']);
+        $this->assertEquals(20_000_000, $sep['cuenta']['total_tienda_mes']);
+        $this->assertEquals(10_000_000, $sep['cuenta']['meta_tienda']);
+        $this->assertEqualsWithDelta($sep['lista'], $sep['cuenta']['comision_asesor'] - $sep['cuenta']['ya_pagado_pool'], 1);
+        // El anticipo de septiembre más el abono que ya se le dio.
+        $this->assertEquals(250_000, $sep['debe_al_corte']);
+        $this->assertEquals(50_000, $sep['abonos']);
+
+        // La de tarjeta: 2M × 5,5 % = 110.000 que no comisionan.
+        $tarjeta = collect($oct['ordenes_listas'])->firstWhere('orden_id', $orden->id);
+        $this->assertEquals(2_000_000, $tarjeta['valor_total_orden']);
+        $this->assertEquals(2_000_000, $tarjeta['pagado_tarjeta']);
+        $this->assertEquals(110_000, $tarjeta['costo_datafono']);
+        $this->assertEquals(1_890_000, $tarjeta['valor_orden']);
+        $this->assertEquals(['tarjeta' => 2_000_000], $tarjeta['medios_de_pago']);
+        $this->assertTrue($tarjeta['req_50_pct']);
+
+        // La cuenta de la tienda en cada mes, una vez.
+        $this->assertCount(2, $con['tiendas']);
+        $this->assertSame(['2026-09', '2026-10'], array_column($con['tiendas'], 'mes'));
+        $this->assertEquals(10_000_000, $con['tiendas'][0]['pool']['meta']);
+        $this->assertArrayNotHasKey('detalle', $con['tiendas'][0]);
+    }
 }

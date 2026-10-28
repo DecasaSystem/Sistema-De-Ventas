@@ -1093,9 +1093,32 @@ function resumenEstadoLabel(r) {
 // se cargó antes ni de un vendedor que se dejó elegido en otra vista.
 const exportando = ref(false)
 
+// En la pestaña Listas el libro es otro: lo que se va a pagar, de todos los
+// meses que se juntan, explicado orden por orden (utils/excelListas.js). Sale
+// de la misma respuesta que pinta Listas, con ?detalle=1.
+const enListas = computed(() => vistaTab.value === 'estado' && tab.value === 'lista')
+
+async function exportarExcelListas() {
+  const { data } = await api.get('/comisiones/por-pagar', {
+    params: { detalle: 1, ...(mesListas.value ? { mes: mesListas.value } : {}) },
+  })
+  if (!data.personas?.length) {
+    toast.error('No hay nada listo para pagar.')
+    return
+  }
+  const meses = [...new Set([data.mes_que_toca, ...data.personas.flatMap(p => p.bloques.map(b => b.mes))])]
+  const reglas = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m)])))
+  const { exportarListasExcel } = await import('@/utils/excelListas')
+  await exportarListasExcel({ porPagar: data, reglas, generadoPor: auth.usuario?.nombre })
+}
+
 async function exportarExcelCompleto() {
   exportando.value = true
   try {
+    if (enListas.value) {
+      await exportarExcelListas()
+      return
+    }
     const mes = mesActual.value
     const [cRes, iRes, mRes, rRes, reglas] = await Promise.all([
       api.get('/comisiones', { params: { mes } }),
@@ -1171,7 +1194,9 @@ onMounted(async () => {
         <button
           @click="exportarExcelCompleto"
           :disabled="exportando"
-          title="Descargar Excel del mes con los filtros de la pantalla (resumen, por vendedor, por tienda, detalle, independientes, metas)"
+          :title="enListas
+            ? 'Descargar Excel de todo lo que se va a pagar: por persona, por tienda, orden por orden, con anticipos y totales'
+            : 'Descargar Excel del mes con los filtros de la pantalla (resumen, por vendedor, por tienda, detalle, independientes, metas)'"
           class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700 disabled:opacity-50"
         >
           <ArrowDownTrayIcon class="w-3.5 h-3.5" />

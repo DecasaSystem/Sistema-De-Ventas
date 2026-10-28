@@ -433,6 +433,14 @@ escribiendo precios (Fase 1b).
   ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con
   esas funciones, nunca a mano. Quien no tiene Comisiones recibe solo la regla general (la Ayuda
   es de todos, las excepciones por persona no).
+- **Excel de Listas** (2026-10-28, **sin subir**, sin migración, rama
+  `claude/mystifying-wozniak-21d359`). Pedido del dueño: estando en Listas, un Excel con todo
+  lo que se va a pagar, por persona y tienda, cada orden, por qué se resta o no la tarjeta,
+  el ÷ 1,19, de dónde sale cada monto y los totales. Sale de `por-pagar?detalle=1` (la misma
+  cuenta de Listas, nada recalculado aparte); detalle en `docs/PROYECTO.md` (Comisiones). No
+  cambió ninguna regla de plata. Trampa: en un pool, el monto por orden es solo cómo se
+  reparte la parte de la persona sobre sus ventas que ya cuentan (a prorrata); la cuenta real
+  es la de la tienda (pool × días ÷ días del equipo − lo ya pagado). El libro lo dice así.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no

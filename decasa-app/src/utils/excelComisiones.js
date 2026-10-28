@@ -24,7 +24,7 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
 
 const ESTADO = { pendiente: 'Pendiente', lista: 'Lista para pagar', pagada: 'Pagada' }
 
-const FORMA = {
+export const FORMA = {
   pool:                'Pool del equipo',
   parte_pool:          'Parte del equipo',
   sin_meta_5:          'Individual',
@@ -34,7 +34,7 @@ const FORMA = {
   fuera_del_pool:      'Fuera del pool',
 }
 
-const CANAL = {
+export const CANAL = {
   fisica: 'Física', whatsapp: 'WhatsApp', instagram: 'Instagram', facebook: 'Facebook',
   pagina: 'Página web', red_social: 'Red social', otro: 'Otro',
 }
@@ -52,32 +52,32 @@ let VIGENTES = null
 /** Las reglas de una fila: su tienda y su persona. */
 const R = (c = {}) => reglasPara(VIGENTES, { tiendaId: c.tienda_id ?? null, usuarioId: c.vendedor_id ?? null })
 
-const VERDE = 'FF166534', VERDE_CLARO = 'FFDCFCE7', GRIS = 'FFF3F4F6', GRIS_TEXTO = 'FF6B7280'
-const AMBAR = 'FFFEF3C7', ROJO_CLARO = 'FFFEE2E2'
+export const VERDE = 'FF166534', VERDE_CLARO = 'FFDCFCE7', GRIS = 'FFF3F4F6', GRIS_TEXTO = 'FF6B7280'
+export const AMBAR = 'FFFEF3C7', ROJO_CLARO = 'FFFEE2E2'
 
-function mesEnPalabras(mes) {
+export function mesEnPalabras(mes) {
   const [a, m] = String(mes).split('-')
   return `${MESES[Number(m) - 1]} de ${a}`
 }
 
-function fecha(f) {
+export function fecha(f) {
   if (!f) return ''
   const [y, m, d] = String(f).slice(0, 10).split('-')
   return (d && m && y) ? `${d}/${m}/${y}` : String(f)
 }
 
-function pesos(v) {
+export function pesos(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v) || 0)
 }
 
-function n(v) { return Number(v) || 0 }
+export function n(v) { return Number(v) || 0 }
 
 function siNo(b) { return b ? 'Sí' : 'No' }
 
 // ── Piezas de hoja ────────────────────────────────────────────────────────────
 
 /** Título grande arriba de la hoja, con una línea gris debajo. */
-function titulo(ws, texto, subtitulo) {
+export function titulo(ws, texto, subtitulo) {
   const r1 = ws.addRow([texto])
   r1.font = { size: 15, bold: true, color: { argb: VERDE } }
   r1.height = 24
@@ -89,7 +89,7 @@ function titulo(ws, texto, subtitulo) {
 }
 
 /** Un encabezado de sección dentro de la hoja. */
-function seccion(ws, texto, nota) {
+export function seccion(ws, texto, nota) {
   ws.addRow([])
   const r = ws.addRow([texto])
   r.font = { size: 12, bold: true }
@@ -104,8 +104,9 @@ function seccion(ws, texto, nota) {
  * fila de totales si se pide. Devuelve la fila de encabezado (para congelar).
  *
  * columnas: [{ titulo, campo, ancho, fmt: 'pesos'|'entero'|'pct'|null, total: 'suma'|null }]
+ * filtro: false en una hoja con varias tablas (Excel admite un solo filtro por hoja).
  */
-function tabla(ws, columnas, filas, { totales = false, etiquetaTotal = 'TOTAL', zebra = true } = {}) {
+export function tabla(ws, columnas, filas, { totales = false, etiquetaTotal = 'TOTAL', zebra = true, filtro = true } = {}) {
   const header = ws.addRow(columnas.map(c => c.titulo))
   header.font = { bold: true, color: { argb: 'FFFFFFFF' } }
   header.alignment = { vertical: 'middle', wrapText: true }
@@ -156,7 +157,7 @@ function tabla(ws, columnas, filas, { totales = false, etiquetaTotal = 'TOTAL', 
     col.width = Math.max(col.width || 0, c.ancho || 14)
   })
 
-  if (filas.length) {
+  if (filtro && filas.length) {
     ws.autoFilter = {
       from: { row: header.number, column: 1 },
       to:   { row: header.number + filas.length, column: columnas.length },
@@ -184,7 +185,7 @@ function alturaPara(row, columnas) {
 }
 
 /** Pares "Etiqueta: valor" en dos columnas, para las cabeceras. */
-function fichas(ws, pares) {
+export function fichas(ws, pares) {
   for (const [k, v, fmt] of pares) {
     const r = ws.addRow([k, v])
     r.getCell(1).font = { bold: true, color: { argb: GRIS_TEXTO } }
@@ -726,7 +727,7 @@ function tramosDelMes(mes, tiendaId, equipo, reemplazos) {
  * Texto a lo ancho de la tabla (A:E), para que una explicación larga no quede
  * apretada en la primera columna. La altura crece con el largo del texto.
  */
-function explicar(ws, lineas) {
+export function explicar(ws, lineas) {
   for (const l of lineas) {
     const r = ws.addRow([l])
     ws.mergeCells(r.number, 1, r.number, 5)
