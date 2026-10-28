@@ -35,6 +35,7 @@ const routes = [
   { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresProduccion: true } },
   // Cuánto trabajo hay: supervisor o quien ve producción (el backend lo vuelve a mirar).
   { path: '/carga-trabajo', name: 'carga-trabajo', component: () => import('@/views/CargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
+  { path: '/carga-trabajo/ayuda', name: 'carga-trabajo-ayuda', component: () => import('@/views/AyudaCargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
   { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true } },
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },

@@ -416,6 +416,10 @@ Pedido del dueño (2026-10-28): "saber cuánto trabajo tenemos y vamos a tener".
 - Entradas (`fecha_inicio`) vs salidas (`fecha_real`) del taller por semana (8 semanas).
 - Los números llevan a Órdenes / Producción con el filtro puesto (`?estado=`,
   `?retrasadas=1`, `?tienda_id=`; las listas lo leen una vez y limpian la dirección).
+- **Ayuda** (`AyudaCargaTrabajoView`, `/carga-trabajo/ayuda?tema=`): qué es cada cifra
+  y de dónde sale, con ejemplos. Se abre con el botón "?" o con el enlace al pie de cada
+  pestaña (abre su tema). Si cambia una regla de `CargaDeTrabajo` (28 días, 90 días,
+  8 semanas, 7 días del "más cargado"), cambiar también la ayuda.
 
 ### 6.9 Despacho y entregas
 `DespachoController`, `EntregaService`, modelos `Despacho`, `DespachoItem`,

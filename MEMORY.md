@@ -594,7 +594,7 @@ escribiendo precios (Fase 1b).
   `OPENAI_API_KEY` aquí). Mismo día, pedido del usuario: `GET /stats/tendencia` aceptaba
   `vendedor_id` de cualquiera (un vendedor veía la tendencia de otro); ahora solo el
   supervisor escoge, el vendedor siempre ve lo suyo.
-- **Carga de trabajo** (2026-10-28, subida a su rama, **no a `main`**, sin migración, rama
+- **Carga de trabajo** (2026-10-28, **subida a `main`** ese día, commit ab1802e, sin migración, rama
   `claude/workload-dashboard-656524`). Pedido del dueño: "pendientes para todo para saber
   cuánto trabajo tenemos" (órdenes por entregar, cuántas tienen algo por fabricar /
   personalizado / diseño nuevo, piezas empezadas y sin arrancar, cuántas tiene cada paso y

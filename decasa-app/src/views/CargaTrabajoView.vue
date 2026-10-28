@@ -24,7 +24,7 @@ import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import {
   ArrowPathIcon, ClipboardDocumentListIcon, WrenchScrewdriverIcon, TruckIcon,
   ExclamationTriangleIcon, ClockIcon, UserGroupIcon, ChevronRightIcon,
-  InformationCircleIcon, FireIcon, PauseCircleIcon,
+  InformationCircleIcon, FireIcon, PauseCircleIcon, QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -276,6 +276,14 @@ onMounted(async () => {
         <option value="">Todas las tiendas</option>
         <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
       </select>
+      <button
+        @click="router.push({ name: 'carga-trabajo-ayuda' })"
+        class="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+        title="Cómo funciona esta pantalla"
+        aria-label="Ayuda"
+      >
+        <QuestionMarkCircleIcon class="w-4 h-4" />
+      </button>
       <button
         @click="cargar({ silencioso: true })"
         :disabled="refrescando || cargando"
@@ -708,6 +716,15 @@ onMounted(async () => {
           </p>
         </div>
       </template>
+
+      <!-- Cada pestaña lleva a su tema de la Ayuda. -->
+      <button
+        @click="router.push({ name: 'carga-trabajo-ayuda', query: { tema: tab } })"
+        class="w-full flex items-center justify-center gap-1 text-xs font-semibold text-gray-500 py-2"
+      >
+        <QuestionMarkCircleIcon class="w-4 h-4" />
+        ¿Qué significa cada cosa de esta pestaña?
+      </button>
     </template>
   </div>
 </template>
