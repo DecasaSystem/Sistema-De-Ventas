@@ -24,6 +24,11 @@ const props = defineProps({
   // del catálogo: se aprueba producto por producto y se firma con lo mismo.
   declaracion: { type: Object, default: null },
   puedePedirCambio: { type: Boolean, default: false },
+  // A distancia, el pedido se revisa arriba (fuera de este componente) y se
+  // marca "Revisé mi pedido": sin eso no se firma. `pedidoRevisado` lo lleva
+  // la página; aquí solo cuenta como un paso más y se lleva ahí si falta.
+  revisarPedido:  { type: Boolean, default: false },
+  pedidoRevisado: { type: Boolean, default: false },
 })
 const emit = defineEmits(['firmar', 'pedir-cambio'])
 
@@ -65,11 +70,12 @@ const docF      = ref(props.documento)
 const firmaBlob = ref(null)
 
 const totalSecciones = computed(() => props.contenido.secciones.length)
-const todoLeido      = computed(() => leidas.value.size === totalSecciones.value && todoAprobado.value)
+const pedidoListo    = computed(() => !props.revisarPedido || props.pedidoRevisado)
+const todoLeido      = computed(() => leidas.value.size === totalSecciones.value && todoAprobado.value && pedidoListo.value)
 const todoRespondido = computed(() => props.contenido.checklist.every(q => checklist.value[q.id]))
-// El avance de arriba cuenta también los productos de la declaración.
-const totalPasos = computed(() => totalSecciones.value + productos.value.length)
-const pasosHechos = computed(() => leidas.value.size + aprobados.value.size)
+// El avance de arriba cuenta también los productos de la declaración y el pedido.
+const totalPasos = computed(() => totalSecciones.value + productos.value.length + (props.revisarPedido ? 1 : 0))
+const pasosHechos = computed(() => leidas.value.size + aprobados.value.size + (props.revisarPedido && props.pedidoRevisado ? 1 : 0))
 const listo = computed(() =>
   todoLeido.value && todoRespondido.value && nombreF.value.trim() && docF.value.trim() && firmaBlob.value
 )
@@ -81,6 +87,10 @@ const listo = computed(() =>
  * ahí.
  */
 const pendiente = computed(() => {
+  // Lo primero es el pedido: está arriba de todo.
+  if (!pedidoListo.value) {
+    return { clave: 'pedido', texto: 'Falta confirmar que revisaste tu pedido: toca "Revisé mi pedido, todo está bien".' }
+  }
   const i = productos.value.findIndex((_, k) => !aprobados.value.has(k))
   if (i >= 0) {
     const p = productos.value[i]
@@ -112,7 +122,9 @@ async function irAPendiente() {
   intento.value = true
   p.abrir?.()
   await nextTick()
+  // La revisión del pedido está en la página, fuera de este componente.
   const el = raiz.value?.querySelector(`[data-pendiente="${p.clave}"]`)
+    ?? document.querySelector(`[data-pendiente="${p.clave}"]`)
   if (!el) return
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   // Un destello para que el ojo lo encuentre.
@@ -157,6 +169,7 @@ async function firmar() {
     secciones: [...leidas.value],
     checklist: { ...checklist.value },
     declaracion_aprobados: [...aprobados.value],
+    orden_revisada: props.revisarPedido ? props.pedidoRevisado : undefined,
     nombre:    nombreF.value.trim(),
     documento: docF.value.trim(),
     firma:     await aDataUrl(firmaBlob.value),

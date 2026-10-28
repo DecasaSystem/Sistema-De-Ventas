@@ -708,6 +708,27 @@ no vale (al crear) o el enlace no deja firmar (orden existente, 409). Un enlace 
 por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
 (`POST /anexos/{id}/anular`). El vendedor ve las respuestas "No" del check list.
 
+**La orden viaja con el enlace (2026-10-28):** al mandar el enlace desde Nueva orden, la
+pantalla valida la orden como al crearla (menos la firma), sube comprobantes y bocetos y
+guarda la orden completa en el anexo (`anexos_garantia.orden_pendiente`, el mismo cuerpo
+de `POST /ordenes`, con su `clave_envio`). El vendedor escoge antes de mandarlo:
+- **Crear la orden sola** (`crear_al_firmar`): al firmar, `firmar` encola
+  `Jobs\CrearOrdenFirmada` → `Services\OrdenDelAnexo` llama a `OrdenController::store`
+  a nombre de quien mandó el enlace, con `anexo_id`. Avisa al vendedor la orden creada o
+  el motivo (`orden_auto_estado` = creada | fallo, `orden_auto_error`). No con precio por
+  consultar (la consulta de costo la pide la pantalla).
+- **Esperar y crearla yo**: "Crear la orden" en Nueva orden (`POST /anexos/{id}/crear-orden`).
+Nueva orden muestra arriba "Pedidos enviados a firmar" (`GET /anexos/sin-orden`: esperando
+o firmados ≤30 días sin orden), aunque el formulario (48 h) ya no esté. Mientras espera se
+puede cambiar la opción (`PATCH /anexos/{id}/crear-al-firmar`). Mandar otra versión al mismo
+cliente descarta la firmada sin orden (`descartada`); "Quitar" también (la firma queda).
+El enlace dura **30 días** (antes 7) y lo firmado se retoma 30 días (antes 3). La huella de la
+orden guardada tiene que cuadrar con el resumen; la misma `clave_envio` evita dos órdenes si
+el vendedor también le da "Crear orden". El cliente tiene que marcar **"Revisé mi pedido,
+todo está bien"** antes de firmar (`orden_revisada`, se guarda en `respuestas`); ve también
+las notas y cómo paga el anticipo. Migración `2026_11_04_000001_crear_orden_al_firmar`
+(solo agrega). Tests en `AnexoGarantiaTest`.
+
 **Declaración de diseños y medidas especiales (2026-10-21):** el papel que el cliente
 firmaba para lo que no está en el catálogo, ahora en el sistema. `Support/DeclaracionEspeciales`
 (reglas), migración `2026_10_26_000001_declaracion_disenos_especiales` (solo agrega:

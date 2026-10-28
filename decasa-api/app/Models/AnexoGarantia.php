@@ -22,11 +22,16 @@ class AnexoGarantia extends Model
         // firma): versión del texto, los productos tal como el cliente los
         // aprobó, su huella y el cambio que pidió en vez de firmar.
         'declaracion_version', 'especiales', 'especiales_hash', 'cambio_pedido', 'cambio_pedido_at',
+        // La orden lista para crear (lo que se mandaría a POST /ordenes) y si
+        // se crea sola al firmar. Ver App\Services\OrdenDelAnexo.
+        'orden_pendiente', 'crear_al_firmar', 'orden_auto_estado', 'orden_auto_error',
     ];
 
     // El token es la llave del enlace: no sale en las respuestas de la API
     // salvo donde se pide a propósito (al crearlo, para armar el enlace).
-    protected $hidden = ['token', 'ip', 'user_agent'];
+    // La orden pendiente tampoco: trae pagos y referencias que no van al
+    // detalle de la orden.
+    protected $hidden = ['token', 'ip', 'user_agent', 'orden_pendiente'];
 
     protected function casts(): array
     {
@@ -37,7 +42,21 @@ class AnexoGarantia extends Model
             'vence_at'   => 'datetime',
             'especiales' => 'array',
             'cambio_pedido_at' => 'datetime',
+            'orden_pendiente'  => 'array',
+            'crear_al_firmar'  => 'boolean',
         ];
+    }
+
+    /** Si la base ya tiene las columnas de la orden que viaja con el enlace (migración 2026_11_04). */
+    public static function guardaOrden(): bool
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('anexos_garantia', 'orden_pendiente');
+    }
+
+    /** ¿Trae la orden lista para crearla sin el formulario de Nueva orden? */
+    public function tieneOrdenPendiente(): bool
+    {
+        return ! empty($this->orden_pendiente) && ! $this->orden_id;
     }
 
     /** ¿Lleva la declaración de diseños especiales? */

@@ -446,7 +446,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
     Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
     Route::get('/anexos/en-curso',            [\App\Http\Controllers\AnexoGarantiaController::class, 'enCurso']);
+    // Los enlaces con la orden guardada que esperan firma o que ya firmaron y
+    // falta crear la orden (Nueva orden los muestra arriba).
+    Route::get('/anexos/sin-orden',           [\App\Http\Controllers\AnexoGarantiaController::class, 'sinOrden']);
     Route::get('/anexos/{id}',                [\App\Http\Controllers\AnexoGarantiaController::class, 'show'])->whereNumber('id');
+    Route::post('/anexos/{id}/crear-orden',   [\App\Http\Controllers\AnexoGarantiaController::class, 'crearOrden'])->whereNumber('id')->middleware('throttle:20,1');
+    Route::patch('/anexos/{id}/crear-al-firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'cambiarCrearAlFirmar'])->whereNumber('id');
     Route::post('/ordenes/{id}/firma-remota', [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarOrden'])->whereNumber('id')->middleware('throttle:30,1');
     Route::get('/ordenes/{id}/firma-remota',  [\App\Http\Controllers\AnexoGarantiaController::class, 'deOrden'])->whereNumber('id');
     Route::post('/anexos/{id}/anular',        [\App\Http\Controllers\AnexoGarantiaController::class, 'anular'])->whereNumber('id');

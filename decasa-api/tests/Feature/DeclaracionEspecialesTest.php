@@ -194,6 +194,8 @@ class DeclaracionEspecialesTest extends TestCase
             'documento' => '123',
             'firma'     => 'data:image/png;base64,' . base64_encode("\x89PNG\r\n\x1a\n" . str_repeat('x', 400)),
             'declaracion_aprobados' => [0],
+            // El pedido que ve a distancia: dijo que lo revisó.
+            'orden_revisada' => true,
         ], $extra);
     }
 

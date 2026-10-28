@@ -35,11 +35,21 @@ class AnexoGarantiaController extends Controller
 {
     use ConvierteImagenesPdf;
 
-    /** Días que vive un enlace sin firmar. */
-    private const DIAS_VIGENCIA = 7;
+    /**
+     * Días que vive un enlace sin firmar. Eran 7 y el firmado se retomaba solo
+     * 3 días (con el formulario de Nueva orden, que vence a las 48 h): un
+     * cliente que se demoraba dejaba al vendedor sin con qué crear la orden
+     * (queja del usuario, 2026-10-28). Ahora la orden viaja con el enlace
+     * (OrdenDelAnexo) y se le da un mes; si en ese tiempo cambió el stock o el
+     * precio, crear la orden lo dice como siempre.
+     */
+    private const DIAS_VIGENCIA = 30;
 
-    /** Días que un anexo firmado y sin orden se retoma en Nueva orden. */
-    private const DIAS_FIRMADO_EN_CURSO = 3;
+    /** Días que un anexo firmado y sin orden se retoma en Nueva orden (y se puede crear). */
+    private const DIAS_FIRMADO_EN_CURSO = 30;
+
+    /** Una orden de Nueva orden pesa pocos KB; esto frena lo que no es una orden. */
+    private const MAX_BYTES_ORDEN = 300_000;
 
     /**
      * POST /api/anexos  { cliente_id, modo, resumen? }
@@ -61,6 +71,12 @@ class AnexoGarantiaController extends Controller
             // Los productos especiales que el cliente aprueba en la
             // declaración (en la tienda y a distancia). Ver DeclaracionEspeciales.
             'especiales'       => 'nullable|array|max:50',
+            // Solo remoto: la orden completa, tal como se mandaría a POST
+            // /ordenes, para crearla cuando el cliente firme (sola o a mano),
+            // aunque el formulario de Nueva orden ya no esté. Ver OrdenDelAnexo.
+            'orden'            => 'nullable|array',
+            'orden.items'      => 'required_with:orden|array|min:1',
+            'crear_al_firmar'  => 'nullable|boolean',
         ]);
 
         [$especiales, $error] = DeclaracionEspeciales::normalizarProductos($request->input('especiales'));
@@ -72,6 +88,16 @@ class AnexoGarantiaController extends Controller
         $huella  = $resumen && isset($resumen['lineas'])
             ? AnexoGarantia::huella($resumen['lineas'], (float) ($resumen['descuentos'] ?? 0))
             : null;
+
+        // La orden entera, no lo validado: validate() con la regla de
+        // `orden.items` la recorta a solo los productos (y se perdían la
+        // tienda, el canal, el anticipo...). La revisa store() al crearla.
+        $data['orden'] = is_array($request->input('orden')) ? $request->input('orden') : null;
+        [$orden, $error] = self::ordenParaGuardar($data, $resumen, $huella);
+        if ($error) {
+            return response()->json(['message' => $error], 422);
+        }
+        $crearAlFirmar = $orden && $request->boolean('crear_al_firmar');
         // La foto de cada producto sale del catálogo (las líneas van en el
         // mismo orden que lo que ve el cliente).
         if ($resumen && isset($resumen['items'], $resumen['lineas'])) {
@@ -89,6 +115,15 @@ class AnexoGarantiaController extends Controller
             ->where('estado', 'pendiente')
             ->whereNull('orden_id')
             ->update(['estado' => 'anulado', 'updated_at' => now()]);
+        // Lo mismo con uno ya firmado cuya orden no se ha creado: si se manda
+        // otra versión, la vieja ya no se crea (saldría la orden equivocada).
+        // La firma queda como documento.
+        if ($orden) {
+            AnexoGarantia::where('vendedor_id', $request->user()->id)
+                ->where('cliente_id', $data['cliente_id'])
+                ->where('estado', 'firmado')->whereNull('orden_id')->whereNotNull('orden_pendiente')
+                ->update(['orden_auto_estado' => 'descartada', 'updated_at' => now()]);
+        }
 
         $anexo = AnexoGarantia::create([
             'token'        => Str::random(48),
@@ -101,9 +136,46 @@ class AnexoGarantiaController extends Controller
             'resumen_hash' => $huella,
             'vence_at'     => now()->addDays(self::DIAS_VIGENCIA),
             ...self::conDeclaracion($especiales),
+            ...($orden ? ['orden_pendiente' => $orden, 'crear_al_firmar' => $crearAlFirmar] : []),
         ]);
 
         return response()->json($this->paraVendedor($anexo, conToken: true, request: $request), 201);
+    }
+
+    /**
+     * La orden que viaja con el enlace, revisada antes de guardarla: que sea
+     * la misma que el cliente va a ver (la huella de sus productos y precios
+     * cuadra con la del resumen) y que se pueda crear sin una persona al lado.
+     * Lo demás (stock, cliente, pagos) lo revisa OrdenController::store al
+     * crearla, como siempre.
+     *
+     * @return array{0: ?array, 1: ?string}  [orden, error]
+     */
+    private static function ordenParaGuardar(array $data, ?array $resumen, ?string $huella): array
+    {
+        $orden = $data['orden'] ?? null;
+        if (! $orden) {
+            return [null, ! empty($data['crear_al_firmar']) ? 'Para crear la orden sola al firmar hay que mandar la orden completa.' : null];
+        }
+        if ($data['modo'] !== 'remoto' || ! $resumen || ! AnexoGarantia::guardaOrden()) {
+            return [null, null];
+        }
+        if (strlen((string) json_encode($orden)) > self::MAX_BYTES_ORDEN) {
+            return [null, 'La orden es demasiado grande para mandarla con el enlace.'];
+        }
+        // Lo que se va a crear es lo que el cliente ve y firma: si no cuadran,
+        // la pantalla armó una cosa y mostró otra.
+        if ($huella && ! hash_equals($huella, AnexoGarantia::huella($orden['items'], (float) ($resumen['descuentos'] ?? 0)))) {
+            return [null, 'La orden no cuadra con lo que verá el cliente. Recarga la página y vuelve a enviarla.'];
+        }
+        // Lo que espera el precio del taller necesita que alguien pida la
+        // consulta de costo al crearla: eso lo hace la pantalla, no se crea sola.
+        if (! empty($data['crear_al_firmar']) && ! empty($resumen['precio_pendiente'])) {
+            return [null, 'Con productos de precio por consultar la orden no se crea sola: espera la firma y créala tú.'];
+        }
+        unset($orden['guardar_borrador'], $orden['firma_url'], $orden['anexo_id']);
+
+        return [$orden, null];
     }
 
     /**
@@ -160,6 +232,11 @@ class AnexoGarantiaController extends Controller
             'resumen.items.*.obsequio'   => 'nullable|boolean',
             'resumen.items.*.entregado'  => 'nullable|string|max:60',
             'resumen.precio_pendiente'   => 'nullable|boolean',
+            // Lo demás de la orden: sus notas y cómo se paga el anticipo.
+            'resumen.notas'              => 'nullable|string|max:1000',
+            'resumen.abonos'             => 'nullable|array|max:5',
+            'resumen.abonos.*.monto'     => 'nullable|numeric|min:0',
+            'resumen.abonos.*.metodo'    => 'nullable|string|max:40',
             'resumen.items.*.foto'       => $https,
             'resumen.items.*.bocetos'    => 'nullable|array|max:10',
             'resumen.items.*.bocetos.*'  => $https,
@@ -328,12 +405,83 @@ class AnexoGarantiaController extends Controller
             ->where('cliente_id', $data['cliente_id'])
             ->where('modo', 'remoto')
             ->whereNull('orden_id')
+            ->when(AnexoGarantia::guardaOrden(), fn ($q) => $q->where(fn ($d) => $d->whereNull('orden_auto_estado')->orWhere('orden_auto_estado', '!=', 'descartada')))
             ->where(fn ($q) => $q
                 ->where(fn ($p) => $p->where('estado', 'pendiente')->where(fn ($v) => $v->whereNull('vence_at')->orWhere('vence_at', '>', now())))
                 ->orWhere(fn ($f) => $f->where('estado', 'firmado')->where('firmado_at', '>=', now()->subDays(self::DIAS_FIRMADO_EN_CURSO))))
             ->latest('id')->first();
 
         return response()->json($anexo ? $this->paraVendedor($anexo, conToken: true, request: $request) : null);
+    }
+
+    /**
+     * GET /api/anexos/sin-orden — los enlaces que este vendedor mandó desde
+     * Nueva orden con la orden guardada y que todavía no tienen orden:
+     * esperando la firma, o firmados y por crear (o que no se pudieron crear
+     * solos). Nueva orden los muestra arriba aunque el formulario ya no esté:
+     * desde ahí se crea la orden o se cancela el envío.
+     */
+    public function sinOrden(Request $request)
+    {
+        if (! AnexoGarantia::guardaOrden()) return response()->json([]);
+
+        $anexos = AnexoGarantia::with('cliente:id,nombre,email,telefono')
+            ->where('vendedor_id', $request->user()->id)
+            ->where('modo', 'remoto')
+            ->whereNull('orden_id')
+            ->whereNotNull('orden_pendiente')
+            ->where(fn ($q) => $q->whereNull('orden_auto_estado')->orWhere('orden_auto_estado', '!=', 'descartada'))
+            ->where(fn ($q) => $q
+                ->where(fn ($p) => $p->where('estado', 'pendiente')->where(fn ($v) => $v->whereNull('vence_at')->orWhere('vence_at', '>', now())))
+                ->orWhere(fn ($f) => $f->where('estado', 'firmado')->where('firmado_at', '>=', now()->subDays(self::DIAS_FIRMADO_EN_CURSO))))
+            ->latest('id')->limit(30)->get();
+
+        return response()->json($anexos->map(fn ($a) => $this->paraVendedor($a, conToken: true, request: $request))->values());
+    }
+
+    /**
+     * POST /api/anexos/{id}/crear-orden — "Crear la orden" con lo que se
+     * guardó al mandar el enlace. Para cuando el vendedor escogió esperar la
+     * firma, o cuando crearla sola no se pudo (el motivo queda a la vista).
+     * Se crea a nombre de quien mandó el enlace, por la puerta de siempre.
+     */
+    public function crearOrden(Request $request, int $id)
+    {
+        $anexo = $this->delVendedor($request, $id);
+        if (! $anexo->orden_id && empty($anexo->orden_pendiente)) {
+            return response()->json(['message' => 'Este enlace no trae la orden guardada: créala desde el formulario de Nueva orden.'], 422);
+        }
+
+        $r = \App\Services\OrdenDelAnexo::crear($anexo);
+        if (! empty($r['ocupado'])) {
+            return response()->json(['message' => $r['mensaje']], 409);
+        }
+        if (! $r['ok']) {
+            return response()->json(['message' => $r['mensaje'], 'anexo' => $this->paraVendedor($anexo->fresh(), conToken: true, request: $request)], 422);
+        }
+
+        return response()->json(['orden_id' => $r['orden_id'], 'referencia' => $r['referencia'] ?? null], 201);
+    }
+
+    /**
+     * PATCH /api/anexos/{id}/crear-al-firmar  { crear_al_firmar }
+     * Cambiar de idea mientras el cliente no ha firmado: que se cree sola, o
+     * esperar y crearla a mano.
+     */
+    public function cambiarCrearAlFirmar(Request $request, int $id)
+    {
+        $anexo = $this->delVendedor($request, $id);
+        $data  = $request->validate(['crear_al_firmar' => 'required|boolean']);
+
+        if ($anexo->estado !== 'pendiente' || empty($anexo->orden_pendiente)) {
+            return response()->json(['message' => 'Ya no se puede cambiar: el cliente ya firmó o el enlace no trae la orden.'], 422);
+        }
+        if ($data['crear_al_firmar'] && ! empty($anexo->resumen['precio_pendiente'])) {
+            return response()->json(['message' => 'Con productos de precio por consultar la orden no se crea sola.'], 422);
+        }
+        $anexo->update(['crear_al_firmar' => $data['crear_al_firmar']]);
+
+        return response()->json($this->paraVendedor($anexo->fresh(), conToken: true, request: $request));
     }
 
     /** GET /api/anexos/{id} — el estado, para quien lo está esperando. */
@@ -346,13 +494,17 @@ class AnexoGarantiaController extends Controller
 
     /**
      * POST /api/anexos/{id}/anular — "Cancelar envío": el enlace deja de
-     * servir. Solo lo que no se ha firmado; lo firmado es un documento.
+     * servir. Solo lo que no se ha firmado; lo firmado es un documento. Uno
+     * firmado cuya orden no se va a crear (el cliente desistió) se quita de
+     * la lista de Nueva orden, pero el documento queda.
      */
     public function anular(Request $request, int $id)
     {
         $anexo = $this->delVendedor($request, $id);
         if ($anexo->estado === 'pendiente' && ! $anexo->orden_id) {
             $anexo->update(['estado' => 'anulado']);
+        } elseif ($anexo->estaFirmado() && ! $anexo->orden_id && AnexoGarantia::guardaOrden()) {
+            $anexo->update(['orden_auto_estado' => 'descartada']);
         }
 
         return response()->json($this->paraVendedor($anexo->fresh(), request: $request));
@@ -627,6 +779,16 @@ class AnexoGarantiaController extends Controller
             'firma.required'     => 'Falta la firma.',
         ]);
 
+        // El pedido que ve el cliente (lo remoto con resumen): tiene que decir
+        // que lo revisó y que todo está bien —sus datos, los productos, el
+        // valor, la entrega— antes de firmar. Con esa firma se confirma la
+        // orden (y puede crearse sola), así que no basta con haberlo tenido en
+        // la pantalla.
+        $revisaPedido = ! empty($anexo->resumen);
+        if ($revisaPedido && ! $request->boolean('orden_revisada')) {
+            return response()->json(['message' => 'Marca que revisaste tu pedido y que todo está bien antes de firmar. Si algo no está bien, escríbele a tu asesor.'], 422);
+        }
+
         $faltan = array_diff($idsSecciones, $data['secciones']);
         if ($faltan) {
             return response()->json(['message' => 'Falta marcar como leídas ' . count($faltan) . ' sección(es) del anexo.'], 422);
@@ -679,6 +841,8 @@ class AnexoGarantiaController extends Controller
             'respuestas'         => json_encode([
                 'secciones' => array_values(array_intersect($idsSecciones, $data['secciones'])),
                 'checklist' => array_intersect_key($data['checklist'], array_flip($idsChecklist)),
+                // Dijo que revisó el pedido y que estaba bien (lo remoto).
+                ...($revisaPedido ? ['orden_revisada' => true] : []),
                 // Los datos con que firmó la declaración (el papel pedía
                 // dirección y teléfono): como estaban ese día, aunque cambien.
                 ...($anexo->tieneDeclaracion() ? ['declaracion' => [
@@ -718,11 +882,25 @@ class AnexoGarantiaController extends Controller
             }
         }
 
+        // El vendedor escogió que la orden se creara sola apenas firmara: va a
+        // la cola (el cliente no espera) y el aviso al vendedor lo manda ella,
+        // con la orden creada o con el motivo si no se pudo.
+        $seCreaSola = ! $orden && $anexo->crear_al_firmar && $anexo->tieneOrdenPendiente();
+        if ($seCreaSola) {
+            try {
+                \App\Jobs\CrearOrdenFirmada::dispatch($anexo->id);
+            } catch (\Throwable $e) {
+                // Sin cola: queda firmado y el vendedor la crea desde Nueva orden.
+                report($e);
+                $seCreaSola = false;
+            }
+        }
+
         // Al vendedor que lo está esperando: en la pantalla al instante y,
         // si la cerró, como notificación en el teléfono. Que el aviso falle
         // no deshace la firma.
         try { event(new AnexoFirmado($anexo->id)); } catch (\Throwable) {}
-        if ($anexo->modo === 'remoto' && $anexo->vendedor_id) {
+        if ($anexo->modo === 'remoto' && $anexo->vendedor_id && ! $seCreaSola) {
             try {
                 $cliente = Cliente::find($anexo->cliente_id)?->nombre ?? 'El cliente';
                 NotificacionService::crear(
@@ -789,6 +967,16 @@ class AnexoGarantiaController extends Controller
             // Lo que el cliente pidió cambiar en vez de firmar.
             'cambio_pedido'      => $anexo->cambio_pedido,
             'cambio_pedido_at'   => $anexo->cambio_pedido_at,
+            'vence_at'           => $anexo->vence_at,
+            'cliente_nombre'     => $anexo->cliente?->nombre,
+            'total'              => $anexo->resumen['total'] ?? null,
+            // La orden que viaja con el enlace (OrdenDelAnexo): si se guardó,
+            // si se crea sola al firmar y cómo le fue al crearla.
+            'orden_guardada'     => ! empty($anexo->orden_pendiente),
+            'crear_al_firmar'    => (bool) $anexo->crear_al_firmar,
+            'orden_auto_estado'  => $anexo->orden_auto_estado,
+            'orden_auto_error'   => $anexo->orden_auto_error,
+            'orden_revisada'     => (bool) ($anexo->respuestas['orden_revisada'] ?? false),
             ...($conToken ? [
                 'token' => $anexo->token,
                 'url'   => $this->enlace($anexo, $request),

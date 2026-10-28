@@ -497,6 +497,20 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Crear la orden al firmar a distancia** (2026-10-28, **subido a `main`** ese día, rama
+  `claude/order-signature-creation-flow-6841e1`, trae **migración**
+  `2026_11_04_000001_crear_orden_al_firmar`, solo agrega columnas a `anexos_garantia`).
+  Pedido del usuario: que el cliente vea toda la orden y la marque como revisada antes de
+  firmar; que el vendedor escoja antes de mandar el enlace si la orden se crea sola al firmar
+  o si espera y la crea él; y que "no se expire tan rápido". Hecho: la orden completa viaja
+  en el anexo (`Services/OrdenDelAnexo`, una sola puerta: `OrdenController::store` a nombre
+  del vendedor), enlace de 30 días (antes 7) y firmado retomable 30 días (antes 3), lista
+  "Pedidos enviados a firmar" en Nueva orden. Detalle en `docs/PROYECTO.md` §6.16.
+  Decisiones que tomé por defecto (**falta que el dueño confirme**): la opción viene en
+  "crear sola"; mandar el enlace ahora exige la orden completa (antes se podía mandar sin
+  anticipo/comprobante y llenarlo después); con precio por consultar no se crea sola. Trampa:
+  la cola (`queue:work`) tiene que estar viva para que se cree sola; si no, la firma queda y
+  el vendedor la crea desde la lista.
 - **Nueva orden a medio hacer se sigue en otro aparato** (2026-10-22, **subido a `main`** ese día, rama
   `claude/cross-device-order-sync-2ede47`, trae **migración**
   `2026_10_29_000001_crear_borradores_en_curso`, solo crea tabla). Queja del usuario: se

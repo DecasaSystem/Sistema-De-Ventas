@@ -126,6 +126,7 @@ class AnexoGarantiaTest extends TestCase
         $this->completarEsquemaDeEntregas();
 
         (require base_path('database/migrations/2026_10_12_000001_anexos_de_garantia.php'))->up();
+        (require base_path('database/migrations/2026_11_04_000001_crear_orden_al_firmar.php'))->up();
 
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Ana Ruiz', 'cedula' => '123', 'email' => 'ana@x.com', 'telefono' => '3001112233', 'direccion' => 'Cra 14 # 5-20', 'created_at' => now(), 'updated_at' => now()]);
@@ -171,6 +172,8 @@ class AnexoGarantiaTest extends TestCase
             'documento' => '123',
             // Una firma de verdad pesa varios KB; esta solo tiene que parecer un PNG.
             'firma'     => 'data:image/png;base64,' . base64_encode("\x89PNG\r\n\x1a\n" . str_repeat('x', 400)),
+            // Revisó el pedido que se le mostró y dijo que está bien.
+            'orden_revisada' => true,
         ], $extra);
     }
 
@@ -310,8 +313,10 @@ class AnexoGarantiaTest extends TestCase
         $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()
             ->assertJsonPath('id', $id)->assertJsonPath('estado', 'firmado');
 
-        // Firmado hace días es de otra venta que no se cerró: no se retoma.
+        // Firmado hace más de un mes es de otra venta que no se cerró: no se retoma.
         AnexoGarantia::whereKey($id)->update(['firmado_at' => now()->subDays(5)]);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertJsonPath('id', $id);
+        AnexoGarantia::whereKey($id)->update(['firmado_at' => now()->subDays(31)]);
         $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
 
         // Ni el cancelado ni el vencido.
@@ -591,5 +596,189 @@ class AnexoGarantiaTest extends TestCase
         $this->assertSame(\App\Support\AnexoGarantiaTexto::VERSION, AnexoGarantia::find($id)->version);
         $this->getJson("/api/public/anexos/{$token}")->assertOk()
             ->assertJsonPath('contenido.titulo', \App\Support\AnexoGarantiaTexto::TITULO);
+    }
+
+    // ── La orden viaja con el enlace (2026-10-28) ────────────────────────────
+
+    /** La orden como la manda Nueva orden a POST /ordenes. */
+    private function ordenCompleta(int $cantidad = 1, array $extra = []): array
+    {
+        return $extra + [
+            'clave_envio' => 'clave-de-prueba', 'tienda_id' => 1, 'canal' => 'whatsapp', 'tipo' => 'venta',
+            'anticipo_monto' => 0, 'cliente_id' => 1,
+            'items' => [['producto_id' => 5, 'cantidad' => $cantidad, 'precio_unitario' => 100000, 'es_personalizado' => false]],
+        ];
+    }
+
+    /** Manda el enlace con la orden guardada; devuelve [id, token]. */
+    private function anexoConOrden(Usuario $v, bool $crearSola, int $cantidad = 1, array $resumenExtra = []): array
+    {
+        $r = $this->actingAs($v)->postJson('/api/anexos', [
+            'cliente_id' => 1, 'modo' => 'remoto', 'crear_al_firmar' => $crearSola,
+            'resumen' => $resumenExtra + [
+                'total'  => 100000 * $cantidad,
+                'items'  => [['nombre' => 'Mesa', 'cantidad' => $cantidad, 'precio' => 100000]],
+                'lineas' => $this->lineas($cantidad),
+            ],
+            'orden' => $this->ordenCompleta($cantidad),
+        ])->assertCreated()
+            ->assertJsonPath('orden_guardada', true)
+            ->assertJsonPath('crear_al_firmar', $crearSola);
+
+        return [$r->json('id'), $r->json('token')];
+    }
+
+    public function test_el_cliente_tiene_que_marcar_que_reviso_su_pedido(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoRemoto($v);
+
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas(['orden_revisada' => false]))
+            ->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'revisaste tu pedido'));
+        $this->assertSame('pendiente', AnexoGarantia::find($id)->estado);
+
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+        $this->assertTrue(AnexoGarantia::find($id)->respuestas['orden_revisada']);
+        $this->actingAs($v)->getJson("/api/anexos/{$id}")->assertJsonPath('orden_revisada', true);
+    }
+
+    public function test_el_enlace_dura_un_mes(): void
+    {
+        [$id] = $this->anexoRemoto($this->vendedor());
+
+        $vence = AnexoGarantia::find($id)->vence_at;
+        $this->assertTrue($vence->greaterThan(now()->addDays(29)) && $vence->lessThanOrEqualTo(now()->addDays(30)));
+    }
+
+    public function test_la_orden_se_crea_sola_apenas_el_cliente_firma(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoConOrden($v, crearSola: true);
+        $this->assertSame(0, Orden::count(), 'antes de firmar no hay orden');
+
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+
+        $this->assertNull(AnexoGarantia::find($id)->orden_auto_error);
+        $orden = Orden::sole();
+        $anexo = AnexoGarantia::find($id);
+        $this->assertSame($orden->id, (int) $anexo->orden_id);
+        $this->assertSame('creada', $anexo->orden_auto_estado);
+        $this->assertSame((int) $v->id, (int) $orden->vendedor_id, 'a nombre de quien mandó el enlace');
+        $this->assertSame('https://res.cloudinary.com/x/firma.png', $orden->firma_url);
+        $this->assertSame(1, (int) DB::table('inventario')->where('producto_id', 5)->value('cantidad_reservada'));
+
+        // Un solo aviso, el de la orden creada (no el de "ya puedes crearla").
+        $avisos = DB::table('notificaciones')->where('usuario_id', $v->id)->where('tipo', 'anexo_firmado')->get();
+        $this->assertCount(1, $avisos);
+        $this->assertSame($orden->id, json_decode($avisos[0]->datos, true)['orden_id']);
+
+        // El vendedor, que seguía en Nueva orden, le da "Crear orden": no sale otra.
+        $this->actingAs($v)->postJson('/api/ordenes', $this->ordenCompleta() + ['anexo_id' => $id])->assertStatus(422);
+        $this->actingAs($v)->postJson("/api/anexos/{$id}/crear-orden")->assertCreated()->assertJsonPath('orden_id', $orden->id);
+        $this->assertSame(1, Orden::count());
+
+        // Ya tiene orden: no sale en la lista de Nueva orden.
+        $this->actingAs($v)->getJson('/api/anexos/sin-orden')->assertOk()->assertExactJson([]);
+    }
+
+    public function test_esperando_la_firma_el_vendedor_crea_la_orden_cuando_quiera(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoConOrden($v, crearSola: false);
+
+        // Sale en Nueva orden aunque el formulario ya no esté.
+        $this->actingAs($v)->getJson('/api/anexos/sin-orden')->assertOk()
+            ->assertJsonCount(1)->assertJsonPath('0.id', $id)->assertJsonPath('0.estado', 'pendiente')
+            ->assertJsonPath('0.cliente_nombre', 'Ana Ruiz');
+        // Sin firma no se crea.
+        $this->actingAs($v)->postJson("/api/anexos/{$id}/crear-orden")->assertStatus(422);
+
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+        $this->assertSame(0, Orden::count(), 'esperó: no se creó sola');
+        $this->assertSame(1, DB::table('notificaciones')->where('usuario_id', $v->id)->where('tipo', 'anexo_firmado')->count());
+
+        // Tres semanas después sigue ahí y se crea.
+        $this->travel(21)->days();
+        $this->actingAs($v)->getJson('/api/anexos/sin-orden')->assertOk()->assertJsonPath('0.estado', 'firmado');
+        $r = $this->actingAs($v)->postJson("/api/anexos/{$id}/crear-orden")->assertCreated();
+        $this->assertSame((int) $r->json('orden_id'), (int) AnexoGarantia::find($id)->orden_id);
+        $this->assertSame(1, Orden::count());
+
+        // Otro vendedor no puede crear la de otro.
+        $otro = Usuario::create(['nombre' => 'Otro', 'email' => 'o@d.com', 'password' => 'x', 'rol' => 'vendedor', 'created_at' => now()]);
+        $this->actingAs($otro)->postJson("/api/anexos/{$id}/crear-orden")->assertForbidden();
+    }
+
+    public function test_si_no_se_puede_crear_sola_queda_el_motivo_y_se_crea_a_mano(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoConOrden($v, crearSola: true);
+        // Mientras el cliente se demoraba, se vendió lo que había.
+        DB::table('inventario')->where('producto_id', 5)->update(['cantidad_disponible' => 0]);
+
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+
+        $this->assertSame(0, Orden::count());
+        $anexo = AnexoGarantia::find($id);
+        $this->assertSame('firmado', $anexo->estado, 'la firma queda aunque la orden no se cree');
+        $this->assertSame('fallo', $anexo->orden_auto_estado);
+        $this->assertNotEmpty($anexo->orden_auto_error);
+        $aviso = DB::table('notificaciones')->where('usuario_id', $v->id)->where('tipo', 'anexo_firmado')->sole();
+        $this->assertStringContainsString('no se pudo crear sola', $aviso->mensaje);
+
+        $this->actingAs($v)->getJson('/api/anexos/sin-orden')->assertOk()
+            ->assertJsonPath('0.orden_auto_estado', 'fallo');
+
+        // Llegó mercancía: el vendedor la crea desde Nueva orden.
+        DB::table('inventario')->where('producto_id', 5)->update(['cantidad_disponible' => 3]);
+        $this->actingAs($v)->postJson("/api/anexos/{$id}/crear-orden")->assertCreated();
+        $this->assertSame('creada', AnexoGarantia::find($id)->orden_auto_estado);
+
+        // Un firmado que no se va a crear se quita de la lista; el documento queda.
+        [$id2, $token2] = $this->anexoConOrden($v, crearSola: false);
+        $this->postJson("/api/public/anexos/{$token2}/firmar", $this->respuestas())->assertOk();
+        $this->actingAs($v)->postJson("/api/anexos/{$id2}/anular")->assertOk();
+        $this->assertSame('firmado', AnexoGarantia::find($id2)->estado);
+        $this->actingAs($v)->getJson('/api/anexos/sin-orden')->assertOk()->assertExactJson([]);
+    }
+
+    public function test_la_orden_guardada_tiene_que_ser_la_que_ve_el_cliente(): void
+    {
+        $v = $this->vendedor();
+        $base = [
+            'cliente_id' => 1, 'modo' => 'remoto',
+            'resumen' => ['total' => 100000, 'items' => [['nombre' => 'Mesa', 'cantidad' => 1, 'precio' => 100000]], 'lineas' => $this->lineas(1)],
+        ];
+
+        // Se guarda una orden de 2 mesas y el cliente ve 1: no.
+        $this->actingAs($v)->postJson('/api/anexos', $base + ['orden' => $this->ordenCompleta(2), 'crear_al_firmar' => true])
+            ->assertStatus(422);
+        // Crearla sola sin la orden: no hay con qué.
+        $this->actingAs($v)->postJson('/api/anexos', $base + ['crear_al_firmar' => true])->assertStatus(422);
+        // Con precio por consultar se crea a mano (hay que pedir la consulta de costo).
+        $conPendiente = $base;
+        $conPendiente['resumen']['precio_pendiente'] = true;
+        $this->actingAs($v)->postJson('/api/anexos', $conPendiente + ['orden' => $this->ordenCompleta(1), 'crear_al_firmar' => true])
+            ->assertStatus(422);
+        $this->actingAs($v)->postJson('/api/anexos', $conPendiente + ['orden' => $this->ordenCompleta(1), 'crear_al_firmar' => false])
+            ->assertCreated();
+
+        // La orden guardada no sale en el detalle de la orden ni a quien no la mandó.
+        [$id] = $this->anexoConOrden($v, crearSola: false);
+        $this->assertArrayNotHasKey('orden_pendiente', AnexoGarantia::find($id)->toArray());
+    }
+
+    public function test_mientras_espera_puede_cambiar_de_idea(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoConOrden($v, crearSola: false);
+
+        $this->actingAs($v)->patchJson("/api/anexos/{$id}/crear-al-firmar", ['crear_al_firmar' => true])
+            ->assertOk()->assertJsonPath('crear_al_firmar', true);
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+        $this->assertSame(1, Orden::count());
+
+        // Ya firmado no se cambia.
+        $this->actingAs($v)->patchJson("/api/anexos/{$id}/crear-al-firmar", ['crear_al_firmar' => false])->assertStatus(422);
     }
 }
