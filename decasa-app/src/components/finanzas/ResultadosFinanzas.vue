@@ -3,9 +3,10 @@
 // devengado: cada peso va al mes al que pertenece, no al que entró o salió.
 import { ref, computed, watch } from 'vue'
 import { ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
-import { getEstadoResultados, exportarResultados, cerrarMes, reabrirMes } from '@/api/finanzas'
+import { getEstadoResultados, exportarResultados, cerrarMes, reabrirMes, getFoto } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, mesActual, sumarMeses, nombreMes, NOMBRE_AREA } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
+import FotoAviso from './FotoAviso.vue'
 import { useToast } from '@/composables/useToast'
 import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
@@ -14,6 +15,8 @@ const toast = useToast()
 
 const meses = ref(6)
 const cargando = ref(true)
+// La hora de la foto del servidor que se está mostrando (null = lo recién traído).
+const fotoAt = ref(null)
 const datos = ref(null)
 const bajando = ref(false)
 
@@ -27,10 +30,20 @@ async function cargar() {
   // Lo último que se vio de ese rango, al instante, mientras llega lo nuevo (memoriaFinanzas).
   const antes = recordado(`resultados:${rango}:${hasta}`)
   if (antes) datos.value = antes
+  fotoAt.value = null
   cargando.value = true
+  // Sin nada en memoria, la última foto del servidor mientras se calcula.
+  if (!antes) {
+    getFoto('estado-resultados', { desde: rango, hasta }).then(f => {
+      if (!f || yo !== pedido || !cargando.value) return
+      datos.value = f.datos
+      fotoAt.value = f.foto_at
+    })
+  }
   try {
     const { data } = await getEstadoResultados(rango, hasta)
     if (yo !== pedido) return   // ya cambiaron el rango
+    fotoAt.value = null
     datos.value = data
     recordar(`resultados:${rango}:${hasta}`, data)
   } catch {
@@ -195,6 +208,7 @@ async function exportar() {
       </button>
     </div>
 
+    <FotoAviso :fecha="cargando ? fotoAt : null" />
     <div v-if="cargando && !datos" class="flex justify-center py-16"><AppSpinner /></div>
 
     <template v-else-if="datos">

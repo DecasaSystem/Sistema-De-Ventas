@@ -7,7 +7,14 @@ import { comprimirImagen } from '@/utils/comprimirImagen'
 // serie: los 12 meses de la gráfica en la misma respuesta.
 export const getResumen          = (mes, { serie = false, silencioso = false } = {}) =>
   api.get('/finanzas/resumen', { params: serie ? { mes, serie: 1 } : { mes }, silencioso })
-export const getEstadoResultados = (desde, hasta) => api.get('/finanzas/estado-resultados', { params: { desde, hasta } })
+// La última foto que guardó el servidor de una pantalla (`ruta` y `params`
+// iguales a los de su petición normal): { datos, foto_at }, o null si no hay.
+// Sale en un momento porque no calcula nada; se pinta mientras llega lo nuevo.
+export const getFoto = (ruta, params = {}) =>
+  api.get(`/finanzas/${ruta}`, { params: { ...params, foto: 1 }, silencioso: true })
+    .then(r => (r.status === 204 || !r.data?.datos ? null : r.data))
+    .catch(() => null)
+export const getEstadoResultados =(desde, hasta) => api.get('/finanzas/estado-resultados', { params: { desde, hasta } })
 export const getFlujoCaja        = (desde, hasta) => api.get('/finanzas/flujo-caja', { params: { desde, hasta } })
 export const getCalendario       = (dias = 45) => api.get('/finanzas/calendario', { params: { dias } })
 export const getProyeccion       = (meses = 3) => api.get('/finanzas/proyeccion', { params: { meses } })

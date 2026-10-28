@@ -71,12 +71,14 @@ class FuenteComisiones
             $out[$mes][$clave] += $v;
         };
 
-        $pagadas = DB::table('comisiones')->where('estado', 'pagada')->whereBetween('fecha_pago', $rango)
-            ->selectRaw(Periodo::sqlMes('fecha_pago') . ' AS mes, SUM(COALESCE(monto_comision, 0)) AS total')
-            ->groupBy('mes')->get();
-        foreach ($pagadas as $f) {
-            $poner($f->mes, 'pagado', (float) $f->total);
-        }
+        // Las cuatro sumas van en UNA consulta (UNION ALL), cada fila con su
+        // `tipo`: eran cuatro viajes a Aiven (~200 ms cada uno) en el resumen y
+        // en el flujo de caja. Cada parte agrupa por su expresión, no por un
+        // alias (ver el GROUP BY de abajo).
+        $mesPagada = Periodo::sqlMes('fecha_pago');
+        $consulta = DB::table('comisiones')->where('estado', 'pagada')->whereBetween('fecha_pago', $rango)
+            ->selectRaw("'pagadas' AS tipo, {$mesPagada} AS mes, SUM(COALESCE(monto_comision, 0)) AS total")
+            ->groupByRaw($mesPagada);
 
         if (self::hayAnticipos()) {
             // Lo descontado de anticipos no salió el día del pago: ya había salido.
@@ -87,35 +89,42 @@ class FuenteComisiones
             // /finanzas/resumen y /finanzas/flujo-caja (2026-10-10). SQLite usa
             // el alias, por eso las pruebas no lo veían.
             $mesPago = Periodo::sqlMes('c.fecha_pago');
-            $descuentos = DB::table('comision_anticipos as a')->join('comisiones as c', 'c.id', '=', 'a.comision_id')
+            $consulta->unionAll(DB::table('comision_anticipos as a')->join('comisiones as c', 'c.id', '=', 'a.comision_id')
                 ->where('a.tipo', 'descuento')->where('c.estado', 'pagada')
                 ->whereBetween('c.fecha_pago', $rango)
-                ->selectRaw($mesPago . ' AS mes_pago, SUM(a.monto) AS total')
-                ->groupByRaw($mesPago)->get();
-            foreach ($descuentos as $f) {
-                $poner($f->mes_pago, 'pagado', -(float) $f->total);
-            }
+                ->selectRaw("'descuentos' AS tipo, {$mesPago} AS mes, SUM(a.monto) AS total")
+                ->groupByRaw($mesPago));
 
-            $anticipos = DB::table('comision_anticipos')->where('tipo', 'anticipo')
+            $consulta->unionAll(DB::table('comision_anticipos')->where('tipo', 'anticipo')
                 ->where(fn ($q) => $q->whereNull('clave')
                     ->orWhere('clave', 'not like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%'))
                 ->whereBetween('mes', [$desde, $hasta])
-                ->selectRaw('mes, SUM(monto) AS total')->groupBy('mes')->get();
-            foreach ($anticipos as $f) {
-                $poner($f->mes, 'anticipos', (float) $f->total);
-            }
+                ->selectRaw("'anticipos' AS tipo, mes, SUM(monto) AS total")->groupBy('mes'));
 
             // Un abono es de la comisión de un mes que ya pasó (agosto), pero la
             // plata salió el día que se dio (octubre): cuenta en la caja de ese día.
             $mesAbono = Periodo::sqlMes('created_at');
-            $abonos = DB::table('comision_anticipos')->where('tipo', 'anticipo')
+            $consulta->unionAll(DB::table('comision_anticipos')->where('tipo', 'anticipo')
                 ->where('clave', 'like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%')
                 ->whereBetween('created_at', $rango)
-                ->selectRaw($mesAbono . ' AS mes_abono, SUM(monto) AS total')
-                ->groupByRaw($mesAbono)->get();
-            foreach ($abonos as $f) {
-                $poner($f->mes_abono, 'anticipos', (float) $f->total);
-            }
+                ->selectRaw("'abonos' AS tipo, {$mesAbono} AS mes, SUM(monto) AS total")
+                ->groupByRaw($mesAbono));
+        }
+
+        // Se suman en el mismo orden de antes (pagadas, descuentos, anticipos,
+        // abonos), sin depender del orden en que la base devuelva las filas.
+        $filas = $consulta->get()->groupBy('tipo');
+        foreach ($filas->get('pagadas', []) as $f) {
+            $poner($f->mes, 'pagado', (float) $f->total);
+        }
+        foreach ($filas->get('descuentos', []) as $f) {
+            $poner($f->mes, 'pagado', -(float) $f->total);
+        }
+        foreach ($filas->get('anticipos', []) as $f) {
+            $poner($f->mes, 'anticipos', (float) $f->total);
+        }
+        foreach ($filas->get('abonos', []) as $f) {
+            $poner($f->mes, 'anticipos', (float) $f->total);
         }
 
         foreach ($out as $mes => $m) {

@@ -29,9 +29,12 @@ class Periodo
      * una petición nueva y nunca ve lo de la anterior, aunque haya registrado
      * un gasto en medio.
      *
+     * `$mesesAtras`: lo que se carga hacia atrás de una vez. Las ventas usan 24
+     * porque la proyección mira dos años; con 15 se volvían a pedir.
+     *
      * @param  callable(string $desde, string $hasta): array<string, mixed>  $cargar
      */
-    public static function porMesRecordado(string $clave, string $desde, string $hasta, callable $cargar): array
+    public static function porMesRecordado(string $clave, string $desde, string $hasta, callable $cargar, int $mesesAtras = 15): array
     {
         $req = app()->bound('request') ? app('request') : null;
         if (! $req) return $cargar($desde, $hasta);
@@ -42,7 +45,7 @@ class Periodo
 
         if (! $c || $desde < $c['desde'] || $hasta > $c['hasta']) {
             $actual = self::mesActual();
-            $lo = min($desde, self::sumarMeses($actual, -15), $c['desde'] ?? $desde);
+            $lo = min($desde, self::sumarMeses($actual, -$mesesAtras), $c['desde'] ?? $desde);
             $hi = max($hasta, $actual, $c['hasta'] ?? $hasta);
             $c = ['desde' => $lo, 'hasta' => $hi, 'datos' => $cargar($lo, $hi)];
             self::guardarRecordado($req, $clave, $c);

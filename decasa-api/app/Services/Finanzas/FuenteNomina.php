@@ -238,6 +238,16 @@ class FuenteNomina
         return Periodo::recordar('nomina-pendientes', fn () => NominaLiquidador::pendientes(CicloNomina::hoy(), self::empleados()));
     }
 
+    /**
+     * Lo devengado sin pagar como lo pide Prestaciones (vencimientos de prima
+     * y cesantías), con los trabajadores y ciclos que ya se cargaron aquí: sin
+     * esto el calendario y el flujo los volvían a leer por cada vencimiento.
+     */
+    public static function sinPagar(): array
+    {
+        return Periodo::recordar('nomina-sin-pagar', fn () => \App\Services\Prestaciones::sinPagar(null, self::empleados(), self::pendientes()));
+    }
+
     private static function sumarLiquidacion(array &$out, array $meses, array $l, ?Usuario $e, string $hasta): void
     {
         $bruto = $l['subtotal'] + $l['auxilio_transporte'] - $l['descuento_faltas']

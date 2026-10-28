@@ -6,10 +6,11 @@ import {
   ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationTriangleIcon, CheckCircleIcon,
   InformationCircleIcon, ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
-import { getResumen } from '@/api/finanzas'
+import { getResumen, getFoto } from '@/api/finanzas'
 import { recordado, recordar } from '@/utils/memoriaFinanzas'
 import { pesos, pesosCorto, pct, sumarMeses, nombreMes, fechaCorta } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
+import FotoAviso from './FotoAviso.vue'
 import { useToast } from '@/composables/useToast'
 
 const props = defineProps({ mes: String, version: Number })
@@ -35,6 +36,8 @@ function pintar(r) {
 // recordado: tienen el botón "Pagar" y uno viejo invitaría a pagar dos veces.
 // null = todavía cargando.
 const proximos = ref(null)
+// La hora de la foto del servidor que se está mostrando (null = lo recién traído).
+const fotoAt = ref(null)
 
 let pedido = 0
 async function cargar() {
@@ -46,10 +49,21 @@ async function cargar() {
   const antes = recordado(`resumen:${mes}`)
   if (antes) pintar(antes)
   else datos.value = null
+  fotoAt.value = null
   cargando.value = true
+  // Sin nada en memoria (recién abierta la app), la última foto del servidor
+  // mientras se calcula: llega en un momento. Viene sin los próximos pagos.
+  if (!antes) {
+    getFoto('resumen', { mes, serie: 1 }).then(f => {
+      if (!f || yo !== pedido || !cargando.value) return
+      pintar(f.datos)
+      fotoAt.value = f.foto_at
+    })
+  }
   try {
     const { data } = await getResumen(mes, { serie: true, silencioso: !!antes })
     if (yo !== pedido) return   // ya cambiaron de mes
+    fotoAt.value = null
     recordar(`resumen:${mes}`, data)
     pintar(data)
     proximos.value = data.proximos ?? []
@@ -235,6 +249,7 @@ const ICONO_TIPO = { nomina: '👥', comisiones: '🎯', gasto: '🧾', impuesto
 </script>
 
 <template>
+  <FotoAviso :fecha="cargando ? fotoAt : null" />
   <div v-if="cargando && !datos" class="flex justify-center py-16"><AppSpinner /></div>
 
   <div v-else-if="m" class="space-y-4" :class="cargando && 'opacity-60'">

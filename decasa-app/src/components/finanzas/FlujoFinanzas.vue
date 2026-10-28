@@ -4,10 +4,11 @@
 // mucho; por eso va aparte del estado de resultados.
 import { ref, computed, watch } from 'vue'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { getFlujoCaja, getCalendario, getAjustes, guardarAjustes } from '@/api/finanzas'
+import { getFlujoCaja, getCalendario, getAjustes, guardarAjustes, getFoto } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, mesActual, sumarMeses, nombreMes, fechaCorta } from '@/utils/finanzas'
 import InputPesos from '@/components/common/InputPesos.vue'
 import GraficaFinanzas from './GraficaFinanzas.vue'
+import FotoAviso from './FotoAviso.vue'
 import { useToast } from '@/composables/useToast'
 import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
@@ -19,15 +20,29 @@ const flujo = ref(null)
 const calendario = ref([])
 const editandoSaldo = ref(false)
 const formSaldo = ref({ saldo_inicial: null, saldo_fecha: sumarMeses(mesActual(), -1) })
+// La hora de la foto del servidor que se está mostrando (null = lo recién traído).
+const fotoAt = ref(null)
 
 async function cargar() {
   // Lo último que se vio, al instante, mientras llega lo nuevo (memoriaFinanzas).
   const antes = recordado('flujo')
   if (antes && !flujo.value) [flujo.value, calendario.value] = antes
   cargando.value = true
+  const actual = mesActual()
+  // Recién abierta la app no hay nada en memoria: la última foto del
+  // servidor mientras se calcula (aquí el calendario no tiene botón Pagar).
+  if (!antes && !flujo.value) {
+    Promise.all([getFoto('flujo-caja', { desde: sumarMeses(actual, -5), hasta: actual }), getFoto('calendario', { dias: 45 })])
+      .then(([f, c]) => {
+        if (!f || !cargando.value || flujo.value) return
+        flujo.value = f.datos
+        calendario.value = c?.datos ?? []
+        fotoAt.value = f.foto_at
+      })
+  }
   try {
-    const actual = mesActual()
     const [f, c, a] = await Promise.all([getFlujoCaja(sumarMeses(actual, -5), actual), getCalendario(45), getAjustes()])
+    fotoAt.value = null
     flujo.value = f.data
     calendario.value = c.data
     recordar('flujo', [f.data, c.data])
@@ -152,6 +167,7 @@ const ICONO_TIPO = { nomina: '👥', comisiones: '🎯', gasto: '🧾', impuesto
 </script>
 
 <template>
+  <FotoAviso :fecha="cargando ? fotoAt : null" />
   <div v-if="cargando && !flujo" class="flex justify-center py-16"><AppSpinner /></div>
 
   <div v-else-if="flujo" class="space-y-4" :class="cargando && 'opacity-60'">

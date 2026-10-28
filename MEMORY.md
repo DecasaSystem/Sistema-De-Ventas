@@ -659,6 +659,30 @@ escribiendo precios (Fase 1b).
   solo memoria; Gastos y "Próximos pagos" nunca con datos viejos: tienen botón Pagar).
   Queda ~45 consultas × 200 ms: **lo que falta es terminar la mudanza a Virginia**
   (vercel.json sigue apuntando a `decasa-api-b91v`, Oregón).
+  2026-10-28 (rama `claude/finance-module-optimization-2ae343`, **sin subir**, sin
+  migración; queja: "se demora demasiado cargando"): medido en un proceso nuevo (como
+  Render: los estáticos se pierden en cada petición) eran resumen 50, flujo 48,
+  calendario 63. **Prestaciones::vencimientos** volvía a cargar trabajadores y ciclos
+  (~9 consultas) por CADA vencimiento en la ventana: de diciembre a febrero (prima,
+  intereses, cesantías) el resumen y el flujo sumaban ~27 de más. Ahora lo sin pagar se
+  arma una vez y Finanzas pasa lo ya cargado (`FuenteNomina::sinPagar`). Además: las 4
+  sumas de caja de comisiones en un UNION ALL, garantías 5 → 2 consultas, lo vendido se
+  carga 24 meses de una (la proyección pedía 24 y volvía a consultar) y la cartera por
+  antigüedad sin Carbon. Quedó resumen 44, flujo 36, calendario 36; prueba diferencial
+  idéntica byte a byte en 9 endpoints (con nómina, garantías, anticipos/abonos,
+  reembolsos y prestaciones sembrados: el script de siembra estaba en el scratchpad).
+  El PHP (sin la base) es ~1,5 s del resumen; la mitad es `CostoEmpleador::dePago` de
+  los pagos viejos sin costo congelado.
+  **Última foto en el servidor** (mismo día, pedido del dueño: "que Finanzas se pinte al
+  instante y se actualice por detrás"): cada cálculo de resumen, resultados, flujo,
+  calendario, proyección, por tienda y por canal deja su copia en la caché
+  (`Services/Finanzas/UltimaFoto`, 40 días) y `?foto=1` la devuelve sin calcular (2
+  consultas: las de la sesión). La pantalla, si no tiene nada en memoria, pide la foto y
+  lo nuevo a la vez, pinta la foto atenuada con "Cifras de las 3:40 p. m. · actualizando…"
+  (`FotoAviso.vue`) y la cambia cuando llega lo nuevo. **La foto del resumen va sin
+  `proximos`** (botón Pagar) y Gastos no tiene foto, por lo mismo. La foto vive en el
+  servidor, nunca en el aparato. Si se agrega otra pantalla pesada: `conFoto()` en
+  FinanzasController + `getFoto()` en la pantalla.
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
 - **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
   antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y

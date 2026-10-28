@@ -86,7 +86,7 @@ class CalendarioPagos
 
         // Prestaciones: la prima de junio y diciembre, los intereses de enero y
         // las cesantías de febrero, con lo que se va provisionando.
-        foreach (\App\Services\Prestaciones::vencimientos($hoy->copy()->subDays(30), $hasta) as $v) {
+        foreach (\App\Services\Prestaciones::vencimientos($hoy->copy()->subDays(30), $hasta, fn () => FuenteNomina::sinPagar()) as $v) {
             $vencido = $v['fecha'] < $hoy->toDateString();
             $items[] = [
                 'fecha' => $v['fecha'], 'tipo' => 'prestaciones', 'vencido' => $vencido, 'estimado' => $v['estimado'],

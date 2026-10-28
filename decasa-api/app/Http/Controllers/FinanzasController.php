@@ -12,6 +12,7 @@ use App\Services\Finanzas\Indicadores;
 use App\Services\Finanzas\Periodo;
 use App\Services\Finanzas\Proyeccion;
 use App\Services\Finanzas\RentabilidadTiendas;
+use App\Services\Finanzas\UltimaFoto;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -34,10 +35,20 @@ class FinanzasController extends Controller
     public function resumen(Request $request)
     {
         $mes = $this->mes($request);
+        $serie = $request->boolean('serie');
+
+        // La foto va sin los próximos pagos: tienen el botón Pagar.
+        return $this->conFoto($request, "resumen:{$mes}:" . (int) $serie,
+            fn () => $this->calcularResumen($mes, $serie),
+            fn (array $r) => array_merge($r, ['proximos' => null]));
+    }
+
+    private function calcularResumen(string $mes, bool $serie): array
+    {
         $anteriorMes = Periodo::sumarMeses($mes, -1);
         [$anterior, $actual] = EstadoResultados::meses($anteriorMes, $mes)['meses'];
 
-        return response()->json([
+        return [
             'mes'         => $actual,
             'anterior'    => [
                 'mes' => $anterior['mes'], 'nombre' => $anterior['nombre'], 'ventas' => $anterior['ventas'],
@@ -49,11 +60,11 @@ class FinanzasController extends Controller
             // ?serie=1: los 12 meses de la gráfica en la misma respuesta. La
             // pantalla los pedía aparte (estado-resultados) y esa petición volvía
             // a cargar ventas, nómina y gastos desde cero; aquí ya están cargados.
-            'serie'       => $request->boolean('serie')
+            'serie'       => $serie
                 ? EstadoResultados::meses(Periodo::sumarMeses($mes, -11), $mes)['meses']
                 : null,
             'actualizado' => now(Periodo::TZ)->toIso8601String(),
-        ]);
+        ];
     }
 
     /** GET /api/finanzas/estado-resultados?desde=YYYY-MM&hasta=YYYY-MM (hasta 24 meses) */
@@ -61,7 +72,7 @@ class FinanzasController extends Controller
     {
         [$desde, $hasta] = $this->rango($request, 6);
 
-        return response()->json(EstadoResultados::meses($desde, $hasta));
+        return $this->conFoto($request, "resultados:{$desde}:{$hasta}", fn () => EstadoResultados::meses($desde, $hasta));
     }
 
     /** GET /api/finanzas/flujo-caja?desde=&hasta= — por mes, y las próximas 13 semanas. */
@@ -69,7 +80,7 @@ class FinanzasController extends Controller
     {
         [$desde, $hasta] = $this->rango($request, 6);
 
-        return response()->json(FlujoDeCaja::meses($desde, $hasta) + [
+        return $this->conFoto($request, "flujo:{$desde}:{$hasta}", fn () => FlujoDeCaja::meses($desde, $hasta) + [
             'semanal' => Proyeccion::flujoSemanal(13),
         ]);
     }
@@ -79,7 +90,7 @@ class FinanzasController extends Controller
     {
         $dias = min(120, max(7, (int) $request->query('dias', 45)));
 
-        return response()->json(CalendarioPagos::proximos($dias));
+        return $this->conFoto($request, "calendario:{$dias}", fn () => CalendarioPagos::proximos($dias));
     }
 
     /** GET /api/finanzas/proyeccion?meses=3 */
@@ -87,7 +98,7 @@ class FinanzasController extends Controller
     {
         $meses = min(6, max(1, (int) $request->query('meses', 3)));
 
-        return response()->json(Proyeccion::resultados($meses) + [
+        return $this->conFoto($request, "proyeccion:{$meses}", fn () => Proyeccion::resultados($meses) + [
             'punto_equilibrio' => [
                 'costos_fijos' => Proyeccion::proporciones()['costos_fijos_promedio'],
                 'margen_contribucion' => Proyeccion::proporciones()['margen_contribucion'],
@@ -98,13 +109,17 @@ class FinanzasController extends Controller
     /** GET /api/finanzas/por-tienda?mes=YYYY-MM */
     public function porTienda(Request $request)
     {
-        return response()->json(RentabilidadTiendas::mes($this->mes($request)));
+        $mes = $this->mes($request);
+
+        return $this->conFoto($request, "tiendas:{$mes}", fn () => RentabilidadTiendas::mes($mes));
     }
 
     /** GET /api/finanzas/por-canal?mes=YYYY-MM — ventas por canal contra la publicidad de cada uno. */
     public function porCanal(Request $request)
     {
-        return response()->json(FuenteGarantiasYCanales::canales($this->mes($request)));
+        $mes = $this->mes($request);
+
+        return $this->conFoto($request, "canales:{$mes}", fn () => FuenteGarantiasYCanales::canales($mes));
     }
 
     /** GET /api/finanzas/cierres */
@@ -196,6 +211,28 @@ class FinanzasController extends Controller
                 'Devengado. Materiales estimados con fichas técnicas; comisiones no pagadas al día de hoy.'),
             "estado_resultados_{$desde}_{$hasta}.xlsx"
         );
+    }
+
+    /**
+     * Calcula y deja la foto (UltimaFoto), o con `?foto=1` devuelve la última
+     * foto sin calcular nada: `{datos, foto_at}`, o 204 si todavía no hay.
+     * La pantalla pide las dos a la vez y pinta la foto mientras llega lo nuevo.
+     *
+     * @param \Closure(): array $calcular
+     * @param (\Closure(array): array)|null $paraFoto  lo que no debe quedar en la foto
+     */
+    private function conFoto(Request $request, string $clave, \Closure $calcular, ?\Closure $paraFoto = null)
+    {
+        if ($request->boolean('foto')) {
+            $foto = UltimaFoto::leer($clave);
+
+            return $foto ? response()->json($foto) : response()->noContent();
+        }
+
+        $datos = $calcular();
+        UltimaFoto::guardar($clave, $paraFoto ? $paraFoto($datos) : $datos);
+
+        return response()->json($datos);
     }
 
     private function mes(Request $request): string

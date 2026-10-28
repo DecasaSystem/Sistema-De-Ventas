@@ -217,7 +217,7 @@ class Proyeccion
         }
 
         // Prima, cesantías e intereses en su fecha límite (lo vencido sin pagar, ya).
-        foreach (\App\Services\Prestaciones::vencimientos($hoy->copy()->subDays(60), $fin) as $v) {
+        foreach (\App\Services\Prestaciones::vencimientos($hoy->copy()->subDays(60), $fin, fn () => FuenteNomina::sinPagar()) as $v) {
             $i = $semanaDe($v['fecha']);
             if ($i !== null) $filas[$i]['nomina'] += $v['monto'];
         }
