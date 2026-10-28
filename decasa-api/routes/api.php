@@ -667,6 +667,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/produccion/producir', [ProduccionController::class, 'producir']);
     Route::patch('/produccion/{id}', [ProduccionController::class, 'update'])->whereNumber('id');
 
+    // Carga de trabajo: órdenes por entregar, piezas sin arrancar, cola de
+    // cada paso. Solo lee (ver App\Services\CargaDeTrabajo).
+    Route::get('/carga-trabajo', [\App\Http\Controllers\CargaTrabajoController::class, 'index']);
+
     // Producción — flujo de pasos (ebanista y tapicero-supervisor)
     Route::get('/produccion/mis-pasos',                        [ProduccionController::class, 'misPasos']);
     Route::get('/produccion/historial-pasos',                  [ProduccionController::class, 'historialPasos']);

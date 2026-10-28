@@ -3,8 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useAuthStore } from '@/stores/auth'
-import { useRouter } from 'vue-router'
-import { MapPinIcon, Cog6ToothIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
+import { useRouter, useRoute } from 'vue-router'
+import { MapPinIcon, Cog6ToothIcon, UserGroupIcon, QueueListIcon } from '@heroicons/vue/24/outline'
 import { MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import {
   MagnifyingGlassIcon,
@@ -36,6 +36,7 @@ import { fichaEnUnaLinea } from '@/utils/declaracionEspeciales'
 
 const auth   = useAuthStore()
 const router = useRouter()
+const route  = useRoute()
 const toast  = useToast()
 
 const producciones = ref([])
@@ -67,6 +68,17 @@ const filtros = ref({
 
 // Al volver de una orden (o entrar otra vez por el menú) siguen puestos.
 useFiltrosRecordados('produccion', { filtros, busqueda, porEntregar })
+
+// Desde Carga de trabajo se llega con el filtro en la dirección (?estado=,
+// ?tienda_id=). Manda sobre lo recordado y se limpia de la dirección.
+{
+  const q = route.query
+  if (q.estado || q.tienda_id) {
+    filtros.value = { estado: String(q.estado ?? ''), tienda_id: q.tienda_id ? Number(q.tienda_id) : '' }
+    busqueda.value = ''
+    router.replace({ query: {} })
+  }
+}
 
 // Como ahora se quedan puestos, el botón avisa: si no, una lista corta parece
 // que le faltan piezas.
@@ -715,6 +727,15 @@ onUnmounted(() => {
     <!-- Header. Envuelve porque en un teléfono no caben los cuatro botones. -->
     <div class="flex items-center flex-wrap gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Producción</h2>
+      <button
+        v-if="auth.isSupervisor || auth.puedeProduccion"
+        @click="router.push({ name: 'carga-trabajo' })"
+        class="text-sm text-gray-600 font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors flex items-center gap-1"
+        title="Cuántas piezas hay, cuáles no han arrancado y cuántas le esperan a cada paso"
+      >
+        <QueueListIcon class="w-4 h-4" />
+        Carga
+      </button>
       <button
         @click="alternarPorEntregar"
         :title="porEntregar ? 'Volver al orden por estado' : 'Ver primero lo que se entrega antes'"

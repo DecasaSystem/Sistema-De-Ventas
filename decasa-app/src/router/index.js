@@ -33,6 +33,8 @@ const routes = [
   { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/inventario', name: 'inventario', component: () => import('@/views/InventarioView.vue'), meta: { requiresAuth: true } },
   { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresProduccion: true } },
+  // Cuánto trabajo hay: supervisor o quien ve producción (el backend lo vuelve a mirar).
+  { path: '/carga-trabajo', name: 'carga-trabajo', component: () => import('@/views/CargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
   { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true } },
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
@@ -166,6 +168,7 @@ router.beforeEach((to) => {
   // Producción se activa por trabajador, sea cual sea su cargo. El vendedor
   // entra igual: ahí ve sus propios pedidos.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return { name: 'dashboard' }
+  if (to.meta.requiresCargaTrabajo && !(auth.isSupervisor || auth.puedeProduccion)) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }

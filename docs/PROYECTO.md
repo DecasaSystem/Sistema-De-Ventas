@@ -391,6 +391,32 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - Permisos: `acceso_produccion` (ver tablero), `gestiona_produccion` (mover),
   o tener pasos asignados. Job diario marca retrasos.
 
+### 6.8b Carga de trabajo (órdenes + taller)
+`CargaTrabajoController` (`GET /api/carga-trabajo?tienda_id=`), `Services/CargaDeTrabajo`,
+`CargaTrabajoView` (`/carga-trabajo`, acceso desde el Home y el botón "Carga" de
+Producción). Lo ven el supervisor y quien ve producción. **Solo lee** y no trae plata.
+Pedido del dueño (2026-10-28): "saber cuánto trabajo tenemos y vamos a tener".
+
+- **Órdenes abiertas** (`pendiente_cotizacion, pendiente_anticipo, en_produccion,
+  listo_entrega, en_camino, devuelto`, filtradas con `visiblesPara`): por estado;
+  cuáles se pueden entregar hoy (algún producto `estaListoParaEntregar`, completas o
+  parciales); cuáles tienen algo que pasa por el taller (`pasaPorElTaller`), por tipo
+  (a fabricar, personalizado, diseño nuevo, cambio de tela, restauración) y cuáles
+  tienen piezas **sin arrancar**; atrasadas (la misma regla que "Retrasadas" de la
+  lista); por tienda; calendario por la fecha más lejana que falta.
+- **Taller** (piezas `pendiente, en_proceso, retrasado, pendiente_despachador` de
+  órdenes abiertas + Reserva): sin arrancar (`pendiente`, con días esperando),
+  empezadas, en despacho; lista de cada pieza con su paso actual, días en el paso,
+  responsables y barra de pasos. Unidades: en una venta manda `orden_items.cantidad`
+  (`produccion.cantidad` solo es real en lo de la Reserva).
+- **Pasos**: por proceso, piezas **en proceso** (paso `en_proceso`) y las que **le
+  llegan** (pasos `pendiente` ya puestos en el flujo), ritmo (cerrados en 28 días),
+  duración normal (mediana de 90 días), personas asignadas, sin responsable y días
+  para ponerse al día. Se marca "el más cargado" si pasa de 7 días.
+- Entradas (`fecha_inicio`) vs salidas (`fecha_real`) del taller por semana (8 semanas).
+- Los números llevan a Órdenes / Producción con el filtro puesto (`?estado=`,
+  `?retrasadas=1`, `?tienda_id=`; las listas lo leen una vez y limpian la dirección).
+
 ### 6.9 Despacho y entregas
 `DespachoController`, `EntregaService`, modelos `Despacho`, `DespachoItem`,
 `EntregaLinea`, `Camion`, `Devolucion`.

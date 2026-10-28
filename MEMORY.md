@@ -594,6 +594,16 @@ escribiendo precios (Fase 1b).
   `OPENAI_API_KEY` aquí). Mismo día, pedido del usuario: `GET /stats/tendencia` aceptaba
   `vendedor_id` de cualquiera (un vendedor veía la tendencia de otro); ahora solo el
   supervisor escoge, el vendedor siempre ve lo suyo.
+- **Carga de trabajo** (2026-10-28, subida a su rama, **no a `main`**, sin migración, rama
+  `claude/workload-dashboard-656524`). Pedido del dueño: "pendientes para todo para saber
+  cuánto trabajo tenemos" (órdenes por entregar, cuántas tienen algo por fabricar /
+  personalizado / diseño nuevo, piezas empezadas y sin arrancar, cuántas tiene cada paso y
+  cuántas le esperan). Pantalla nueva `/carga-trabajo` (detalle en `docs/PROYECTO.md` §6.8b).
+  Solo lee, no cambia reglas. Decisiones que tomé por defecto (**falta que el dueño
+  confirme**): la ven supervisor y quien ve producción (no el vendedor); "atrasada" = la
+  regla de la lista de Órdenes; "el más cargado" = más de 7 días de trabajo al ritmo de las
+  últimas 4 semanas. De paso, Órdenes y Producción aceptan el filtro en la dirección y
+  Órdenes tiene la opción "Devuelto" en el menú de estado. Tests en `CargaDeTrabajoTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
