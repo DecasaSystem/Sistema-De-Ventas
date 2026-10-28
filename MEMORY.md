@@ -389,6 +389,11 @@ escribiendo precios (Fase 1b).
   se registran con quien de verdad cubrió. Quedan sueltos (no cambian la comisión): pagos que
   faltan en sep (#4348 $3,28 M, #4361 $1,4 M, #4343 $900.000), restauración de Alba Lucía
   Ovalle sin subir, R-1101 con un cojín de $0 sin marcar como restauración.
+  **2026-10-28:** Paola subió las restauraciones de agosto que faltaban como R-1133 (Alba Lucía
+  Ovalle, $6 M) y R-1134 (Claudia Valencia, $1,1 M); por pedido del usuario la migración
+  `2026_11_05_000001_restauraciones_norte_agosto_r1090_r1133` las pasa al 31 y al 15 de agosto
+  (la 1134 queda como R-1090 y el contador de R vuelve a 1133) y rehace sus comisiones en agosto
+  (equipo Paola/Martha/NN). Agosto de Norte ya estaba pagado: lo de estas dos sale aparte en Listas.
   Archivo: `Downloads/Conciliacion Norte ago-sep 2026.xlsx`. Script reutilizable:
   `conciliar.php` + un archivo de filas por tienda (en el scratchpad de la sesión; se pierde con ella).
   Archivo: `Downloads/Conciliacion ordenes Pereira ago-sep 2026.xlsx`.
