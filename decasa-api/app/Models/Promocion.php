@@ -7,8 +7,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * Un producto (o una versión suya) más barato en unas tiendas, de una fecha a
- * otra. Ver la migración promociones_por_tienda.
+ * Unos productos (o versiones suyas) más baratos en unas tiendas, de una fecha
+ * a otra. Ver las migraciones promociones_por_tienda y
+ * promociones_varios_productos.
+ *
+ * La promoción son las reglas (cuánto, fechas, tiendas); qué se rebaja va en
+ * `objetivos` (uno o varios productos, cada uno con todas sus versiones, solo
+ * algunas o ninguna). Así la misma rebaja se pone a varios productos de una.
  *
  * El precio de lista no cambia: la pantalla de Nueva orden le aplica la
  * rebaja a la línea (como el descuento por producto) y la orden guarda el
@@ -20,6 +25,8 @@ class Promocion extends Model
 
     public const TIPOS = ['porcentaje', 'monto', 'precio'];
 
+    // producto_id/config_id/variante_id: columnas de antes, con el primer
+    // producto copiado. Lo que vale es `objetivos`.
     protected $fillable = [
         'nombre', 'producto_id', 'config_id', 'variante_id',
         'tipo', 'valor', 'fecha_inicio', 'fecha_fin', 'activa', 'creado_por_id',
@@ -35,19 +42,10 @@ class Promocion extends Model
         ];
     }
 
-    public function producto()
+    /** Lo que rebaja: una fila por producto o por versión. */
+    public function objetivos()
     {
-        return $this->belongsTo(Producto::class, 'producto_id');
-    }
-
-    public function config()
-    {
-        return $this->belongsTo(ProductoVarianteConfig::class, 'config_id');
-    }
-
-    public function variante()
-    {
-        return $this->belongsTo(ProductoVariante::class, 'variante_id');
+        return $this->hasMany(PromocionProducto::class, 'promocion_id')->orderBy('id');
     }
 
     public function tiendas()
@@ -59,6 +57,14 @@ class Promocion extends Model
     {
         return $this->belongsTo(Usuario::class, 'creado_por_id');
     }
+
+    /** Lo que hay que cargar para mostrarla o calcular precios. */
+    public const RELACIONES = [
+        'objetivos.producto:id,nombre,categoria,precio_base,foto_url',
+        'objetivos.config.opcion',
+        'objetivos.variante',
+        'tiendas:id,nombre',
+    ];
 
     /** Hoy en Colombia: después de las 7 p. m. UTC ya es otro día allá. */
     public static function hoy(): string
@@ -90,42 +96,10 @@ class Promocion extends Model
         return 'vigente';
     }
 
-    /** 1 = una opción o una tela; 0 = el producto entero. */
-    public function especificidad(): int
-    {
-        return ($this->config_id || $this->variante_id) ? 1 : 0;
-    }
-
-    /**
-     * ¿Se puede decir que esta línea se vendió con ella? Tiene que ser el
-     * mismo producto, y la opción o la tela no pueden contradecirla. Si la
-     * línea no trae opción no se rechaza: con dos opciones elegidas (1.40 y
-     * con baúl) la orden guarda solo el texto, y la pantalla sí sabía cuáles.
-     */
+    /** ¿Alguno de sus productos o versiones es el de esta línea? (Ver PromocionProducto::leAplicaA.) */
     public function leAplicaA(int $productoId, ?int $configId, ?int $varianteId): bool
     {
-        if ((int) $this->producto_id !== $productoId) return false;
-        if ($this->config_id && $configId && (int) $this->config_id !== $configId) return false;
-        if ($this->variante_id && $varianteId && (int) $this->variante_id !== $varianteId) return false;
-        return true;
-    }
-
-    /**
-     * Precio de lista de lo que se rebaja, como lo pone Nueva orden: el de la
-     * opción si tiene uno (ojo: `precio_adicional` se usa como precio completo
-     * de esa versión, no como recargo), el de la tela si tiene, o el del producto.
-     */
-    public function precioDeLista(): float
-    {
-        $base = (float) ($this->producto?->precio_base ?? 0);
-        if ($this->config_id) {
-            $p = (float) ($this->config?->precio_adicional ?? 0);
-            return $p > 0 ? $p : $base;
-        }
-        if ($this->variante_id && $this->variante?->precio_variante !== null) {
-            return (float) $this->variante->precio_variante;
-        }
-        return $base;
+        return $this->objetivos->contains(fn (PromocionProducto $o) => $o->leAplicaA($productoId, $configId, $varianteId));
     }
 
     /** Cuánto queda una unidad que valía $lista. Nunca menos de 0 ni más de $lista. */
@@ -139,17 +113,5 @@ class Promocion extends Model
             default      => $lista,
         };
         return max(0, min($lista, $queda));
-    }
-
-    /** "1.40", "Gris · Pana": de cuál versión es. null = el producto entero. */
-    public function textoVersion(): ?string
-    {
-        if ($this->config_id) return $this->config?->opcion?->nombre;
-        if ($this->variante_id) {
-            $v = $this->variante;
-            if (! $v) return null;
-            return $v->medida ?: (collect([$v->marca, $v->marca_tela, $v->nombre_color])->filter()->implode(' · ') ?: null);
-        }
-        return null;
     }
 }

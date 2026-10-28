@@ -331,6 +331,21 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   Lo personalizado, los regalos, lo que espera precio y lo que viene de un borrador o
   cotización guardados (`_sin_promo`) no la llevan. Editar una orden (agregar productos)
   y cotizaciones no la guardan aparte. Prueba: `PromocionesPorTiendaTest`.
+  **Varios productos en una promoción** (2026-10-28, migración
+  `2026_11_03_000001_promociones_varios_productos`): lo que se rebaja vive en
+  `promocion_productos` (modelo `PromocionProducto`), una fila por producto o versión; la
+  promoción guarda solo las reglas (cuánto, fechas, tiendas, encendida). Es opcional: se
+  escoge un producto como siempre y "Agregar otro producto con esta misma promoción" suma
+  más. Por cada producto con versiones se pregunta **a cuáles**: *Todas* (fila sin
+  versión), *Solo algunas* (una fila por opción o tela marcada) o *Ninguna*
+  (`sin_versiones`: solo cuando la línea se vende sin medida, tela ni opción). `vigentes`
+  devuelve una fila por cada una, con el mismo `id` de promoción y una `clave` única, así
+  Nueva orden escoge igual que antes ("sin opciones" cuenta como versión concreta). El
+  cruce se revisa fila por fila y el mensaje dice qué producto choca. La API acepta
+  todavía la forma de antes (`producto_id` + `config_id`/`variante_id`). Las columnas
+  viejas `promociones.producto_id/config_id/variante_id` se quedan con el primer producto
+  (solo por compatibilidad; nadie las lee) y ya no borran la promoción en cascada: borrar
+  un producto quita solo sus filas.
 
 ### 6.6 Surtidos, traslados y Reserva de Fábrica
 - **Surtido** (`SurtidoController`): fábrica → tiendas. Lo crea quien tenga

@@ -2951,7 +2951,7 @@ class OrdenController extends Controller
         if (! Esquema::columna('orden_items', 'promocion_id')) return null;
         $ids = collect($items)->pluck('promocion_id')->filter()->map(fn ($id) => (int) $id)->unique();
         if ($ids->isEmpty()) return collect();
-        return \App\Models\Promocion::whereIn('id', $ids)->enTienda($tiendaId)->get()->keyBy('id');
+        return \App\Models\Promocion::whereIn('id', $ids)->enTienda($tiendaId)->with('objetivos')->get()->keyBy('id');
     }
 
     /**

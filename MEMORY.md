@@ -277,6 +277,15 @@ escribiendo precios (Fase 1b).
   garantía** todavía lo trataban como recargo ("+$", base + opción); se corrigieron el
   2026-10-16 (mismo trabajo). Nunca volver a sumarlo. **Elena todavía no
   sabe de promociones** (lee precios directo de la BD): cotiza a precio de lista.
+  **Una promoción para varios productos** (2026-10-28, **sin subir**, rama
+  `claude/inventory-promotion-function-5ec0d4`, trae **migración**
+  `2026_11_03_000001_promociones_varios_productos`: crea `promocion_productos`, copia las
+  promociones que ya existen y afloja las llaves de `promociones.producto_id/config_id/
+  variante_id` a `nullOnDelete`). Pedido del usuario: la misma promoción con las mismas
+  reglas a varios productos "fácil y rápido", **opcional** (lo normal sigue siendo uno), y
+  "ten en cuenta siempre las variantes": por cada producto se pregunta si va a todas sus
+  versiones, solo a algunas o a ninguna. Detalle en `docs/PROYECTO.md` (Inventario). No
+  cambió ninguna regla de plata ni cómo se calcula el precio.
 - **Perfiles alternos guardados en la cuenta** (2026-10-16, **sin subir**, rama
   `claude/dual-profiles-persistence-61ee57`). Trae **migración**
   `2026_10_24_000001_perfiles_alternos_autorizados` (agrega `perfiles_alternos.autorizado_at`).

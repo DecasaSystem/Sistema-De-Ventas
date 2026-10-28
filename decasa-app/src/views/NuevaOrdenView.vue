@@ -4153,7 +4153,7 @@ onBeforeUnmount(() => {
               <!-- Para que el vendedor sepa que puede ofrecerla: "1.40 −15 %". -->
               <p v-if="promosDelProducto(promocionesVigentes, p.id).length" class="flex flex-wrap gap-1 mt-0.5">
                 <span
-                  v-for="pr in promosDelProducto(promocionesVigentes, p.id)" :key="pr.id"
+                  v-for="pr in promosDelProducto(promocionesVigentes, p.id)" :key="pr.clave ?? pr.id"
                   class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full text-xs font-semibold"
                 >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
               </p>

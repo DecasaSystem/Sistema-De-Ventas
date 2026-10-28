@@ -470,12 +470,19 @@ class AsistenteIaTest extends TestCase
             'producto_id' => 1, 'tipo' => 'porcentaje', 'valor' => 10,
             'fecha_inicio' => '2026-10-01', 'fecha_fin' => '2026-10-31', 'activa' => true,
         ]);
+        Schema::create('promocion_productos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('promocion_id'); $t->unsignedBigInteger('producto_id');
+            $t->unsignedBigInteger('config_id')->nullable(); $t->unsignedBigInteger('variante_id')->nullable();
+            $t->boolean('sin_versiones')->default(false);
+        });
         DB::table('promocion_tienda')->insert(['promocion_id' => $id, 'tienda_id' => 2]);
+        DB::table('promocion_productos')->insert(['promocion_id' => $id, 'producto_id' => 1]);
         // Terminada: no sale.
-        DB::table('promociones')->insert([
+        $vieja = DB::table('promociones')->insertGetId([
             'producto_id' => 2, 'tipo' => 'monto', 'valor' => 100000,
             'fecha_inicio' => '2026-09-01', 'fecha_fin' => '2026-09-30', 'activa' => true,
         ]);
+        DB::table('promocion_productos')->insert(['promocion_id' => $vieja, 'producto_id' => 2]);
 
         $r = $this->agente()->ejecutarTool('consultar_promociones', ['nombre_tienda' => 'Edén'], $this->usuario('vendedor'));
 

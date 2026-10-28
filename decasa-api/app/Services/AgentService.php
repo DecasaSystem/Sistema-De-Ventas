@@ -1230,24 +1230,25 @@ class AgentService
         }
 
         $hoy = \App\Models\Promocion::hoy();
-        $q = \App\Models\Promocion::with(['producto:id,nombre,precio_base', 'tiendas:id,nombre', 'config.opcion', 'variante'])
+        $q = \App\Models\Promocion::with(['objetivos.producto:id,nombre,precio_base', 'tiendas:id,nombre', 'objetivos.config.opcion', 'objetivos.variante'])
             ->where('activa', true)
             ->whereDate('fecha_fin', '>=', $hoy);
         if (empty($args['incluir_proximas'])) {
             $q->whereDate('fecha_inicio', '<=', $hoy);
         }
         if (! empty($args['producto'])) {
-            $q->whereHas('producto', fn ($p) => $p->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['producto'])]));
+            $q->whereHas('objetivos.producto', fn ($p) => $p->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['producto'])]));
         }
         if ($tiendaId = $this->resolverTienda($args)) {
             $q->enTienda($tiendaId);
         }
 
-        $promos = $q->orderBy('fecha_fin')->limit(40)->get()->map(function ($p) use ($hoy) {
-            $lista = $p->precioDeLista();
+        // Una fila por producto o versión: una promoción puede llevar varios.
+        $promos = $q->orderBy('fecha_fin')->limit(40)->get()->flatMap(fn ($p) => $p->objetivos->map(function ($o) use ($p, $hoy) {
+            $lista = $o->precioDeLista();
             return [
-                'producto'      => $p->producto?->nombre,
-                'version'       => $p->textoVersion() ?? 'todas las versiones',
+                'producto'      => $o->producto?->nombre,
+                'version'       => $o->sin_versiones ? 'solo sin opciones' : ($o->textoVersion() ?? 'todas las versiones'),
                 'nombre'        => $p->nombre,
                 'tipo'          => $p->tipo,
                 'valor'         => (float) $p->valor,
@@ -1258,7 +1259,7 @@ class AgentService
                 'hasta'         => $p->fecha_fin?->toDateString(),
                 'estado'        => $p->estado($hoy),
             ];
-        });
+        }))->values();
 
         return [
             'promociones' => $promos,

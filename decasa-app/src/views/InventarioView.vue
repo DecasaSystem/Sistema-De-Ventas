@@ -2810,7 +2810,7 @@ onMounted(async () => {
                   {{ item.tiendas_count }} {{ item.tiendas_count === 1 ? 'tienda' : 'tiendas' }}
                 </span>
                 <span
-                  v-for="pr in promosDelProducto(promosTienda, item.producto_id)" :key="pr.id"
+                  v-for="pr in promosDelProducto(promosTienda, item.producto_id)" :key="pr.clave ?? pr.id"
                   class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 whitespace-nowrap"
                 >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
               </div>

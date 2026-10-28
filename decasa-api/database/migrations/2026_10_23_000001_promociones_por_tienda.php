@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\Schema;
  *   - una opción del producto (config_id): la medida 1.40, "con baúl"…;
  *   - una tela/medida de las de `producto_variantes` (variante_id).
  * Si al mismo producto le aplican dos, gana la más concreta (ver
- * Promocion::paraElItem y utils/promociones.js en la app).
+ * promoParaItem en utils/promociones.js de la app). Desde 2026-10-28 lo que
+ * se rebaja va en `promocion_productos` (migración promociones_varios_productos).
  *
  * `orden_items.promocion_id` deja escrito con qué promoción se vendió: el
  * precio que se guarda ya viene rebajado, igual que con el descuento por
