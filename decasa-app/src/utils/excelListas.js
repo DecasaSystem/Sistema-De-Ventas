@@ -36,7 +36,7 @@ const R = (mes, tiendaId = null, usuarioId = null) => reglasPara(REGLAS[mes] ?? 
 /** Qué es el renglón: venta, restauración, compartida, parte del equipo… */
 function tipoDe(o, b) {
   if (o.forma_pago === 'parte_pool') return 'Parte del equipo (sin orden)'
-  if (o.forma_pago === 'abono_almacen') return 'Venta de un independiente con la tienda'
+  if (o.forma_pago === 'abono_almacen') return `${o.es_restauracion ? 'Restauración' : 'Venta'} de un independiente con la tienda`
   if (o.forma_pago === 'restauracion_equipo') return 'Restauración repartida en la tienda'
   let t = o.es_restauracion ? 'Restauración' : (o.tipo_orden === 'fv2' || o.es_descuento_especial ? 'Venta FV2' : 'Venta')
   if (o.es_compartida) t += ' compartida'
@@ -47,7 +47,12 @@ function tipoDe(o, b) {
 function mediosTexto(o) {
   const m = o.medios_de_pago ?? {}
   const partes = Object.entries(m).filter(([, v]) => n(v) !== 0).map(([k, v]) => `${MEDIO[k] ?? k} ${pesos(v)}`)
-  return partes.join(' · ')
+  if (partes.length || o.forma_pago === 'parte_pool') return partes.join(' · ')
+  // Las de los independientes no traen el medio uno por uno: solo lo de tarjeta.
+  if (n(o.pagado) <= 0) return 'sin pagos'
+  const otros = n(o.pagado) - n(o.pagado_tarjeta)
+  return [n(o.pagado_tarjeta) > 0 ? `tarjeta o Addi ${pesos(o.pagado_tarjeta)}` : '', otros > 0 ? `efectivo o transferencia ${pesos(otros)}` : '']
+    .filter(Boolean).join(' · ')
 }
 
 /** Por qué se le restó (o no) la franquicia de la tarjeta. */
@@ -383,7 +388,10 @@ function hojaPorTienda(wb, ctx) {
   titulo(ws, 'Por tienda', 'De dónde sale el pool: la meta, lo que cuenta para ella (con la mitad pagada) y cómo se reparte.')
 
   const d = ctx.datos
-  for (const t of d.tiendas ?? []) {
+  // Cada tienda junta, sus meses en orden.
+  const tiendas = [...(d.tiendas ?? [])].sort((a, b) =>
+    String(a.tienda_nombre).localeCompare(String(b.tienda_nombre)) || a.mes.localeCompare(b.mes))
+  for (const t of tiendas) {
     const r = R(t.mes, t.tienda_id)
     const pool = t.pool
     seccion(ws, `${t.tienda_nombre} · ${mesEnPalabras(t.mes)}`)
@@ -433,6 +441,10 @@ function hojaPorTienda(wb, ctx) {
         { titulo: 'Días', campo: 'dias', ancho: 18, total: 'suma' },
         { titulo: 'Su parte del pool', campo: 'parte', fmt: 'pesos', ancho: 16, total: 'suma' },
       ], pool.reparto, { totales: true, filtro: false })
+      const sumaPartes = pool.reparto.reduce((s, x) => s + n(x.parte), 0)
+      if (Math.abs(sumaPartes - n(pool.pool)) >= 1) {
+        explicar(ws, [`• Las partes suman ${pesos(sumaPartes)} y no ${pesos(pool.pool)}: cada una se redondea a pesos por separado.`])
+      }
     }
     if (pool?.reemplazos?.length) {
       explicar(ws, pool.reemplazos.map(x => x.reemplaza
