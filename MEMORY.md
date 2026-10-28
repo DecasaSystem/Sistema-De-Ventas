@@ -277,7 +277,7 @@ escribiendo precios (Fase 1b).
   garantía** todavía lo trataban como recargo ("+$", base + opción); se corrigieron el
   2026-10-16 (mismo trabajo). Nunca volver a sumarlo. **Elena todavía no
   sabe de promociones** (lee precios directo de la BD): cotiza a precio de lista.
-  **Una promoción para varios productos** (2026-10-28, **sin subir**, rama
+  **Una promoción para varios productos** (2026-10-28, **subido a `main`** ese día, commit 764d1b9, rama
   `claude/inventory-promotion-function-5ec0d4`, trae **migración**
   `2026_11_03_000001_promociones_varios_productos`: crea `promocion_productos`, copia las
   promociones que ya existen y afloja las llaves de `promociones.producto_id/config_id/
