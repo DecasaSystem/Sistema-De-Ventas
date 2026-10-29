@@ -433,8 +433,11 @@ escribiendo precios (Fase 1b).
   ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con
   esas funciones, nunca a mano. Quien no tiene Comisiones recibe solo la regla general (la Ayuda
   es de todos, las excepciones por persona no).
-- **Excel de Listas** (2026-10-28, **sin subir**, sin migración, rama
-  `claude/mystifying-wozniak-21d359`). Pedido del dueño: estando en Listas, un Excel con todo
+- **Excel de Listas** (2026-10-28, **subido a `main`** ese día, commits db021a5 + 8bef5f1,
+  sin migración, rama `claude/mystifying-wozniak-21d359`). Revisado con una copia de
+  producción hecha en modo solo lectura: cuadró con Listas (13 personas, $13.918.917).
+  Datos raros vistos (no tocados, deciden ellos): R-1095 de Henry cuenta como venta y no
+  como restauración; R-1101 de Norte por el cojín de $0. Pedido del dueño: estando en Listas, un Excel con todo
   lo que se va a pagar, por persona y tienda, cada orden, por qué se resta o no la tarjeta,
   el ÷ 1,19, de dónde sale cada monto y los totales. Sale de `por-pagar?detalle=1` (la misma
   cuenta de Listas, nada recalculado aparte); detalle en `docs/PROYECTO.md` (Comisiones). No

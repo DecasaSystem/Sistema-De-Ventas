@@ -381,46 +381,140 @@ function hojaPorPersona(wb, ctx) {
   explicar(ws, [`Comisión ${pesos(ctx.datos.lista)} − anticipos y abonos ${pesos(ctx.datos.se_descuenta)} = se entregan ${pesos(ctx.datos.entregar)}.`])
 }
 
+// ── Por tienda ────────────────────────────────────────────────────────────────
+//
+// Al revisar el primer libro (2026-10-29) no se entendía de qué mes era cada
+// tabla: "Cómo se reparte" y "Lo que se paga" no decían el mes, Unicentro
+// (trimestral) repetía la misma tabla del trimestre tres veces y los
+// independientes salían dos veces. Ahora cada tienda y mes tiene una franja
+// propia con el mes y el día de pago, cada tabla repite el mes en su título, el
+// trimestre sale una sola vez y arriba hay un índice.
+
+/** Franja de color que abre cada tienda y mes: lo primero que se ve al bajar. */
+function franja(ws, texto, nota) {
+  ws.addRow([])
+  ws.addRow([])
+  const r = ws.addRow([texto])
+  ws.mergeCells(r.number, 1, r.number, 6)
+  r.height = 26
+  r.alignment = { vertical: 'middle' }
+  const c = r.getCell(1)
+  c.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+  c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }
+  if (nota) {
+    const rn = ws.addRow([nota])
+    ws.mergeCells(rn.number, 1, rn.number, 6)
+    rn.getCell(1).font = { size: 10, bold: true, color: { argb: 'FF1E3A8A' } }
+  }
+}
+
+/** "Se paga el 20/10/2026" o "ATRASADA: se debía pagar el 20/09/2026". */
+function diaDePago(bloques) {
+  const b = bloques.find(x => x.se_cobra_el) ?? bloques[0]
+  if (!b?.se_cobra_el) return ''
+  return b.atrasada ? `ATRASADA: se debía pagar el ${fecha(b.se_cobra_el)}` : `Se paga el ${fecha(b.se_cobra_el)}`
+}
+
 function hojaPorTienda(wb, ctx) {
   const ws = wb.addWorksheet('Por tienda')
   ws.getColumn(1).width = 36
   ws.getColumn(2).width = 18
-  titulo(ws, 'Por tienda', 'De dónde sale el pool: la meta, lo que cuenta para ella (con la mitad pagada) y cómo se reparte.')
+  titulo(ws, 'Por tienda', 'Cada tienda y cada mes en su propio bloque (franja azul): de dónde sale el pool, cómo se reparte y lo que se paga.')
 
   const d = ctx.datos
-  // Cada tienda junta, sus meses en orden.
+  const bloques = d.personas.flatMap(p => p.bloques.map(b => ({ p, b })))
+  const deTiendaMes = (tiendaId, mes, { sinIndependientes = false } = {}) => bloques
+    .filter(x => x.b.tienda_id === tiendaId && x.b.mes === mes && !(sinIndependientes && x.b.es_independiente))
+  const pagoDe = x => ({ nombre: x.p.vendedor_nombre, mes: mesEnPalabras(x.b.mes), lista: n(x.b.lista), se_descuenta: n(x.b.se_descuenta), entregar: n(x.b.entregar) })
+  const columnasPago = (conMes) => [
+    ...(conMes ? [{ titulo: 'Mes de las ventas', campo: 'mes', ancho: 36 }] : []),
+    { titulo: 'Persona', campo: 'nombre', ancho: conMes ? 18 : 36 },
+    { titulo: 'Comisión lista', campo: 'lista', fmt: 'pesos', ancho: conMes ? 16 : 18, total: 'suma' },
+    { titulo: 'Se descuenta', campo: 'se_descuenta', fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'SE ENTREGA', campo: 'entregar', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+  ]
+
+  // Primero se arma la lista de bloques (para el índice), después se pintan.
+  const partes = []
   const tiendas = [...(d.tiendas ?? [])].sort((a, b) =>
     String(a.tienda_nombre).localeCompare(String(b.tienda_nombre)) || a.mes.localeCompare(b.mes))
+  const trimestresVistos = new Set()
   for (const t of tiendas) {
+    const pool = t.pool
+    if (pool?.periodicidad === 'trimestral' && pool.trimestre) {
+      const clave = `${t.tienda_id}|${pool.trimestre.trimestre}`
+      if (trimestresVistos.has(clave)) continue
+      trimestresVistos.add(clave)
+      const meses = tiendas.filter(x => x.tienda_id === t.tienda_id && x.pool?.trimestre?.trimestre === pool.trimestre.trimestre)
+      const qMeses = (pool.trimestre.meses ?? []).map(m => m.mes).sort()
+      const rango = qMeses.length ? `${mesEnPalabras(qMeses[0]).replace(/ de \d{4}$/, '')} a ${mesEnPalabras(qMeses[qMeses.length - 1])}` : pool.trimestre.trimestre
+      const de = meses.flatMap(x => deTiendaMes(t.tienda_id, x.mes))
+      partes.push({ tipo: 'trimestral', t, meses, de, tienda: t.tienda_nombre, mes: `Trimestre ${rango}`, como: 'Pool trimestral (los 3 meses juntos)' })
+    } else {
+      const de = deTiendaMes(t.tienda_id, t.mes, { sinIndependientes: true })
+      if (!pool && !de.length) continue
+      partes.push({ tipo: pool ? 'pool' : 'individual', t, de, tienda: t.tienda_nombre, mes: mesEnPalabras(t.mes),
+        como: pool ? 'Pool del mes, repartido' : 'Cada uno cobra lo suyo' })
+    }
+  }
+  const indeps = bloques.filter(x => x.b.es_independiente)
+  for (const mes of [...new Set(indeps.map(x => x.b.mes))].sort()) {
+    partes.push({ tipo: 'independientes', mes: mesEnPalabras(mes), mesClave: mes, de: indeps.filter(x => x.b.mes === mes),
+      tienda: 'Independientes', como: 'Sus ventas + bolsón de restauraciones' })
+  }
+
+  seccion(ws, 'Índice', 'Un renglón por bloque de esta hoja, en el mismo orden. "Mes de las ventas" es el mes en que se vendió, no el mes en que se paga.')
+  tabla(ws, [
+    { titulo: 'Tienda', campo: 'tienda', ancho: 36 },
+    { titulo: 'Mes de las ventas', campo: 'mes', ancho: 18 },
+    { titulo: 'Cómo se cobra', campo: 'como', ancho: 16 },
+    { titulo: 'Día de pago', campo: x => diaDePago(x.de.map(y => y.b)), ancho: 16, color: x => x.de.some(y => y.b.atrasada) ? AMBAR : null },
+    { titulo: 'Se entrega', campo: x => x.de.reduce((s, y) => s + n(y.b.entregar), 0), fmt: 'pesos', ancho: 16, total: 'suma' },
+  ], partes, { totales: true, filtro: false })
+
+  for (const parte of partes) {
+    if (parte.tipo === 'independientes') { bloqueIndependientes(ws, parte, columnasPago, pagoDe); continue }
+    const { t } = parte
     const r = R(t.mes, t.tienda_id)
     const pool = t.pool
-    seccion(ws, `${t.tienda_nombre} · ${mesEnPalabras(t.mes)}`)
 
-    if (!pool) {
-      explicar(ws, [`• Esta tienda no reparte pool: cada uno cobra el ${num(r.pct_individual)}% de lo suyo (${cuentaVenta(r, 'pct_individual')}).`])
-    } else if (pool.periodicidad === 'trimestral' && pool.trimestre) {
+    if (parte.tipo === 'trimestral') {
       const q = pool.trimestre
+      franja(ws, `${t.tienda_nombre} — ${parte.mes}`, `Tienda trimestral (${q.trimestre}). ${diaDePago(parte.de.map(y => y.b))}.`)
       explicar(ws, [
-        `• Tienda trimestral (${q.trimestre}): se suman los tres meses (lo que cuenta − meta de cada uno) y se le resta la deuda que traía.`,
+        '• Los tres meses del trimestre se juntan en un solo pool: se suma (lo que cuenta − meta) de cada mes y se le resta la deuda que traía.',
         `• Deuda del trimestre anterior: ${pesos(q.deficit_inicial)} de pool (${pesos(q.deuda_en_ventas)} en ventas). Pool del trimestre: ${pesos(q.pool_pagado)}`
           + (n(q.deficit_final) > 0 ? `; deja una deuda de ${pesos(q.deficit_final)} al siguiente.` : '.'),
       ])
+      seccion(ws, `Meta y ventas de cada mes del trimestre`)
       tabla(ws, [
-        { titulo: 'Mes', campo: m => mesEnPalabras(m.mes), ancho: 36 },
+        { titulo: 'Mes de las ventas', campo: m => mesEnPalabras(m.mes), ancho: 36 },
         { titulo: 'Meta', campo: 'meta', fmt: 'pesos', ancho: 18 },
         { titulo: 'Cuenta (con la mitad pagada)', campo: 'cuenta', fmt: 'pesos', ancho: 16 },
         { titulo: 'Vendido sin la mitad (no suma)', campo: 'sin_mitad', fmt: 'pesos', ancho: 16 },
         { titulo: 'Cuenta − meta', campo: 'diferencia', fmt: 'pesos', ancho: 16, total: 'suma' },
         { titulo: 'Saldo acumulado', campo: 'saldo', fmt: 'pesos', ancho: 16 },
       ], q.meses ?? [], { totales: true, filtro: false })
+      for (const m of parte.meses) repartoDe(ws, m.pool, `Cómo se reparte el pool · ${mesEnPalabras(m.mes)}`)
+      seccion(ws, 'Lo que se paga del trimestre, mes por mes', 'Cada mes es un recibo aparte en Listas.')
+      tabla(ws, columnasPago(true), parte.de
+        .sort((a, b) => a.b.mes.localeCompare(b.b.mes) || a.p.vendedor_nombre.localeCompare(b.p.vendedor_nombre))
+        .map(pagoDe), { totales: true, filtro: false })
+      continue
+    }
+
+    franja(ws, `${t.tienda_nombre} — ${parte.mes}${pool ? '' : ' · cada uno cobra lo suyo'}`, `Ventas de ${parte.mes}. ${diaDePago(parte.de.map(y => y.b))}.`)
+    if (!pool) {
+      explicar(ws, [`• No tiene meta ni pool: cada persona cobra el ${num(r.pct_individual)}% de lo suyo (${cuentaVenta(r, 'pct_individual')}).`])
     } else {
+      seccion(ws, `La meta de ${parte.mes}`)
       fichas(ws, [
-        ['Meta del mes', n(pool.meta), 'pesos'],
+        [`Meta de ${parte.mes}`, n(pool.meta), 'pesos'],
         [`Ventas que cuentan (con ${partePagada(r.meta_req_pagado_pct)})`, n(pool.ventas_cuentan), 'pesos'],
         ['Vendido que todavía no cuenta', n(pool.sin_mitad), 'pesos'],
         ['   órdenes sin la mitad', n(pool.ordenes_sin_mitad), 'entero'],
         ['¿Llegó a la meta?', pool.meta_cumplida ? 'Sí' : 'No'],
-        ['Pool a repartir', n(pool.pool), 'pesos'],
+        [`Pool de ${parte.mes}`, n(pool.pool), 'pesos'],
       ])
       explicar(ws, [
         `• Pool = (${pesos(pool.ventas_cuentan)} − ${pesos(pool.meta)}) ${cuentaPool(r)} = ${pesos(pool.pool)}.`
@@ -430,66 +524,62 @@ function hojaPorTienda(wb, ctx) {
       for (const l of pool.cuenta?.lineas ?? []) {
         explicar(ws, [`   ${l.tipo === 'bono' ? 'Bono' : 'Tramo'}: ${pesos(l.base)} → ${pesos(l.monto)}`])
       }
+      repartoDe(ws, pool, `Cómo se reparte el pool de ${parte.mes}`)
     }
-
-    if (pool?.reparto?.length) {
-      seccion(ws, 'Cómo se reparte', pool.reparto_modo === 'iguales'
-        ? 'En partes iguales entre los del equipo.'
-        : `Por días: pool × días de la persona ÷ ${pool.dias_total} días de todos.`)
-      tabla(ws, [
-        { titulo: 'Persona', campo: 'nombre', ancho: 36 },
-        { titulo: 'Días', campo: 'dias', ancho: 18, total: 'suma' },
-        { titulo: 'Su parte del pool', campo: 'parte', fmt: 'pesos', ancho: 16, total: 'suma' },
-      ], pool.reparto, { totales: true, filtro: false })
-      const sumaPartes = pool.reparto.reduce((s, x) => s + n(x.parte), 0)
-      if (Math.abs(sumaPartes - n(pool.pool)) >= 1) {
-        explicar(ws, [`• Las partes suman ${pesos(sumaPartes)} y no ${pesos(pool.pool)}: cada una se redondea a pesos por separado.`])
-      }
-    }
-    if (pool?.reemplazos?.length) {
-      explicar(ws, pool.reemplazos.map(x => x.reemplaza
-        ? `• ${x.quien} cubrió a ${x.reemplaza} del ${fecha(x.desde)} al ${x.hasta ? fecha(x.hasta) : 'sin fecha de regreso'}: esos días son de ${x.quien}.`
-        : `• ${x.quien} llegó el ${fecha(x.desde)} (${x.tipo === 'traslado' ? 'traslado' : 'reemplazo'}).`))
-    }
-
-    const deEsta = d.personas.flatMap(p => p.bloques.filter(b => b.mes === t.mes && b.tienda_id === t.tienda_id)
-      .map(b => ({ nombre: p.vendedor_nombre, lista: n(b.lista), se_descuenta: n(b.se_descuenta), entregar: n(b.entregar) })))
-    seccion(ws, 'Lo que se paga ahora de esta tienda')
-    tabla(ws, [
-      { titulo: 'Persona', campo: 'nombre', ancho: 36 },
-      { titulo: 'Comisión lista', campo: 'lista', fmt: 'pesos', ancho: 18, total: 'suma' },
-      { titulo: 'Se descuenta', campo: 'se_descuenta', fmt: 'pesos', ancho: 16, total: 'suma' },
-      { titulo: 'SE ENTREGA', campo: 'entregar', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
-    ], deEsta, { totales: true, filtro: false })
-    ws.addRow([])
+    seccion(ws, `Lo que se paga de ${parte.mes}`)
+    tabla(ws, columnasPago(false), parte.de.map(pagoDe), { totales: true, filtro: false })
   }
+}
 
-  // Los independientes: el bolsón de restauraciones de cada mes.
-  const indeps = d.personas.flatMap(p => p.bloques.filter(b => b.es_independiente).map(b => ({ p, b })))
-  const meses = [...new Set(indeps.map(x => x.b.mes))].sort()
-  for (const mes of meses) {
-    const r = R(mes)
-    const del = indeps.filter(x => x.b.mes === mes)
-    const bolson = del.find(x => x.b.independiente?.bolson_restauraciones?.length)?.b.independiente.bolson_restauraciones ?? []
-    seccion(ws, `Independientes · ${mesEnPalabras(mes)}`,
-      `Cobran el ${num(r.indep_pct_venta)}% de sus ventas${r.iva_en_venta ? ` (÷ ${divisor(r.iva_divisor)})` : ''}. Las restauraciones de todos van a un bolsón y `
-      + (r.bolson_modo === 'se_reparte' ? `el ${num(r.indep_pct_bolson)}% se reparte entre ellos.` : `cada uno cobra el ${num(r.indep_pct_bolson)}% del total.`))
-    if (bolson.length) {
-      tabla(ws, [
-        { titulo: 'Restauración en el bolsón', campo: 'referencia', ancho: 36 },
-        { titulo: 'Fecha', campo: o => fecha(o.fecha), ancho: 18 },
-        { titulo: 'Quién la subió', campo: 'vendedor', ancho: 24 },
-        { titulo: 'Cliente', campo: o => o.cliente ?? '', ancho: 22 },
-        { titulo: 'Valor (sin franquicia)', campo: 'valor', fmt: 'pesos', ancho: 16, total: 'suma' },
-      ], bolson, { totales: true, etiquetaTotal: 'BOLSÓN', filtro: false })
-    }
-    tabla(ws, [
-      { titulo: 'Independiente', campo: x => x.p.vendedor_nombre, ancho: 36 },
-      { titulo: 'De sus ventas', campo: x => n(x.b.independiente?.por_pagar_ventas), fmt: 'pesos', ancho: 18, total: 'suma' },
-      { titulo: 'Del bolsón', campo: x => n(x.b.independiente?.por_pagar_bolson), fmt: 'pesos', ancho: 16, total: 'suma' },
-      { titulo: 'Comisión lista', campo: x => n(x.b.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
-    ], del, { totales: true, filtro: false })
+/** La tabla de quién se lleva qué parte del pool (por días o iguales). */
+function repartoDe(ws, pool, tituloSeccion) {
+  if (!pool?.reparto?.length) return
+  seccion(ws, tituloSeccion, pool.reparto_modo === 'iguales'
+    ? 'En partes iguales entre los del equipo.'
+    : `Por días: pool × días de la persona ÷ ${pool.dias_total} días de todos.`)
+  tabla(ws, [
+    { titulo: 'Persona', campo: 'nombre', ancho: 36 },
+    { titulo: 'Días', campo: 'dias', ancho: 18, total: 'suma' },
+    { titulo: 'Su parte del pool', campo: 'parte', fmt: 'pesos', ancho: 16, total: 'suma' },
+  ], pool.reparto, { totales: true, filtro: false })
+  const sumaPartes = pool.reparto.reduce((s, x) => s + n(x.parte), 0)
+  if (Math.abs(sumaPartes - n(pool.pool)) >= 1) {
+    explicar(ws, [`• Las partes suman ${pesos(sumaPartes)} y no ${pesos(pool.pool)}: cada una se redondea a pesos por separado.`])
   }
+  if (pool.reemplazos?.length) {
+    explicar(ws, pool.reemplazos.map(x => x.reemplaza
+      ? `• ${x.quien} cubrió a ${x.reemplaza} del ${fecha(x.desde)} al ${x.hasta ? fecha(x.hasta) : 'sin fecha de regreso'}: esos días son de ${x.quien}.`
+      : `• ${x.quien} llegó el ${fecha(x.desde)} (${x.tipo === 'traslado' ? 'traslado' : 'reemplazo'}).`))
+  }
+}
+
+/** Los independientes de un mes: el bolsón de restauraciones y lo de cada uno. */
+function bloqueIndependientes(ws, parte, columnasPago, pagoDe) {
+  const r = R(parte.mesClave)
+  const del = parte.de
+  const bolson = del.find(x => x.b.independiente?.bolson_restauraciones?.length)?.b.independiente.bolson_restauraciones ?? []
+  franja(ws, `Independientes — ${parte.mes} · bolsón de restauraciones`, `Ventas y restauraciones de ${parte.mes}. ${diaDePago(del.map(y => y.b))}.`)
+  explicar(ws, [`• Cobran el ${num(r.indep_pct_venta)}% de sus ventas${r.iva_en_venta ? ` (÷ ${divisor(r.iva_divisor)})` : ''}. Las restauraciones de todos van a un bolsón y `
+    + (r.bolson_modo === 'se_reparte' ? `el ${num(r.indep_pct_bolson)}% se reparte entre ellos.` : `cada uno cobra el ${num(r.indep_pct_bolson)}% del total.`)])
+  if (bolson.length) {
+    seccion(ws, `Bolsón de restauraciones de ${parte.mes}`)
+    tabla(ws, [
+      { titulo: 'Restauración en el bolsón', campo: 'referencia', ancho: 36 },
+      { titulo: 'Fecha', campo: o => fecha(o.fecha), ancho: 18 },
+      { titulo: 'Quién la subió', campo: 'vendedor', ancho: 24 },
+      { titulo: 'Cliente', campo: o => o.cliente ?? '', ancho: 22 },
+      { titulo: 'Valor (sin franquicia)', campo: 'valor', fmt: 'pesos', ancho: 16, total: 'suma' },
+    ], bolson, { totales: true, etiquetaTotal: 'BOLSÓN', filtro: false })
+  }
+  seccion(ws, `De dónde sale lo de cada independiente en ${parte.mes}`)
+  tabla(ws, [
+    { titulo: 'Independiente', campo: x => x.p.vendedor_nombre, ancho: 36 },
+    { titulo: 'De sus ventas', campo: x => n(x.b.independiente?.por_pagar_ventas), fmt: 'pesos', ancho: 18, total: 'suma' },
+    { titulo: 'Del bolsón', campo: x => n(x.b.independiente?.por_pagar_bolson), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Comisión lista', campo: x => n(x.b.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+  ], del, { totales: true, filtro: false })
+  seccion(ws, `Lo que se paga de ${parte.mes}`)
+  tabla(ws, columnasPago(false), del.map(pagoDe), { totales: true, filtro: false })
 }
 
 function hojaTodas(wb, ctx) {
