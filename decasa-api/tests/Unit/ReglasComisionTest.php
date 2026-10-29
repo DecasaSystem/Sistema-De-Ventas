@@ -32,6 +32,10 @@ class ReglasComisionTest extends TestCase
             'dia_pago'                  => 20,
             'meses_espera'              => 1,
             'reparto_pool'              => 'dias',
+            // Quien reemplaza entra al pool por días (lo de siempre); su % solo
+            // rige si una tienda escoge "un porcentaje de lo que vendió".
+            'reparto_reemplazo'         => 'dias',
+            'pct_reemplazo'             => 0.05,
             'restauracion_suma_meta'    => false,
             'arrastra_deuda_trimestre'  => true,
             // Pieza 8: el pool de siempre (un % sobre lo que pasa de la meta), sin bono.

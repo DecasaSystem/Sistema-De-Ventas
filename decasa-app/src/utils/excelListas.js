@@ -111,6 +111,10 @@ function comoSale(o, b, r) {
       return o.sin_descontar_iva
         ? `${v} × ${num(r.pct_individual)}% = ${m} (individual, sin restar el IVA).`
         : `${v} ${cuentaVenta(r, 'pct_individual')} = ${m} (individual: no va por pool).`
+    case 'reemplazo_ventas':
+      return o.sin_descontar_iva
+        ? `${v} × ${num(r.pct_reemplazo)}% = ${m} (la vendió cubriendo a alguien; sin restar el IVA). No suma a la meta ni al pool.`
+        : `${v} ${cuentaVenta(r, 'pct_reemplazo')} = ${m} (la vendió cubriendo a alguien). No suma a la meta ni al pool.`
     case 'restauracion_5':
       if (b.es_independiente) return 'Va al bolsón de restauraciones: se paga en el renglón del bolsón, no aquí.'
       return `${v}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${m}. Sin pool ni meta.`
@@ -228,6 +232,8 @@ function explicacionDe(p, b, tiendaDe) {
     if (rest > 0) lineas.push(`• Restauraciones: ${pesos(rest)} (${num(r.pct_restauracion)}% de su valor${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}).`)
     const ind = suma(['sin_meta_5'])
     if (ind > 0) lineas.push(`• Individual (no va por pool): ${pesos(ind)} = ventas ${cuentaVenta(r, 'pct_individual')}.`)
+    const rem = suma(['reemplazo_ventas'])
+    if (rem > 0) lineas.push(`• Lo que vendió cubriendo a alguien: ${pesos(rem)} = ventas ${cuentaVenta(r, 'pct_reemplazo')} (no suma a la meta ni al pool).`)
     const ab = suma(['abono_almacen'])
     if (ab > 0) lineas.push(`• Lo que dejaron ventas de independientes con la tienda: ${pesos(ab)}.`)
   }

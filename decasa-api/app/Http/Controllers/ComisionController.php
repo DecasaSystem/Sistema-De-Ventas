@@ -752,6 +752,8 @@ class ComisionController extends Controller
                 ? "restauración de la tienda: de ese {$pctRest}, quien la hizo se lleva su parte y el resto se parte entre los demás que estaban ese día"
                 : "restauración de la tienda: ese {$pctRest} se parte entre quienes estaban ese día",
             'sin_meta_5'     => 'no reparte pool: valor ' . self::cuentaDeVenta('pct_individual', $mes, $tiendaRegla, $vendedorId) . ', sin dividir con nadie',
+            'reemplazo_ventas' => 'la vendió cubriendo a alguien en esa tienda: valor ' . self::cuentaDeVenta('pct_reemplazo', $mes, $tiendaRegla, $vendedorId)
+                . '; no suma a la meta ni al pool de la tienda',
             'pool'           => ReglasComision::valor('reparto_pool', $mes, $tiendaRegla) === 'iguales'
                 ? 'por el pool de la tienda, en partes iguales entre el equipo'
                 : 'por el pool de la tienda, según los días que estuvo cada quien',
@@ -2115,7 +2117,9 @@ class ComisionController extends Controller
         $partePool   = $porForma(self::ORIGEN_PARTE_POOL);
         $restaura    = $items->where('es_restauracion', true)->where('forma_pago', '!=', self::ORIGEN_ABONO);
         $abonos      = $porForma(self::ORIGEN_ABONO);
-        $sinMeta     = $porForma('sin_meta_5');
+        // Lo que cobra quien reemplaza por lo que vendió también es suyo, sin
+        // pool: va con lo individual.
+        $sinMeta     = $items->whereIn('forma_pago', ['sin_meta_5', 'reemplazo_ventas']);
 
         $tarjeta = $suma($items, 'pagado_tarjeta');
 
@@ -4250,6 +4254,7 @@ class ComisionController extends Controller
             ->tap(fn ($q) => self::sinRestauraciones($q))
             ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
+            ->tap(fn ($q) => $this->sinReemplazosPorVentas($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get();
@@ -4594,6 +4599,7 @@ class ComisionController extends Controller
         // En una tienda que cuenta las restauraciones como ventas, no se saca
         // ninguna (regla restauracion_suma_meta, Fase 4).
         $restauraciones = self::restauracionComoVenta($tiendaId, $mes) ? [] : $this->idsDeRestauracion();
+        $reemplazoVentas = $this->idsDeReemplazoPorVentas();
 
         $filas = DB::table('comisiones as c')
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
@@ -4625,7 +4631,9 @@ class ComisionController extends Controller
                 && ! isset($restauraciones[(int) $f->orden_id])
                 && ! in_array($f->orden_estado, self::ESTADOS_SIN_VENTA, true)
                 // Marcada por un supervisor: no arma el pool (Orden::sinLasFueraDelPool).
-                && empty($f->fuera_del_pool);
+                && empty($f->fuera_del_pool)
+                // Vendida por quien cubría cobrando por sus ventas: se paga aparte.
+                && ! isset($reemplazoVentas[(int) $f->id]);
 
             $vid = (int) $f->vendedor_id;
 
@@ -4749,6 +4757,57 @@ class ComisionController extends Controller
         return $this->idsRestauracion ??= DB::table('orden_items')->groupBy('orden_id')
             ->havingRaw('COUNT(*) = SUM(es_restauracion)')
             ->pluck('orden_id')->map(fn ($v) => (int) $v)->flip()->all();
+    }
+
+    /** Se llena en idsDeReemplazoPorVentas() y se descarta en cargarTotales(). */
+    private ?array $idsReemplazoVentas = null;
+
+    /**
+     * Las comisiones de quien vendió en una tienda los días que la cubría, en
+     * una tienda donde quien reemplaza cobra un porcentaje de lo que vendió
+     * (regla `reparto_reemplazo`, dueño 2026-10-29): [comision_id => true].
+     *
+     * Esas ventas no suman a la meta ni al pool —ella cobra aparte, y así no
+     * se paga dos veces la misma venta— y se pagan con `pct_reemplazo`. Solo
+     * la venta de quien cubre (no el covendedor ni los repartos), y solo lo
+     * vendido entre el desde y el hasta del reemplazo. Sin esa regla puesta en
+     * ninguna parte, no se pregunta nada a la base.
+     */
+    private function idsDeReemplazoPorVentas(): array
+    {
+        if ($this->idsReemplazoVentas !== null) return $this->idsReemplazoVentas;
+
+        $movs = TiendaReemplazo::reemplazosPorSusVentas();
+        if (! $movs) return $this->idsReemplazoVentas = [];
+
+        $hoy = self::hoy()->toDateString();
+        $out = [];
+        DB::table('comisiones')
+            ->whereNotNull('orden_id')
+            ->where(fn ($q) => $q->whereNull('origen')->orWhere('origen', 'venta'))
+            ->whereIn('vendedor_id', array_unique(array_column($movs, 0)))
+            ->whereIn('tienda_id', array_unique(array_column($movs, 1)))
+            ->get(['id', 'vendedor_id', 'tienda_id', 'mes_venta', 'fecha_venta'])
+            ->each(function ($c) use ($movs, $hoy, &$out) {
+                $dia = substr((string) $c->fecha_venta, 0, 10);
+                foreach ($movs as [$quien, $tienda, $desde, $hasta]) {
+                    if ($quien !== (int) $c->vendedor_id || $tienda !== (int) $c->tienda_id) continue;
+                    if ($dia < $desde || $dia > ($hasta ?? $hoy)) continue;
+                    if (ReglasComision::valor('reparto_reemplazo', (string) $c->mes_venta, $tienda) !== 'sus_ventas') continue;
+                    $out[(int) $c->id] = true;
+                    break;
+                }
+            });
+
+        return $this->idsReemplazoVentas = $out;
+    }
+
+    /** Saca de una suma de comisiones (alias `c`) las de reemplazo por ventas. */
+    private function sinReemplazosPorVentas($q)
+    {
+        $ids = array_keys($this->idsDeReemplazoPorVentas());
+
+        return $ids ? $q->whereNotIn('c.id', $ids) : $q;
     }
 
     /**
@@ -4981,6 +5040,7 @@ class ComisionController extends Controller
         $this->libros          = [];
         $this->abonadoQueCuenta = null;
         $this->totalesQueCuentan = null;
+        $this->idsReemplazoVentas = null;
         self::olvidarPeriodicidades();
         TiendaReemplazo::olvidarCache();
         TiendaAsesor::olvidarCache();
@@ -5019,6 +5079,8 @@ class ComisionController extends Controller
             ->tap(fn ($q) => self::sinRestauraciones($q))
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
+            // Lo que vendió quien cubría cobrando por sus ventas no es de la tienda.
+            ->tap(fn ($q) => $this->sinReemplazosPorVentas($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get()
@@ -5149,6 +5211,15 @@ class ComisionController extends Controller
             $tieneMeta = false;
         }
 
+        // La vendió cubriendo a alguien, en una tienda donde quien reemplaza
+        // cobra un porcentaje de lo que vendió (regla reparto_reemplazo): no va
+        // por el pool —esa venta ni siquiera suma a la meta— sino con su
+        // porcentaje, como una venta individual.
+        $esReemplazoVentas = ! $esRestauracion && isset($this->idsDeReemplazoPorVentas()[(int) $c->id]);
+        if ($esReemplazoVentas) {
+            $tieneMeta = false;
+        }
+
         // Su parte del 5% que dejó un independiente al compartir con su tienda.
         // Nunca por el pool: esa venta no es del equipo, solo pasaron el
         // contacto. Se cobra el 5% de lo que le tocó, con la misma regla de
@@ -5225,6 +5296,10 @@ class ComisionController extends Controller
         } elseif ($esRestauracion) {
             $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, true, $mesC, $tiendaC)
                 * ReglasComision::numero('pct_restauracion', $mesC, $tiendaC, $quienC));
+        } elseif ($esReemplazoVentas) {
+            $montoComision = round(($sinDescontarIva ? (float) $c->valor_orden
+                    : ReglasComision::sinIva((float) $c->valor_orden, false, $mesC, $tiendaC))
+                * ReglasComision::numero('pct_reemplazo', $mesC, $tiendaC, $quienC));
         } elseif (! $tieneMeta) {
             // Una FV2 marcada "no se resta el IVA" se comisiona entera. Solo
             // aquí, en el 5% directo de quien la vendió: en el pool la venta
@@ -5333,7 +5408,8 @@ class ComisionController extends Controller
                                         ? ($c->origen === self::ORIGEN_RESTAURACION_EQUIPO
                                             ? self::ORIGEN_RESTAURACION_EQUIPO
                                             : 'restauracion_5')
-                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool')))))),
+                                  : ($esReemplazoVentas ? 'reemplazo_ventas'
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'))))))),
             'fuera_del_pool'   => $fueraDelPool,
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,

@@ -479,3 +479,24 @@ comisión, Ayuda, Excel y asistente (`cuentaDelPoolTexto`, `siguiente_tramo`) lo
 Pruebas en `ReglasDeComisionTest` con las cifras de la tabla. Prueba diferencial con la tabla
 vacía y con las reglas en su valor de hoy: ningún monto cambia (solo textos de la Fase 3 y los
 campos agregados a propósito).
+
+## 11. Cómo cobra quien reemplaza (2026-10-29, sin migración)
+
+Pedido del dueño: "en vez de pagar por días en la tienda pagar por ventas hechas por ese
+vendedor en esa tienda con cierto porcentaje", como algo que se escoge en Reglas, no aplicado
+ya. Regla `reparto_reemplazo` (general o por tienda): `dias` (lo de siempre, por defecto) o
+`sus_ventas`, con su porcentaje `pct_reemplazo` (general, tienda o persona; arranca en 5 %).
+
+Lo que decidió el dueño para `sus_ventas`:
+- Solo a quien **reemplaza** (cubre a alguien del equipo). Un traslado y el equipo fijo siguen
+  por días.
+- Sus ventas de esos días **no suman a la meta ni al pool** (como se hizo a mano con Jessica en
+  Norte, agosto): no se paga dos veces la misma venta.
+- Quien faltó **pierde esos días**: su parte se reparte entre los que estaban.
+- El porcentaje es su propia regla, editable.
+
+Por defecto que tomé: espera el mismo pago del cliente y el mismo día de pago que cualquier
+venta; una FV2 "sin restar el IVA" se respeta igual que en el 5 % individual; quien cubre
+tampoco entra ese día al reparto de restauraciones ni de lo que deja un independiente (su
+restauración es suya entera). Lo vendido antes o después de las fechas del reemplazo sigue la
+regla de siempre de quien vende en una tienda ajena.

@@ -30,6 +30,8 @@ export const DEFECTO = Object.freeze({
   dia_pago: 20,
   meses_espera: 1,
   reparto_pool: 'dias',
+  reparto_reemplazo: 'dias',
+  pct_reemplazo: 0.05,
   restauracion_suma_meta: false,
   arrastra_deuda_trimestre: true,
   formula_pool: 'excedente',

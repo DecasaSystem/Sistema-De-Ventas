@@ -582,6 +582,17 @@ entregada"). Solo supervisor.
   una tienda (suman a meta y pool, ya no se pagan aparte), no arrastrar la deuda trimestral, y
   la parte de la compartida por tienda o persona. Ver `docs/plan-comisiones-personalizables.md`.
   Detalle y decisiones del dueño en `docs/plan-comisiones-personalizables.md`.
+- **Cómo cobra quien reemplaza** (2026-10-29, sin migración, apagado por defecto): regla
+  `reparto_reemplazo` (por tienda) con "Entra al pool por días" (lo de siempre) o "Un porcentaje
+  de lo que vendió" (`pct_reemplazo`, por tienda o persona). Con la segunda, decidido por el
+  dueño: solo los reemplazos (no los traslados ni el equipo); lo que vendió entre el desde y el
+  hasta del reemplazo se paga con ese porcentaje (forma `reemplazo_ventas`, con el 50 % pagado y
+  el día de pago de siempre) y **no suma a la meta ni al pool**; quien faltó pierde esos días y su
+  parte se reparte entre los que estaban. Quien cubre tampoco entra ese día al reparto de las
+  restauraciones ni de lo que deja un independiente. Dónde: `TiendaReemplazo::cobraPorSusVentas`
+  (`pesosDelMes`, `equipoElDia`) y `ComisionController::idsDeReemplazoPorVentas` (sale de
+  `cargarTotales`, `totalesQueCuentan` y `libroDelPool`; `enriquecer` la paga). Sin esa regla
+  puesta en ninguna parte no se hace ni una consulta más.
 - **Textos que leen las reglas** (2026-10-27, Fase 3, sin migración): la Ayuda, el desglose,
   los totales de la tienda, el detalle de cada comisión, el Excel y el asistente dicen el
   porcentaje, el divisor del IVA, el día de pago y el reparto que rigen, no "5 %" fijo. Salen de

@@ -28,7 +28,8 @@ export const FORMA = {
   pool:                'Pool del equipo',
   parte_pool:          'Parte del equipo',
   sin_meta_5:          'Individual',
-  restauracion_5:      'Restauración',
+  reemplazo_ventas:    'Reemplazo (por lo que vendió)',
+  restauracion_5:     'Restauración',
   restauracion_equipo: 'Restauración de la tienda (repartida)',
   abono_almacen:       'Lo que dejó un independiente',
   fuera_del_pool:      'Fuera del pool',
@@ -248,6 +249,10 @@ function comoSeCalculo(c) {
         return `FV2 especial, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
       }
       return `${pesos(valor)} ${cuentaVenta(r, 'pct_individual')} = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
+    case 'reemplazo_ventas':
+      return c.sin_descontar_iva
+        ? `Vendida cubriendo a alguien, FV2 sin restar el IVA: ${pesos(valor)} × ${num(r.pct_reemplazo)}% = ${pesos(monto)}. No suma a la meta ni al pool.`
+        : `Vendida cubriendo a alguien: ${pesos(valor)} ${cuentaVenta(r, 'pct_reemplazo')} = ${pesos(monto)}. No suma a la meta ni al pool.`
     case 'restauracion_5':
       return `Restauración: ${pesos(valor)}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${pesos(monto)}. ${r.iva_en_restauracion ? 'Sin' : 'Sin quitarle el IVA,'} pool ni meta.`
     case 'restauracion_equipo':
@@ -382,7 +387,7 @@ function hojaPorVendedor(wb, ctx) {
     const porPool = de('pool').length + de('parte_pool').length > 0
     const comoCobra = porPool
       ? 'Pool del equipo'
-      : (de('sin_meta_5').length ? 'Individual' : (restau.length ? 'Restauraciones' : 'Otros'))
+      : (de('sin_meta_5').length ? 'Individual' : de('reemplazo_ventas').length ? 'Reemplazo (por lo que vendió)' :(restau.length ? 'Restauraciones' : 'Otros'))
 
     return {
       vendedor: p.vendedor_nombre, tienda: p.tienda_nombre, como: comoCobra,
@@ -401,7 +406,7 @@ function hojaPorVendedor(wb, ctx) {
       parte_equipo: suma(de('parte_pool'), 'monto_comision'),
       restauraciones: suma(restau, 'monto_comision'),
       de_indep: suma(de('abono_almacen'), 'monto_comision'),
-      individual: suma(de('sin_meta_5'), 'monto_comision'),
+      individual: suma(de('sin_meta_5'), 'monto_comision') + suma(de('reemplazo_ventas'), 'monto_comision'),
       total: suma(items, 'monto_comision'),
       pendientes: estado('pendiente').length, listas: estado('lista').length, pagadas: estado('pagada').length,
       dinero_pendiente: suma(estado('pendiente'), 'monto_comision'),

@@ -47,6 +47,7 @@ const mismoPago = computed(() => Number(r.value.req_pagado_pct) === Number(r.val
 const cuando = computed(() => cuandoSePaga(r.value))
 const dia = computed(() => r.value.dia_pago)
 const porDias = computed(() => r.value.reparto_pool !== 'iguales')
+const porVentas = computed(() => r.value.reparto_reemplazo === 'sus_ventas')
 const medios = computed(() => mediosConFranquicia(r.value))
 
 const sinIva = (v) => conIva.value ? v / r.value.iva_divisor : v
@@ -467,9 +468,20 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <!-- ── Equipo ───────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'equipo'">
           <p>Entre quiénes se reparte lo de una tienda lo dice el <b>equipo</b> de cada tienda, en Comisiones → Metas. Se arrastra de mes a mes hasta que alguien lo cambie. Tener la tienda como sede en el perfil no mete a nadie en el reparto.</p>
-          <p v-if="porDias"><b>Reemplazos:</b> cuando alguien se va unos días (vacaciones, incapacidad) y otro lo cubre, el que llega ocupa su puesto. El pool se reparte por días: el que cubre pesa los días que cubrió y el cubierto pierde esos mismos días.</p>
+          <template v-if="porVentas">
+            <p><b>Reemplazos:</b> cuando alguien se va unos días (vacaciones, incapacidad) y otro lo cubre, el que llega <b>no entra al pool</b>: cobra el {{ pct('pct_reemplazo') }} de lo que vendió en esa tienda esos días{{ conIva ? `, sin IVA (÷ ${div})` : '' }}, con el mismo pago del cliente y el mismo día de pago. Esas ventas no suman a la meta ni al pool de la tienda, para no pagarlas dos veces.</p>
+            <p>El cubierto pierde esos días y su parte se reparte entre los que sí estaban.</p>
+            <div class="ejemplo">
+              <p class="ej-titulo">Ejemplo</p>
+              <p>Pool de {{ cop(ej.pool5M) }} en Norte. Equipo: Marta, NN y Paola. Manuela cubre a Paola del 16 al 30 de septiembre y vende {{ cop(10000000) }} esos días.</p>
+              <p v-if="porDias">Días: Marta 30, NN 30, Paola 15 (total 75). Marta y NN: <b>{{ cop(ej.pool5M * 30 / 75) }}</b> cada una; Paola: <b>{{ cop(ej.pool5M * 15 / 75) }}</b>.</p>
+              <p v-else>Son 3 en el reparto: <b>{{ cop(ej.pool5M / 3) }}</b> cada una.</p>
+              <p>Manuela: {{ cop(10000000) }} {{ pasos(10000000, 'pct_reemplazo') }} <b>{{ cop(sinIva(10000000) * r.pct_reemplazo) }}</b>.</p>
+            </div>
+          </template>
+          <p v-else-if="porDias"><b>Reemplazos:</b> cuando alguien se va unos días (vacaciones, incapacidad) y otro lo cubre, el que llega ocupa su puesto. El pool se reparte por días: el que cubre pesa los días que cubrió y el cubierto pierde esos mismos días.</p>
           <p v-else><b>Reemplazos:</b> cuando alguien se va unos días (vacaciones, incapacidad) y otro lo cubre, el que llega entra al reparto. El pool va en partes iguales: cada uno de los que estuvieron ese mes se lleva lo mismo, sin mirar los días.</p>
-          <div class="ejemplo">
+          <div v-if="!porVentas" class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
             <p>Pool de {{ cop(ej.pool5M) }} en Norte. Equipo: Marta, NN y Paola. Manuela cubre a Paola del 16 al 30 de septiembre.</p>
             <template v-if="porDias">

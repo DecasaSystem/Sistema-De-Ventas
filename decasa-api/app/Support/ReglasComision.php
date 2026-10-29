@@ -129,6 +129,30 @@ class ReglasComision
                     'explica' => 'Todos los que estuvieron ese mes se llevan lo mismo, aunque uno haya estado menos días.'],
             ],
         ],
+        // Quien llega a cubrir (dueño, 2026-10-29: "en vez de pagar por días
+        // en la tienda pagar por ventas hechas por ese vendedor en esa tienda
+        // con cierto porcentaje"). Lo escogió así: solo el reemplazo (no el
+        // traslado ni el equipo), sus ventas de esos días no suman a la meta ni
+        // al pool —no se paga dos veces la misma venta—, y quien faltó pierde
+        // esos días: su parte se reparte entre los que estaban.
+        'reparto_reemplazo' => [
+            'tipo' => 'opcion', 'defecto' => 'dias', 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Cómo cobra quien llega a reemplazar',
+            'explica' => 'Solo los reemplazos (quien cubre a alguien del equipo). Un traslado entra siempre al equipo por días.',
+            'opciones' => [
+                'dias'       => ['nombre' => 'Entra al pool por días',
+                    'explica' => 'Se lleva la parte del pool de los días que cubrió, y quien faltó pierde esos días. Sus ventas suman a la meta.'],
+                'sus_ventas' => ['nombre' => 'Un porcentaje de lo que vendió',
+                    'explica' => 'Cobra el "Porcentaje de quien reemplaza" sobre lo que vendió en esa tienda esos días. Esas ventas no suman a la meta ni al pool, '
+                        . 'y quien faltó igual pierde esos días: su parte se reparte entre los que estaban.'],
+            ],
+        ],
+        'pct_reemplazo' => [
+            'tipo' => 'fraccion', 'defecto' => ComisionController::PORCENTAJE_DIRECTO, 'alcances' => ['general', 'tienda', 'usuario'],
+            'nombre' => 'Porcentaje de quien reemplaza',
+            'explica' => 'Solo con "Un porcentaje de lo que vendió": sobre lo que vendió en la tienda los días que cubrió (sin IVA en las ventas). '
+                . 'Espera el mismo pago del cliente y el mismo día de pago que las demás. Por tienda: la tienda que cubrió.',
+        ],
         'restauracion_suma_meta' => [
             'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Las restauraciones cuentan como ventas',
@@ -247,7 +271,7 @@ class ReglasComision
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera']],
-        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
+        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
         'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
     ];
@@ -263,6 +287,9 @@ class ReglasComision
         'dia_pago', 'meses_espera',
         // El reparto de la restauración entre el equipo queda escrito por persona.
         'restauracion_suma_meta', 'reparto_restauracion', 'parte_autor_restauracion',
+        // Quien reemplaza deja de entrar al reparto de la restauración y del
+        // almacén de esos días, y eso también queda escrito por persona.
+        'reparto_reemplazo',
     ];
 
     /**
