@@ -2,7 +2,8 @@
 import { ref, watch, computed, onMounted } from 'vue'
 import { registrarPago, getTiendas } from '@/api/ordenes'
 import api from '@/api'
-import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar, esPdf, nombreParaSubir } from '@/utils/comprimirImagen'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import { PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { formatPct } from '@/utils/descuentos'
@@ -121,9 +122,10 @@ const arrastrando     = ref(false)
 
 async function agregarComprobantes(archivos) {
   const todos = Array.from(archivos ?? [])
-  const imagenes = todos.filter(f => f.type?.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name ?? ''))
+  // Fotos o PDF (el comprobante del banco suele venir en PDF).
+  const imagenes = todos.filter(f => f.type?.startsWith('image/') || esPdf(f) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name ?? ''))
   if (todos.length && !imagenes.length) {
-    error.value = 'Eso no es una foto. Adjunta una imagen del comprobante.'
+    error.value = 'Eso no es una foto ni un PDF. Adjunta la foto o el PDF del comprobante.'
     return
   }
   procesandoFotos.value = true
@@ -187,7 +189,7 @@ async function submit() {
     for (const c of comprobantes.value) {
       if (c.url) continue
       const fd = new FormData()
-      fd.append('foto', await comprimirImagen(c.file), 'comprobante.jpg')
+      fd.append('foto', await comprimirImagen(c.file), nombreParaSubir(c.file, 'comprobante'))
       fd.append('folder', 'comprobantes')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       c.url = up.url
@@ -334,31 +336,32 @@ async function submit() {
           :class="['rounded-xl transition-colors', arrastrando ? 'ring-2 ring-blue-300 bg-blue-50 p-2 -m-2' : '']"
         >
           <label class="block text-sm font-medium text-gray-700 mb-1">
-            Foto del comprobante <span class="text-red-500">*</span>
+            Foto o PDF del comprobante <span class="text-red-500">*</span>
           </label>
           <p v-if="procesandoFotos" class="flex items-center justify-center gap-2 py-4 text-sm text-blue-700" aria-live="polite">
             <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
-            Procesando foto…
+            Procesando comprobante…
           </p>
           <div v-else-if="comprobantes.length" class="space-y-1.5">
             <div :class="comprobantes.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
               <div v-for="(c, i) in comprobantes" :key="c.preview" class="relative">
-                <img :src="c.preview" :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', comprobantes.length > 1 ? 'h-28 object-cover' : 'object-contain max-h-40']" />
+                <TarjetaPdf v-if="esPdf(c.file)" :href="c.preview" :nombre="c.file.name" :compacta="comprobantes.length > 1" :class="comprobantes.length > 1 ? '!h-28' : 'pr-12'" />
+                <img v-else :src="c.preview" :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', comprobantes.length > 1 ? 'h-28 object-cover' : 'object-contain max-h-40']" />
                 <button @click="quitarComprobante(i)" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow">
                   <XMarkIcon class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
             <label v-if="comprobantes.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-1.5 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
-              <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto
-              <input type="file" accept="image/*" multiple @change="onComprobanteChange" class="hidden" />
+              <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto o PDF
+              <input type="file" accept="image/*,application/pdf" multiple @change="onComprobanteChange" class="hidden" />
             </label>
           </div>
           <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
             <PhotoIcon class="w-7 h-7 text-amber-300" />
             <span class="text-sm text-gray-500">Toca para adjuntar comprobante<span class="hidden sm:inline"> o arrástralo aquí</span></span>
-            <span class="text-xs text-gray-400">puedes subir varias fotos</span>
-            <input type="file" accept="image/*" multiple @change="onComprobanteChange" class="hidden" />
+            <span class="text-xs text-gray-400">foto o PDF · puedes subir varios</span>
+            <input type="file" accept="image/*,application/pdf" multiple @change="onComprobanteChange" class="hidden" />
           </label>
         </div>
 

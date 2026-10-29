@@ -12,8 +12,9 @@ import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon, BuildingStorefrontIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { comprimirImagen } from '@/utils/comprimirImagen'
-import { cloudinaryOpt } from '@/utils/cloudinary'
+import { comprimirImagen, nombreParaSubir } from '@/utils/comprimirImagen'
+import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import IconoS from '@/components/common/IconoS.vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import api from '@/api'
@@ -515,7 +516,7 @@ function telaResumidaNuevo(key) {
 async function subirFoto(file, carpeta) {
   const token = localStorage.getItem('token')
   const fd = new FormData()
-  fd.append('foto', await comprimirImagen(file), 'foto.jpg')
+  fd.append('foto', await comprimirImagen(file), nombreParaSubir(file, 'foto'))
   fd.append('folder', carpeta)
   const res  = await fetch('/api/upload/foto', {
     method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
@@ -1429,7 +1430,8 @@ function solicitudEnviada() {
                   <label class="block text-xs font-medium text-gray-600 mb-1">{{ f.label }}</label>
 
                   <div v-if="f.url" class="relative">
-                    <a :href="f.url" target="_blank" rel="noopener">
+                    <TarjetaPdf v-if="esUrlDePdf(f.url)" :href="f.url" :nombre="f.label" compacta class="!h-24" />
+                    <a v-else :href="f.url" target="_blank" rel="noopener">
                       <img :src="cloudinaryOpt(f.url, 400)" class="w-full h-24 object-cover rounded-lg border border-gray-200" />
                     </a>
                     <button
@@ -1444,8 +1446,8 @@ function solicitudEnviada() {
                          anterior era casi imposible de acertar y parecía que no
                          se podía cambiar. -->
                     <label class="mt-1.5 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors">
-                      <PhotoIcon class="w-4 h-4" /> Cambiar foto
-                      <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
+                      <PhotoIcon class="w-4 h-4" /> Cambiar foto o PDF
+                      <input type="file" accept="image/*,application/pdf" class="hidden" @change="onFotoOrden($event, f.k)" />
                     </label>
                   </div>
 
@@ -1454,8 +1456,8 @@ function solicitudEnviada() {
                     class="h-24 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-pointer hover:border-blue-400 hover:text-blue-500 transition-colors"
                   >
                     <PhotoIcon class="w-5 h-5" />
-                    <span class="text-[11px] font-semibold">Subir foto</span>
-                    <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
+                    <span class="text-[11px] font-semibold">Subir foto o PDF</span>
+                    <input type="file" accept="image/*,application/pdf" class="hidden" @change="onFotoOrden($event, f.k)" />
                   </label>
 
                   <p v-if="subiendoOrden === f.k" class="text-[11px] text-gray-400 mt-1 flex items-center gap-1.5">

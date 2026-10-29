@@ -13,9 +13,10 @@ import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion,
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
-import { cloudinaryOpt } from '@/utils/cloudinary'
+import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import { useVisorFoto } from '@/composables/useVisorFoto'
-import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida, esPdf, nombreParaSubir } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
@@ -2897,7 +2898,7 @@ async function submit() {
       }
       subiendoAnexo.value = true
       const fd = new FormData()
-      fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
+      fd.append('foto', await comprimirImagen(anexoFotoFile.value), nombreParaSubir(anexoFotoFile.value, 'anexo'))
       fd.append('folder', 'facturas')
       const { data: uploadData } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -3062,7 +3063,7 @@ async function subirComprobantesPendientes() {
         throw errorFotoPerdida('del comprobante')
       }
       const fd = new FormData()
-      fd.append('foto', await comprimirImagen(f.file), 'factura.jpg')
+      fd.append('foto', await comprimirImagen(f.file), nombreParaSubir(f.file, 'factura'))
       fd.append('folder', 'facturas')
       const { data: uploadData } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -6417,15 +6418,22 @@ onBeforeUnmount(() => {
       <!-- Foto del anexo en papel — sigue siendo posible en la tienda -->
       <div v-if="canal === 'fisica' && anexo?.estado !== 'firmado'">
         <label class="label">
-          ¿Lo firmó en papel? Foto del anexo
+          ¿Lo firmó en papel? Foto o PDF del anexo
           <span v-if="!exigeAnexo" class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
         </label>
-        <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto.</p>
+        <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto o el PDF escaneado.</p>
 
         <!-- También la que ya estaba subida en el borrador (sin archivo en el teléfono). -->
         <div v-if="anexoFotoFile || anexoFotoUrl" class="space-y-2">
           <div class="relative">
+            <TarjetaPdf
+              v-if="anexoFotoUrl ? esUrlDePdf(anexoFotoUrl) : esPdf(anexoFotoFile)"
+              :href="anexoFotoUrl || anexoFotoPreview"
+              :nombre="anexoFotoFile?.name || 'Anexo firmado'"
+              class="pr-12"
+            />
             <img
+              v-else
               :src="anexoFotoUrl || anexoFotoPreview"
               alt="Vista previa anexo"
               class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
@@ -6438,16 +6446,16 @@ onBeforeUnmount(() => {
               <XMarkIcon class="w-4 h-4" />
             </button>
           </div>
-          <p class="text-xs text-gray-400 truncate">{{ anexoFotoFile.name }}</p>
-          <p v-if="subiendoAnexo" class="text-xs text-blue-600">Subiendo imagen...</p>
+          <p v-if="anexoFotoFile" class="text-xs text-gray-400 truncate">{{ anexoFotoFile.name }}</p>
+          <p v-if="subiendoAnexo" class="text-xs text-blue-600">Subiendo anexo...</p>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <PhotoIcon class="w-7 h-7 text-gray-300" />
-          <span class="text-sm text-gray-500">Toca para adjuntar foto del anexo</span>
-          <span class="text-xs text-gray-400">JPG, PNG — máx 5 MB</span>
+          <span class="text-sm text-gray-500">Toca para adjuntar foto o PDF del anexo</span>
+          <span class="text-xs text-gray-400">JPG, PNG o PDF — máx 10 MB</span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             @change="onAnexoFotoChange"
             class="hidden"
           />
@@ -6485,7 +6493,7 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
-      <!-- Foto del comprobante -->
+      <!-- Foto o PDF del comprobante -->
       <div>
         <label class="label">
           {{ pagosDivididos ? 'Fotos de los comprobantes (una por cada pago)' : 'Foto del comprobante' }}
@@ -6494,7 +6502,15 @@ onBeforeUnmount(() => {
         <div v-if="facturaFotos.length" class="space-y-2">
           <div :class="facturaFotos.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
             <div v-for="(f, i) in facturaFotos" :key="f.preview" class="relative">
+              <TarjetaPdf
+                v-if="f.file ? esPdf(f.file) : esUrlDePdf(f.url)"
+                :href="f.url || f.preview"
+                :nombre="f.file?.name || `Comprobante ${i + 1}`"
+                :compacta="facturaFotos.length > 1"
+                :class="facturaFotos.length > 1 ? '' : 'pr-12'"
+              />
               <img
+                v-else
                 :src="f.url || f.preview"
                 :alt="`Comprobante ${i + 1}`"
                 :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', facturaFotos.length > 1 ? 'h-32 object-cover' : 'object-contain']"
@@ -6511,17 +6527,17 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imágenes...</p>
+          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo comprobantes...</p>
           <!-- Falta el del segundo pago: se pide en grande, igual que el primero -->
           <label v-if="pagoSinComprobante" class="flex flex-col items-center gap-1 border-2 border-dashed border-amber-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
             <PhotoIcon class="w-7 h-7 text-amber-300" />
             <span class="text-sm font-medium text-gray-600">Toca para adjuntar el comprobante del pago {{ pagoSinComprobante.n }}</span>
             <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
-            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+            <input type="file" accept="image/*,application/pdf" multiple @change="onFacturaFotoChange" class="hidden" />
           </label>
           <label v-else-if="facturaFotos.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-2 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
-            <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto del comprobante
-            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+            <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto o PDF del comprobante
+            <input type="file" accept="image/*,application/pdf" multiple @change="onFacturaFotoChange" class="hidden" />
           </label>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
@@ -6531,12 +6547,12 @@ onBeforeUnmount(() => {
             <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
           </template>
           <template v-else>
-            <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
+            <span class="text-sm text-gray-500">Toca para adjuntar foto o PDF del comprobante</span>
           </template>
-          <span class="text-xs text-gray-400">JPG, PNG — puedes subir varias</span>
+          <span class="text-xs text-gray-400">JPG, PNG o PDF — puedes subir varios</span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             multiple
             @change="onFacturaFotoChange"
             class="hidden"

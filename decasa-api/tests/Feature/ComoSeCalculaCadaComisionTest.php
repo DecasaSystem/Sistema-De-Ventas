@@ -332,6 +332,62 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals($circunvalar, (int) Comision::where('orden_id', $orden->id)->value('tienda_id'));
     }
 
+    /**
+     * Dos restauraciones de Norte de agosto se subieron a finales de octubre
+     * (2026-10-28): R-1134 pasa a R-1090 del 15 de agosto y R-1133 al 31 de
+     * agosto. Sus comisiones tienen que irse a agosto con ellas.
+     */
+    public function test_las_restauraciones_de_norte_vuelven_a_agosto(): void
+    {
+        Schema::create('orden_secuencias', function (Blueprint $t) {
+            $t->id(); $t->string('grupo'); $t->unsignedInteger('ultimo_numero');
+        });
+        Schema::create('orden_ediciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id');
+            $t->json('cambios'); $t->timestamps();
+        });
+        DB::table('orden_secuencias')->insert(['grupo' => 'r', 'ultimo_numero' => 1134]);
+        DB::table('clientes')->insert([['id' => 1, 'nombre' => 'CLAUDIA VALENCIA'], ['id' => 2, 'nombre' => 'ALBA LUCIA OVALLE M']]);
+
+        // Como están en producción: restauraciones de Paola en Norte, de octubre.
+        $subir = function (int $numero, int $cliente, string $cuando, float $valor) {
+            $orden = $this->orden(self::PAOLA, self::NORTE, $valor, restauracion: true);
+            DB::table('ordenes')->where('id', $orden->id)->update([
+                'serie' => 'R', 'serie_numero' => $numero, 'cliente_id' => $cliente, 'created_at' => $cuando,
+            ]);
+            ComisionController::sincronizarValorOrden($orden->fresh());
+
+            return $orden;
+        };
+        $claudia = $subir(1134, 1, '2026-10-28 21:13:30', 1_100_000);
+        $alba    = $subir(1133, 2, '2026-10-27 23:46:10', 6_000_000);
+        $this->assertEquals(['2026-10'], Comision::where('orden_id', $alba->id)->pluck('mes_venta')->unique()->values()->all());
+
+        $migracion = database_path('migrations/2026_11_05_000001_restauraciones_norte_agosto_r1090_r1133.php');
+        (require $migracion)->up();
+
+        $claudia = $claudia->fresh();
+        $this->assertEquals(1090, $claudia->serie_numero);
+        $this->assertEquals('R-1090', $claudia->referencia);
+        $this->assertEquals('2026-08-15', $claudia->created_at->copy()->setTimezone('America/Bogota')->toDateString());
+        $this->assertEquals('2026-08-31', $alba->fresh()->created_at->copy()->setTimezone('America/Bogota')->toDateString());
+        $this->assertEquals(1133, DB::table('orden_secuencias')->where('grupo', 'r')->value('ultimo_numero'));
+
+        // Las comisiones se van a agosto, partidas entre los tres de Norte.
+        foreach ([[$claudia, '2026-08-15'], [$alba, '2026-08-31']] as [$orden, $dia]) {
+            $filas = Comision::where('orden_id', $orden->id)->get();
+            $this->assertCount(3, $filas);
+            $this->assertEquals(['2026-08'], $filas->pluck('mes_venta')->unique()->values()->all());
+            $this->assertEquals($dia, substr((string) $filas->first()->fecha_venta, 0, 10));
+        }
+        $this->assertEquals(2, DB::table('orden_ediciones')->count());
+
+        // Correrla otra vez no hace nada.
+        (require $migracion)->up();
+        $this->assertEquals(1090, $claudia->fresh()->serie_numero);
+        $this->assertEquals(2, DB::table('orden_ediciones')->count());
+    }
+
     public function test_addi_cuenta_igual_que_la_tarjeta(): void
     {
         // Addi también se queda el 5,5%: la misma cuenta que con tarjeta.

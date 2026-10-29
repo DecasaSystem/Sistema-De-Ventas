@@ -1,7 +1,8 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
-import { cloudinaryOpt } from '@/utils/cloudinary'
+import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 import { descargarFoto } from '@/utils/fotos'
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
@@ -2493,22 +2494,28 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             Abrir
           </a>
         </div>
-        <img
-          v-if="fotosComprobante.length === 1"
-          :src="cloudinaryOpt(fotosComprobante[0], 800)"
-          alt="Comprobante"
-          class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="abrirFoto(fotosComprobante[0])"
-        />
-        <div v-else class="grid grid-cols-2 gap-2">
+        <!-- Un comprobante en PDF no se pinta: tarjeta que lo abre en otra pestaña. -->
+        <template v-if="fotosComprobante.length === 1">
+          <TarjetaPdf v-if="esUrlDePdf(fotosComprobante[0])" :href="fotosComprobante[0]" nombre="Comprobante" />
           <img
-            v-for="(url, i) in fotosComprobante"
-            :key="url"
-            :src="cloudinaryOpt(url, 600)"
-            :alt="`Comprobante ${i + 1}`"
-            class="w-full h-40 rounded-lg border border-gray-200 object-cover cursor-pointer"
-            @click="abrirFoto(url)"
+            v-else
+            :src="cloudinaryOpt(fotosComprobante[0], 800)"
+            alt="Comprobante"
+            class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
+            @click="abrirFoto(fotosComprobante[0])"
           />
+        </template>
+        <div v-else class="grid grid-cols-2 gap-2">
+          <template v-for="(url, i) in fotosComprobante" :key="url">
+            <TarjetaPdf v-if="esUrlDePdf(url)" :href="url" :nombre="`Comprobante ${i + 1}`" compacta class="!h-40" />
+            <img
+              v-else
+              :src="cloudinaryOpt(url, 600)"
+              :alt="`Comprobante ${i + 1}`"
+              class="w-full h-40 rounded-lg border border-gray-200 object-cover cursor-pointer"
+              @click="abrirFoto(url)"
+            />
+          </template>
         </div>
       </div>
 
@@ -2568,7 +2575,9 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             Abrir
           </a>
         </div>
+        <TarjetaPdf v-if="esUrlDePdf(orden.anexo_foto_url)" :href="orden.anexo_foto_url" nombre="Anexo firmado" />
         <img
+          v-else
           :src="cloudinaryOpt(orden.anexo_foto_url, 800)"
           alt="Anexo firmado"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"

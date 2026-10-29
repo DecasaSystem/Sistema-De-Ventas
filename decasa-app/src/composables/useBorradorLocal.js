@@ -5,6 +5,7 @@ import {
   guardarBorradorNubeAlSalir, subirFotoBorrador,
 } from '@/api/borradoresEnCurso'
 import { idDeAparato, nombreDeAparato } from '@/utils/aparato'
+import { esUrlDePdf } from '@/utils/cloudinary'
 
 /**
  * Que un formulario largo sobreviva a que se cierre la app, y se pueda seguir
@@ -586,8 +587,10 @@ async function revivirNube(datos, fotosNube) {
       const blob = await resp.blob()
       // Como File, igual que la que sale del selector: al crear la orden se
       // sube con su nombre.
-      const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg'
-      fotos.set(id, new File([blob], `foto-${id}.${ext}`, { type: blob.type || 'image/jpeg' }))
+      // Un PDF (comprobante o anexo) vuelve como PDF, no como foto.
+      const pdf = esUrlDePdf(url) || blob.type === 'application/pdf'
+      const ext = pdf ? 'pdf' : blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg'
+      fotos.set(id, new File([blob], `foto-${id}.${ext}`, { type: pdf ? 'application/pdf' : (blob.type || 'image/jpeg') }))
       fotosNube.set(id, url)   // ya está arriba: no se vuelve a subir
     } catch (e) {
       console.warn('[borrador] No se pudo bajar una foto del borrador:', e?.message ?? e)
