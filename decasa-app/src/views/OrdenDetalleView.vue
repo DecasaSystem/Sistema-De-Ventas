@@ -383,7 +383,10 @@ async function aplicarConversion() {
     })
     toast.success(`Ahora es ${data.referencia}${data.corridas.length ? ` · ${data.corridas.length} orden(es) corridas` : ''}`)
     mostrarNumeracion.value = false
-    await cargar()
+    // Antes llamaba a un `cargar()` que no existe en esta vista: la conversión
+    // ya estaba guardada, pero el ReferenceError caía en el catch y salía
+    // "No se pudo convertir" encima del aviso de éxito.
+    await cargarOrden()
   } catch (e) {
     toast.error(e.response?.data?.message
       || Object.values(e.response?.data?.errors ?? {}).flat()[0]
@@ -404,7 +407,7 @@ async function aplicarNumeroManual() {
     const { data } = await cambiarNumeroOrden(orden.value.id, n)
     toast.success(`Ahora es ${data.referencia}`)
     mostrarNumeracion.value = false
-    await cargar()
+    await cargarOrden()
   } catch (e) {
     toast.error(e.response?.data?.message
       || Object.values(e.response?.data?.errors ?? {}).flat()[0]
