@@ -10,7 +10,8 @@ export const eliminarCatalogo   = (id)          => api.delete(`/catalogos-visual
 
 export const agregarPaginas   = (id, imagenes) => api.post(`/catalogos-visuales/${id}/paginas`, { imagenes })
 export const reordenarPaginas = (id, orden)    => api.patch(`/catalogos-visuales/${id}/paginas/orden`, { orden })
-export const actualizarPagina = (id, pid, nota) => api.patch(`/catalogos-visuales/${id}/paginas/${pid}`, { nota })
+// cambios: { nombre } y/o { nota }; solo se toca lo que se manda.
+export const actualizarPagina = (id, pid, cambios) => api.patch(`/catalogos-visuales/${id}/paginas/${pid}`, cambios)
 export const eliminarPagina   = (id, pid)      => api.delete(`/catalogos-visuales/${id}/paginas/${pid}`)
 
 // Sube un archivo de imagen a Cloudinary y devuelve su URL segura.

@@ -25,8 +25,10 @@ import {
   ArrowDownTrayIcon,
   ArrowsUpDownIcon,
   TagIcon,
+  RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
+import CategoriasModal from '@/components/inventario/CategoriasModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
@@ -492,6 +494,24 @@ async function guardarFoto2Producto() {
   }
 }
 
+// Antes la segunda foto solo se podía cambiar, no quitar: si era de otro
+// producto, Elena la seguía mandando al cliente.
+async function borrarFoto2Producto() {
+  if (!confirm('¿Quitar la foto adicional? Elena dejará de mandarla.')) return
+  gestionFoto2Error.value = ''
+  gestionFoto2Loading.value = true
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url_2: null })
+    if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url_2 = null
+    toast.success('Foto adicional quitada.')
+    await cargarInventario(true)
+  } catch (e) {
+    gestionFoto2Error.value = e.response?.data?.message ?? 'No se pudo quitar la foto.'
+  } finally {
+    gestionFoto2Loading.value = false
+  }
+}
+
 async function guardarFotoProducto() {
   gestionFotoError.value = ''
   gestionFotoLoading.value = true
@@ -791,6 +811,7 @@ async function abrirHistorial(item) {
 const mostrarAgregarProducto = ref(false)
 const mostrarVariantes = ref(false)
 const mostrarPromociones = ref(false)
+const mostrarCategorias = ref(false)
 const creandoProducto = ref(false)
 const subiendoFoto = ref(false)
 const errCrearProducto = ref('')
@@ -951,7 +972,25 @@ async function cargarCategorias() {
   try {
     const { data } = await api.get('/productos/categorias')
     categoriasDisponibles.value = data.filter(c => c)
+    // El filtro se recuerda en cada aparato: si esa categoría se renombró
+    // desde otro, la pantalla quedaba vacía con una pastilla que ya no existe.
+    if (categoriaFiltro.value && !categoriasDisponibles.value.includes(categoriaFiltro.value)) {
+      categoriaFiltro.value = ''
+      resumenCategoria.value = null
+    }
   } catch {}
+}
+
+// Se renombró o se juntó una categoría (Inventario → Categorías): la que se
+// estaba mirando sigue escogida con su nombre nuevo.
+async function categoriaRenombrada({ de, a, juntadaCon }) {
+  if (categoriaFiltro.value && (categoriaFiltro.value === de || categoriaFiltro.value === juntadaCon)) {
+    categoriaFiltro.value = a
+  }
+  await cargarCategorias()
+  if (!tiendaId.value) return
+  cargarInventario(true)
+  if (categoriaFiltro.value) cargarResumenCategoria()
 }
 
 function seleccionarCategoria(cat) {
@@ -2359,6 +2398,15 @@ onMounted(async () => {
       </button>
       <button
         v-if="auth.isSupervisor"
+        @click="mostrarCategorias = true"
+        title="Renombrar o juntar categorías"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+      >
+        <RectangleStackIcon class="w-4 h-4 flex-shrink-0" />
+        Categorías
+      </button>
+      <button
+        v-if="auth.isSupervisor"
         @click="abrirDescuadres"
         title="Productos donde &quot;Apartado&quot; no coincide con lo real"
         class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
@@ -3044,6 +3092,7 @@ onMounted(async () => {
     <!-- Modal Catálogo Tela -->
     <ModalVariantes v-if="mostrarVariantes" @close="mostrarVariantes = false" />
     <PromocionesModal :show="mostrarPromociones" :tiendas="tiendas" @close="mostrarPromociones = false" @cambio="cargarPromosTienda" />
+    <CategoriasModal :show="mostrarCategorias" :etiquetas="CATEGORY_LABELS" @close="mostrarCategorias = false" @cambio="categoriaRenombrada" />
 
     <!-- Modal Agregar Producto -->
     <Transition name="fade">
@@ -3422,6 +3471,16 @@ onMounted(async () => {
                   <p class="text-xs text-gray-400">JPG, PNG, WEBP · ángulo diferente del producto</p>
                 </div>
               </button>
+              <div v-if="!gestionFoto2PreviewUrl && itemGestionar?.producto?.foto_url_2" class="flex items-start justify-between gap-2 mt-1.5">
+                <p class="text-[11px] text-gray-500 leading-snug">
+                  Elena manda las dos fotos cuando el cliente pide la del producto y reconoce el mueble con cualquiera de las dos.
+                </p>
+                <button
+                  type="button" @click="borrarFoto2Producto" :disabled="gestionFoto2Loading"
+                  class="text-xs text-red-500 font-medium flex-shrink-0 disabled:opacity-50"
+                >Quitar</button>
+              </div>
+              <p v-if="!gestionFoto2PreviewUrl && gestionFoto2Error" class="text-xs text-red-600 mt-1">{{ gestionFoto2Error }}</p>
             </div>
 
             <div class="border-t border-gray-100" />

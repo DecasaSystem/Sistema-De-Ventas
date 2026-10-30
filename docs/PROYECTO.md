@@ -314,6 +314,21 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - **Productos únicos** (piezas irrepetibles ya vendidas).
 - **Auditoría de descuadres** (supervisor): reservas fantasma y entregas que no
   descontaron, con corrección.
+- **Categorías: renombrar y juntar** (2026-10-29, botón *Categorías* en Inventario,
+  supervisor; `Services/CategoriasProducto`, `components/inventario/CategoriasModal.vue`,
+  `GET /productos/categorias/gestion`, `POST /productos/categorias/renombrar`). No hay tabla
+  de categorías: es el texto `productos.categoria`, y se "crea" escribiendo un nombre nuevo
+  en un producto (vendedores también). Renombrar cambia el texto en todos sus productos
+  (activos y apagados) en una transacción. Si el nombre nuevo ya existe (sin mirar tildes,
+  mayúsculas ni separadores) responde 409 con `existe` y, confirmado con `juntar: true`, las
+  dos quedan en una con el nombre escrito. Cada cambio queda en `categorias_renombradas`
+  (migración `2026_11_06_000001`): `/catalogo/<nombre viejo>` sigue abriendo (sigue la
+  cadena), el asistente interno busca también el nombre de hoy y los agentes de chat le
+  enseñan a su `mapaCategoriasBD` que el nombre nuevo es la categoría de antes
+  (`aplicarRenombres` en `core/contrato-bd.js`, al arrancar y cada hora). No se tocan
+  `orden_items.categoria_custom` (historia de la orden) ni `fichas_tecnicas.categoria`
+  (lista fija del cotizador). La pantalla muestra el nombre real: `CATEGORY_LABELS` de
+  Inventario pone nombres bonitos a algunas ("Bases comedor" es `comedores`).
 - **Promociones por tienda** (2026-10-15, botón *Promociones* en Inventario, supervisor;
   `PromocionController`, `Promocion`, `components/inventario/PromocionesModal.vue`,
   `utils/promociones.js`). Se programa una vez: qué se rebaja (el producto entero, una
@@ -718,6 +733,14 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
 - `CitaController`: citas presenciales o por mensaje; recordatorios diarios.
 - **Catálogo público** (`/catalogo/:seccion`) y **catálogos visuales** tipo
   revista (`/c`, `/c/:slug`, gestionados en Gestión → Catálogos, con QR).
+  Cada hoja tiene **nombre** (interno, 2026-10-30: lo usa Elena para saber qué hoja
+  manda y mandar solo esa) y **nota** (la ve el cliente encima de la hoja); se guardan
+  por separado (`PATCH …/paginas/{pid}` solo toca lo que llega). `/c/:slug?hoja=<id>`
+  abre el visor en esa hoja (por id, no por posición); el botón de enlace de cada hoja
+  en Gestión copia ese enlace. Migración `2026_11_06_000002_nombre_de_hojas_del_catalogo`.
+- **Dos fotos por producto** (Inventario → Gestionar: foto y "foto adicional",
+  `productos.foto_url_2`). Elena manda las dos al pedir la foto y reconoce la foto
+  del cliente con cualquiera de las dos. La adicional se puede quitar.
 
 ### 6.16 Anexo de garantías
 `AnexoGarantiaController`, `Support/AnexoGarantiaTexto` (texto de fábrica versionado;

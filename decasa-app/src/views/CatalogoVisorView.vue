@@ -101,7 +101,15 @@ onMounted(async () => {
     paginas.value = data.paginas ?? []
     document.title = `${data.nombre} — Decasa Muebles`
 
-    const primera = paginas.value[0]
+    // /c/<slug>?hoja=<id>: abre directo en esa hoja (Elena manda así una hoja
+    // puntual; también el botón de enlace de cada hoja en Gestión). Va por id y
+    // no por posición porque la portada se adelanta y el orden cambia. Si la
+    // hoja ya no está, abre en la portada como siempre.
+    const hoja = Number(route.query.hoja)
+    const desde = hoja ? paginas.value.findIndex(p => p.id === hoja) : -1
+    if (desde > 0) i.value = desde
+
+    const primera = paginas.value[i.value]
     if (primera) {
       const img = new Image()
       img.onload = () => {

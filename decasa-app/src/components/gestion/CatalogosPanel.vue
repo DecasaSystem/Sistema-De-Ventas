@@ -199,24 +199,33 @@ async function ponerPortada(pagina) {
   }
 }
 
-let notaTimer = null
-function guardarNota(pagina) {
-  clearTimeout(notaTimer)
-  notaTimer = setTimeout(async () => {
+// Nombre (interno, lo usa Elena para saber qué hoja manda) y nota (la ve el
+// cliente) se guardan solos al escribir. Un temporizador por hoja y por campo:
+// con uno solo, escribir en una hoja y pasar rápido a otra perdía lo primero.
+const temporizadores = {}
+function guardarCampo(pagina, campo) {
+  const clave = `${pagina.id}:${campo}`
+  clearTimeout(temporizadores[clave])
+  temporizadores[clave] = setTimeout(async () => {
     try {
-      await actualizarPagina(editor.value.id, pagina.id, (pagina.nota || '').trim() || null)
-    } catch { /* silencioso: es una nota */ }
+      await actualizarPagina(editor.value.id, pagina.id, { [campo]: (pagina[campo] || '').trim() || null })
+    } catch {
+      toast.error(campo === 'nombre' ? 'No se pudo guardar el nombre de la hoja.' : 'No se pudo guardar la nota.')
+    }
   }, 700)
 }
 
-async function copiarLink(slug) {
+async function copiarTexto(texto) {
   try {
-    await navigator.clipboard.writeText(linkDe(slug))
+    await navigator.clipboard.writeText(texto)
     toast.success('Link copiado ✅')
   } catch {
-    toast.info?.('Copia manual: ' + linkDe(slug))
+    toast.info?.('Copia manual: ' + texto)
   }
 }
+const copiarLink = (slug) => copiarTexto(linkDe(slug))
+// Abre el catálogo directo en esa hoja (el mismo enlace que manda Elena).
+const copiarLinkHoja = (pagina) => copiarTexto(`${linkDe(editor.value.slug)}?hoja=${pagina.id}`)
 
 const thumb = (url) => cloudinaryOpt(url, 400)
 </script>
@@ -387,6 +396,11 @@ const thumb = (url) => cloudinaryOpt(url, 400)
             </p>
           </label>
 
+          <p v-if="editor.paginas.length" class="text-[11px] text-gray-500 leading-snug">
+            <b>Nombre de la hoja</b>: no lo ve el cliente. Elena lo usa para saber qué hoja manda
+            ("Camas Bali y Roma") y mandar solo esa. La <b>nota</b> sí sale encima de la hoja.
+          </p>
+
           <!-- Grilla de páginas -->
           <div v-if="editor.paginas.length" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div
@@ -408,11 +422,20 @@ const thumb = (url) => cloudinaryOpt(url, 400)
               </div>
               <div class="p-2 space-y-1.5">
                 <input
-                  v-model="p.nota" maxlength="200" placeholder="Nota (opcional)"
+                  v-model="p.nombre" maxlength="120" placeholder="Nombre de la hoja"
+                  title="No lo ve el cliente: Elena lo usa para saber qué hoja manda"
+                  class="w-full text-xs font-semibold rounded border border-gray-200 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  @input="guardarCampo(p, 'nombre')"
+                />
+                <input
+                  v-model="p.nota" maxlength="200" placeholder="Nota para el cliente"
                   class="w-full text-xs rounded border border-gray-200 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  @input="guardarNota(p)"
+                  @input="guardarCampo(p, 'nota')"
                 />
                 <div class="flex items-center gap-1">
+                  <button @click="copiarLinkHoja(p)" title="Copiar el enlace de esta hoja" class="flex-1 h-7 rounded bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200">
+                    <LinkIcon class="w-3.5 h-3.5" />
+                  </button>
                   <button @click="mover(idx, -1)" :disabled="idx === 0" class="flex-1 h-7 rounded bg-gray-100 text-gray-500 flex items-center justify-center disabled:opacity-30 hover:bg-gray-200">
                     <ArrowUpIcon class="w-3.5 h-3.5" />
                   </button>
