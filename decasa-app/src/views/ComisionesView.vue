@@ -620,6 +620,11 @@ const FORMAS_PAGO = {
     resumen:  (r) => `Sin meta no hay pool: cobra el ${num(r.pct_individual)}% de lo suyo, sin dividir.`,
     clase:    'bg-sky-100 text-sky-700',
   },
+  reemplazo_ventas: {
+    etiqueta: 'Reemplazo',
+    resumen:  (r) => `La vendió cubriendo a alguien en esta tienda: cobra el ${num(r.pct_reemplazo)}% de lo que vendió esos días. Esa venta no suma a la meta ni al pool de la tienda.`,
+    clase:    'bg-sky-100 text-sky-700',
+  },
   pool: {
     etiqueta: 'Pool',
     resumen:  (r) => `Su parte del pool de la tienda, igual que la de todos. Cuentan las ventas de la tienda cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}.`,
@@ -658,6 +663,7 @@ function pctDeLaForma(c) {
   const r = reglasDe(c)
   if (c.abono_de_almacen) return r.almacen_pct
   if (c.forma_pago === 'restauracion_5' || c.forma_pago === 'restauracion_equipo') return r.pct_restauracion
+  if (c.forma_pago === 'reemplazo_ventas') return r.pct_reemplazo
   return r.pct_individual
 }
 
@@ -2587,7 +2593,7 @@ onMounted(async () => {
               <p>{{ formaPago(c).resumen }}</p>
               <p>{{ c.abono_de_almacen ? 'Lo que le tocó de la orden' : 'Valor de la orden' }}:
                 {{ cop(c.valor_orden) }}</p>
-              <p v-if="(c.forma_pago === 'sin_meta_5' || (c.abono_de_almacen && !c.es_restauracion)) && reglasDe(c).iva_en_venta">
+              <p v-if="(c.forma_pago === 'sin_meta_5' || c.forma_pago === 'reemplazo_ventas' || (c.abono_de_almacen && !c.es_restauracion)) && reglasDe(c).iva_en_venta">
                 Sin IVA (÷{{ divisor(reglasDe(c).iva_divisor) }}): {{ cop(c.valor_orden / reglasDe(c).iva_divisor) }}
               </p>
               <p class="font-bold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">

@@ -438,6 +438,16 @@ escribiendo precios (Fase 1b).
   ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con
   esas funciones, nunca a mano. Quien no tiene Comisiones recibe solo la regla general (la Ayuda
   es de todos, las excepciones por persona no).
+- **Cómo cobra quien reemplaza, personalizable** (2026-10-29, **sin subir**, sin migración, rama
+  `claude/mystifying-wozniak-21d359`). Pedido del dueño: poder escoger en Reglas que quien
+  reemplaza cobre "por ventas hechas por ese vendedor en esa tienda con cierto porcentaje" en vez
+  de por días, **como opción, no aplicada ya**. Reglas `reparto_reemplazo` (`dias` por defecto /
+  `sus_ventas`) y `pct_reemplazo` (5 % por defecto). Decisiones del dueño para `sus_ventas`: solo
+  los reemplazos (no traslados ni equipo), sus ventas de esos días **no suman a la meta ni al
+  pool**, quien faltó **pierde esos días**, el porcentaje es su propia regla. Por defecto mío
+  (**falta que el dueño confirme**): mismo 50 % y día de pago; quien cubre no entra ese día al
+  reparto de restauraciones ni del almacén. Detalle en `docs/PROYECTO.md` (Comisiones) y §11 del
+  plan de comisiones personalizables. Con la regla apagada no cambia ni un peso (suite completa).
 - **Excel de Listas** (2026-10-28, **subido a `main`** ese día, commits db021a5 + 8bef5f1,
   sin migración, rama `claude/mystifying-wozniak-21d359`). Revisado con una copia de
   producción hecha en modo solo lectura: cuadró con Listas (13 personas, $13.918.917).
@@ -924,6 +934,15 @@ Decisiones del dueño del 2026-10-08:
   compilación de Vite 8 + Tailwind 4 pide Chrome/Edge ≥ 111; Windows 7 se queda en
   Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
   avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
+
+- **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
+  Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
+  antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los
+  datos siempre llegan frescos; lo viejo es el código. Ahora cada compilación lleva su versión
+  (`__VERSION_APP__` y `/version.json`, en `vite.config.js`) y `AvisoVersionNueva.vue` pregunta
+  al volver a la app y cada 5 min; si cambió, aviso con "Recargar" (no recarga solo: podría
+  estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
+  "no le sale" a una persona, lo primero es preguntar si recargó.
 
 - Basura versionada por accidente (comandos de tinker mal escritos):
   `decasa-api/count())`, `decasa-api/get()`, `decasa-api/pluck('categoria')`,

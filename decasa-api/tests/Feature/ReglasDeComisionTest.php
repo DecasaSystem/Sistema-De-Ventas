@@ -149,12 +149,12 @@ class ReglasDeComisionTest extends TestCase
     }
 
     /** @param array<array{0:string,1:float}> $pagos [metodo, monto] */
-    private function orden(int $vendedor, int $tienda, float $valor, array $pagos, string $mes = self::MES, bool $restauracion = false): int
+    private function orden(int $vendedor, int $tienda, float $valor, array $pagos, string $mes = self::MES, bool $restauracion = false, string $dia = '15'): int
     {
         $id = DB::table('ordenes')->insertGetId([
             'tienda_id' => $tienda, 'vendedor_id' => $vendedor, 'tienda_vendedor_id' => $tienda,
             'canal' => 'fisica', 'estado' => 'en_produccion', 'valor_total' => $valor,
-            'created_at' => $mes . '-15 15:00:00', 'updated_at' => now(),
+            'created_at' => "{$mes}-{$dia} 15:00:00", 'updated_at' => now(),
         ]);
         DB::table('orden_items')->insert(['orden_id' => $id, 'es_restauracion' => $restauracion, 'precio_unitario' => $valor]);
         foreach ($pagos as [$metodo, $monto]) {
@@ -456,6 +456,73 @@ class ReglasDeComisionTest extends TestCase
         $o = $this->porOrden();
         $this->assertEquals(500_000, $o[$venta]['monto_comision'] + $o[$rest]['monto_comision']);
         $this->assertSame('pool', $o[$rest]['forma_pago']);
+    }
+
+    /**
+     * Norte con dos en el equipo (Paola y NN). Manuela, de la feria, cubre a
+     * Paola del 16 al 31 de octubre y vende 11,9 M el 20. Paola vendió 51,9 M
+     * el 15. Meta 40 M.
+     *
+     * @return array{0:int, 1:int}  [orden de Paola, orden de Manuela]
+     */
+    private function manuelaCubreAPaola(): array
+    {
+        DB::table('usuarios')->insert([
+            ['id' => 11, 'nombre' => 'NN', 'rol' => 'vendedor', 'tienda_default_id' => self::NORTE,
+             'acceso_comisiones' => false, 'acceso_reglas_comision' => false, 'email' => '11@d.com', 'password' => 'x', 'created_at' => now()],
+            ['id' => 12, 'nombre' => 'Manuela', 'rol' => 'vendedor', 'tienda_default_id' => self::FERIA,
+             'acceso_comisiones' => false, 'acceso_reglas_comision' => false, 'email' => '12@d.com', 'password' => 'x', 'created_at' => now()],
+        ]);
+        DB::table('tienda_asesores_comision')->insert([
+            'tienda_id' => self::NORTE, 'mes' => self::MES, 'vendedor_id' => 11, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('tienda_reemplazos')->insert([
+            'tienda_id' => self::NORTE, 'tipo' => 'reemplazo', 'usuario_id' => 12, 'reemplaza_a_id' => self::PAOLA,
+            'desde' => '2026-10-16', 'hasta' => '2026-10-31', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        TiendaAsesor::olvidarCache();
+        TiendaReemplazo::olvidarCache();
+
+        return [
+            $this->orden(self::PAOLA, self::NORTE, 51_900_000, [['efectivo', 51_900_000]]),
+            $this->orden(12, self::NORTE, 11_900_000, [['efectivo', 11_900_000]], self::MES, false, '20'),
+        ];
+    }
+
+    public function test_quien_reemplaza_entra_al_pool_por_dias_como_siempre(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        [, $manuela] = $this->manuelaCubreAPaola();
+
+        // Sin la regla: sus ventas suman a la meta y ella va por el pool.
+        $this->assertEquals(63_800_000, ComisionController::avanceDeMetas()[self::NORTE . '_' . self::MES]['cuenta']);
+        $this->assertSame('pool', $this->porOrden()[$manuela]['forma_pago']);
+    }
+
+    public function test_quien_reemplaza_cobra_un_porcentaje_de_lo_que_vendio(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        [$paola, $manuela] = $this->manuelaCubreAPaola();
+        $this->regla('reparto_reemplazo', 'sus_ventas', '2026-10', 'tienda', self::NORTE);
+        $this->regla('pct_reemplazo', 0.03, '2026-10', 'tienda', self::NORTE);
+
+        // Lo de Manuela no suma a la meta: solo los 51,9 M de Paola.
+        $this->assertEquals(51_900_000, ComisionController::avanceDeMetas()[self::NORTE . '_' . self::MES]['cuenta']);
+
+        $filas = collect(app(ComisionController::class)->resumenDelMes(self::MES));
+        $o = $this->porOrden();
+
+        // Manuela: 11.900.000 ÷ 1,19 × 3 % = 300.000, lista (pagó todo y llegó el 20).
+        $this->assertSame('reemplazo_ventas', $o[$manuela]['forma_pago']);
+        $this->assertEquals(300_000, $o[$manuela]['monto_comision']);
+        $this->assertSame('lista', $o[$manuela]['estado']);
+
+        // Pool = (51,9 M − 40 M) ÷ 1,19 × 5 % = 500.000, entre Paola (15 días:
+        // perdió los que la cubrieron) y NN (31). Manuela no reparte.
+        $this->assertEquals(round(500_000 * 15 / 46), $o[$paola]['monto_comision']);
+        $nn = $filas->firstWhere('vendedor_id', 11);
+        $this->assertEquals(round(500_000 * 31 / 46), $nn['comision_total']);
+        $this->assertNull($filas->first(fn ($f) => $f['vendedor_id'] === 12 && collect($f['ordenes'])->contains('forma_pago', 'parte_pool')));
     }
 
     public function test_cambiar_el_dia_de_pago_corre_la_fecha_de_lo_que_falta(): void
