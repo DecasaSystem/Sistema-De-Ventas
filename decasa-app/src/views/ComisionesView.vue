@@ -1092,77 +1092,130 @@ function resumenEstadoLabel(r) {
 }
 
 // ── Exportación a Excel ──────────────────────────────────────────────────────
-// Un solo libro con todo el mes explicado (ver utils/excelComisiones.js).
-// Los filtros de la pantalla recortan lo que sale: la vista, la pestaña de
-// estado, el vendedor elegido y, en el resumen, la agrupación. Los datos se
-// piden frescos al servidor para que el archivo no dependa de qué pestaña
-// se cargó antes ni de un vendedor que se dejó elegido en otra vista.
+// El botón "Excel" abre una hoja con tres libros, cada uno dicho en palabras.
+// Antes era un solo botón que bajaba cosas distintas según la pestaña (en
+// Listas lo por pagar, en las demás el mes de la pantalla, recortado por sus
+// filtros): a una persona le bajó octubre queriendo Listas (2026-10-29), y el
+// mes solo se podía escoger en Resumen. Ahora se escoge qué y de qué mes, y
+// el mes completo sale entero, sin los filtros de la pantalla.
+//   · Lo que se va a pagar → utils/excelListas.js
+//   · Un mes completo      → utils/excelComisiones.js
+//   · Cómo va el mes       → utils/excelComoVa.js (el mes en curso, estimado)
+// Los datos se piden frescos al servidor: el archivo no depende de lo que la
+// pantalla haya cargado antes.
 const exportando = ref(false)
+const hojaExcel  = ref(false)
+const excelOpcion    = ref('listas')   // listas | mes | como_va
+const excelMesListas = ref('')         // '' = todo lo que hay por pagar
+const excelMes       = ref(mesDeHoy())
+const excelVendedor  = ref('')         // '' = todas las personas
+const excelPersonas  = ref([])
 
-// En la pestaña Listas el libro es otro: lo que se va a pagar, de todos los
-// meses que se juntan, explicado orden por orden (utils/excelListas.js). Sale
-// de la misma respuesta que pinta Listas, con ?detalle=1.
 const enListas = computed(() => vistaTab.value === 'estado' && tab.value === 'lista')
 
-async function exportarExcelListas() {
+async function cargarPersonasExcel() {
+  excelPersonas.value = []
+  if (!excelMes.value) return
+  try {
+    const { data } = await api.get('/comisiones/vendedores', { params: { mes: excelMes.value }, silencioso: true })
+    excelPersonas.value = data ?? []
+    if (excelVendedor.value && !excelPersonas.value.some(p => p.id === excelVendedor.value)) excelVendedor.value = ''
+  } catch { /* sin la lista se baja el mes entero */ }
+}
+
+/** Abre la hoja con lo que se estaba mirando ya escogido. */
+function abrirExcel() {
+  excelOpcion.value    = enListas.value ? 'listas' : 'mes'
+  excelMesListas.value = mesListas.value
+  excelMes.value       = mesActual.value
+  excelVendedor.value  = vistaTab.value === 'vendedor' && vendedorSel.value ? vendedorSel.value : ''
+  hojaExcel.value = true
+  cargarPersonasExcel()
+}
+
+async function exportarExcelListas(mes) {
   const { data } = await api.get('/comisiones/por-pagar', {
-    params: { detalle: 1, ...(mesListas.value ? { mes: mesListas.value } : {}) },
+    params: { detalle: 1, ...(mes ? { mes } : {}) },
   })
   if (!data.personas?.length) {
-    toast.error('No hay nada listo para pagar.')
-    return
+    toast.error(mes ? `No hay nada por pagar de ${nombreMes(mes)}.` : 'No hay nada listo para pagar.')
+    return false
   }
   const meses = [...new Set([data.mes_que_toca, ...data.personas.flatMap(p => p.bloques.map(b => b.mes))])]
   const reglas = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m)])))
   const { exportarListasExcel } = await import('@/utils/excelListas')
   await exportarListasExcel({ porPagar: data, reglas, generadoPor: auth.usuario?.nombre })
+  return true
 }
 
-async function exportarExcelCompleto() {
+async function exportarExcelDelMes(mes, vendedorId) {
+  const [cRes, iRes, mRes, rRes, reglas] = await Promise.all([
+    api.get('/comisiones', { params: { mes } }),
+    api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
+    api.get('/comisiones/metas', { params: { mes } }),
+    api.get('/comisiones/reemplazos', { params: { mes } }).catch(() => ({ data: {} })),
+    cargarReglasVigentes(mes),
+  ])
+
+  const filtros = {
+    vista:          'mes',
+    estado:         null,
+    vendedorId:     vendedorId || null,
+    vendedorNombre: vendedorId ? (excelPersonas.value.find(p => p.id === vendedorId)?.nombre ?? null) : null,
+    agrupacion:     null,
+  }
+
+  const hayAlgo = (cRes.data ?? []).some(c => !filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
+  if (!hayAlgo && !(iRes.data?.independientes?.length)) {
+    toast.error(`No hay comisiones en ${nombreMes(mes)}${filtros.vendedorNombre ? ' de ' + filtros.vendedorNombre : ''}.`)
+    return false
+  }
+
+  await exportarComisionesExcel({
+    mes,
+    comisiones:  cRes.data ?? [],
+    indep:       (iRes.data?.independientes?.length || iRes.data?.almacenes?.length) ? iRes.data : null,
+    metas:       mRes.data ?? [],
+    reemplazos:  rRes.data?.reemplazos ?? [],
+    reparto:     Object.fromEntries((rRes.data?.reparto ?? []).map(r => [r.tienda_id, r])),
+    reglas,
+    filtros,
+    generadoPor: auth.usuario?.nombre,
+  })
+  return true
+}
+
+async function exportarExcelComoVa() {
+  const mes = mesDeHoy()
+  const [cRes, iRes, mRes, reglas] = await Promise.all([
+    api.get('/comisiones', { params: { mes } }),
+    api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
+    api.get('/comisiones/metas', { params: { mes, avance: 1 } }),
+    cargarReglasVigentes(mes),
+  ])
+  const { exportarComoVaExcel } = await import('@/utils/excelComoVa')
+  await exportarComoVaExcel({
+    mes,
+    comisiones:  cRes.data ?? [],
+    metas:       mRes.data ?? [],
+    indep:       iRes.data?.independientes?.length ? iRes.data : null,
+    reglas,
+    generadoPor: auth.usuario?.nombre,
+  })
+  return true
+}
+
+async function descargarExcel() {
+  if (excelOpcion.value === 'mes' && !excelMes.value) {
+    toast.error('Escoge el mes.')
+    return
+  }
   exportando.value = true
   try {
-    if (enListas.value) {
-      await exportarExcelListas()
-      return
-    }
-    const mes = mesActual.value
-    const [cRes, iRes, mRes, rRes, reglas] = await Promise.all([
-      api.get('/comisiones', { params: { mes } }),
-      api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
-      api.get('/comisiones/metas', { params: { mes } }),
-      api.get('/comisiones/reemplazos', { params: { mes } }).catch(() => ({ data: {} })),
-      cargarReglasVigentes(mes),
-    ])
-
-    const enVendedor = vistaTab.value === 'vendedor' && vendedorSel.value
-    const filtros = {
-      vista:          vistaTab.value,
-      // En el resumen se ve el mes entero; en las otras vistas, la pestaña.
-      estado:         vistaTab.value === 'resumen' ? null : tab.value,
-      vendedorId:     enVendedor ? vendedorSel.value : null,
-      vendedorNombre: enVendedor ? (vendedorActual.value?.nombre ?? null) : null,
-      agrupacion:     vistaTab.value === 'resumen' ? resumenFiltro.value : null,
-    }
-
-    const hayAlgo = (cRes.data ?? []).some(c =>
-      (!filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
-      && (!filtros.estado || (c.estado_calculado ?? c.estado) === filtros.estado))
-    if (!hayAlgo && !(iRes.data?.independientes?.length)) {
-      toast.error('No hay comisiones para exportar con estos filtros.')
-      return
-    }
-
-    await exportarComisionesExcel({
-      mes,
-      comisiones:  cRes.data ?? [],
-      indep:       (iRes.data?.independientes?.length || iRes.data?.almacenes?.length) ? iRes.data : null,
-      metas:       mRes.data ?? [],
-      reemplazos:  rRes.data?.reemplazos ?? [],
-      reparto:     Object.fromEntries((rRes.data?.reparto ?? []).map(r => [r.tienda_id, r])),
-      reglas,
-      filtros,
-      generadoPor: auth.usuario?.nombre,
-    })
+    const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
+      : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
+      : await exportarExcelComoVa()
+    if (listo) hojaExcel.value = false
   } catch {
     toast.error('No se pudo generar el Excel.')
   } finally {
@@ -1198,11 +1251,9 @@ onMounted(async () => {
       </h1>
       <div class="flex flex-wrap gap-2 justify-end">
         <button
-          @click="exportarExcelCompleto"
+          @click="abrirExcel"
           :disabled="exportando"
-          :title="enListas
-            ? 'Descargar Excel de todo lo que se va a pagar: por persona, por tienda, orden por orden, con anticipos y totales'
-            : 'Descargar Excel del mes con los filtros de la pantalla (resumen, por vendedor, por tienda, detalle, independientes, metas)'"
+          title="Descargar Excel: lo que se va a pagar, un mes completo o cómo va el mes"
           class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700 disabled:opacity-50"
         >
           <ArrowDownTrayIcon class="w-3.5 h-3.5" />
@@ -2632,6 +2683,91 @@ onMounted(async () => {
         </div>
       </div>
     </template>
+
+    <!-- Descargar Excel: qué libro y de qué mes -->
+    <div v-if="hojaExcel" class="fixed inset-0 bg-black/40 z-[60] flex items-end sm:items-center justify-center" @click.self="hojaExcel = false">
+      <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-3 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h3 class="text-base font-bold text-gray-800">Descargar Excel</h3>
+            <p class="text-xs text-gray-500">Escoge qué quieres ver</p>
+          </div>
+          <button type="button" @click="hojaExcel = false" class="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 1. Lo que se va a pagar -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'listas' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="listas" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Lo que se va a pagar</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Lo mismo que Listas: por persona y tienda, orden por orden, con anticipos y totales.</p>
+              <div v-if="excelOpcion === 'listas'" class="mt-2 flex items-center justify-between gap-2">
+                <p class="text-[11px] text-gray-600">{{ excelMesListas ? `Solo ${nombreMes(excelMesListas)}` : 'Todo lo que hay por pagar' }}</p>
+                <div class="flex items-center gap-2">
+                  <button v-if="excelMesListas" type="button" @click.prevent="excelMesListas = ''" class="text-[10px] text-blue-600 font-semibold">Todo</button>
+                  <input type="month" v-model="excelMesListas" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 2. Un mes completo -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'mes' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="mes" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Un mes completo</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Cualquier mes, entero: cada tienda contra su meta, cada persona, cada orden con su cuenta, independientes y reemplazos.</p>
+              <div v-if="excelOpcion === 'mes'" class="mt-2 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600">Mes</p>
+                  <input type="month" v-model="excelMes" @change="cargarPersonasExcel" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600 shrink-0">Persona</p>
+                  <select v-model="excelVendedor" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="">Todas</option>
+                    <option v-for="p in excelPersonas" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+                  </select>
+                </div>
+                <p v-if="excelMes === mesDeHoy()" class="text-[10px] text-amber-700">Es el mes en curso: las cifras todavía cambian.</p>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 3. Cómo va el mes -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'como_va' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="como_va" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Cómo va el mes <span class="text-[10px] font-semibold text-amber-700 border border-amber-300 rounded-full px-1.5 py-0.5 ml-1">estimado</span></p>
+              <p class="text-[11px] text-gray-500 leading-snug">
+                <span class="capitalize">{{ nombreMes(mesDeHoy()) }}</span> a hoy: cuánto le falta a cada tienda para la meta, cuánto hay que
+                vender por día, qué órdenes faltan por cobrar para que cuenten y cuánto daría si cerrara hoy.
+              </p>
+            </div>
+          </div>
+        </label>
+
+        <button
+          type="button"
+          @click="descargarExcel"
+          :disabled="exportando"
+          class="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg py-2.5 text-xs font-semibold"
+        >
+          <ArrowDownTrayIcon class="w-4 h-4" />
+          {{ exportando ? 'Armando el Excel…' : 'Descargar' }}
+        </button>
+      </div>
+    </div>
 
   </div>
 </template>

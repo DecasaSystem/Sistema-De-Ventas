@@ -166,7 +166,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `src/stores/` | `auth` (sesión, perfiles alternos, todos los `puedeX`), `notificaciones`, `modulos` (nombres personalizados), `pasos`, `despacho`, `surtidos`, `consultas`, `appearance` (modo oscuro, tamaño de letra) |
 | `src/composables/` | `useRealtime` (Echo), `useToast`, `usePushNotifications`, `usePwaInstall`, `useBorradorLocal` (borradores en el aparato), `useFiltrosRecordados`, `useTelas`, `useTiposProceso`, sockets de despacho/surtidos |
 | `src/components/` | Por dominio: `ordenes/`, `despacho/`, `produccion/`, `inventario/`, `costos/`, `comisiones/`, `reportes/`, `gestion/`, `encargos/`, `anexo/`, `common/` (BadgeEstado, InputPesos, MoneyDisplay, ComboInput, IconoPicker…) + `AgentChat`, `BocetoCanvas`, `FirmaCanvas`, `DireccionColombia` |
-| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `excelListas`, `whatsapp`, `navegacion` |
+| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `excelListas`, `excelComoVa`, `whatsapp`, `navegacion` |
 | `src/constants/` | `iconos.js`, `specsConfig.js` (especificaciones por categoría de mueble) |
 | `src/data/` | `colombia.js` (departamentos/ciudades), `telasCatalogo.js` |
 | `src/assets/main.css` | Tailwind + overrides de modo oscuro |
@@ -518,6 +518,15 @@ entregada"). Solo supervisor.
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
+  (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
+  (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;
+  `utils/excelComisiones.js` con `vista: 'mes'`) o (3) **Cómo va el mes** (el mes en curso,
+  ESTIMADO, `utils/excelComoVa.js`: tiendas contra la meta con lo que falta y cuánto sumar
+  por día, órdenes que no cuentan con cuánto falta cobrar, lo estimado por persona). Antes
+  era un solo botón que bajaba uno u otro según la pestaña. "Cómo va" usa
+  `GET /comisiones/metas?avance=1` (vendido y lo que cuenta: `avanceDeMetas`, solo cuando se
+  pide) y los campos `pagado_orden` / `valor_orden_entera` de cada renglón; no calcula plata.
 - **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
   "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
   `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →

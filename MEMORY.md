@@ -459,6 +459,13 @@ escribiendo precios (Fase 1b).
   cambió ninguna regla de plata. Trampa: en un pool, el monto por orden es solo cómo se
   reparte la parte de la persona sobre sus ventas que ya cuentan (a prorrata); la cuenta real
   es la de la tienda (pool × días ÷ días del equipo − lo ya pagado). El libro lo dice así.
+- **Tres Excel en Comisiones** (2026-10-30, **sin subir**, sin migración). Pedido del dueño:
+  que un supervisor saque el Excel de cualquier mes o de cómo va el mes, "entendible para
+  todos y bien organizado". El botón Excel ahora abre una hoja: lo que se va a pagar (Listas),
+  un mes completo (sin los filtros de la pantalla) o cómo va el mes (estimado, en ámbar).
+  Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
+  mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
+  "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
 - **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
   rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
   (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF

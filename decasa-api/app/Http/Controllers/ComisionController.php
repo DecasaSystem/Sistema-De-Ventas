@@ -405,7 +405,13 @@ class ComisionController extends Controller
             $asesoresAsignados = collect([]);
         }
 
-        return response()->json($tiendas->map(function ($t) use ($metas, $asesoresAsignados, $mes) {
+        // Con ?avance=1 (Excel "Cómo va el mes") cada tienda trae lo vendido y
+        // lo que ya cuenta para la meta, de la misma cuenta que Reportes y
+        // Estadísticas. Solo cuando se pide: carga todos los totales y la
+        // pantalla de Metas no lo necesita.
+        $avance = $request->boolean('avance') ? self::avanceDeMetas() : null;
+
+        return response()->json($tiendas->map(function ($t) use ($metas, $asesoresAsignados, $mes, $avance) {
             $asesores = isset($asesoresAsignados[$t->id])
                 ? $asesoresAsignados[$t->id]->map(fn($a) => [
                     'id'          => $a->id,
@@ -430,7 +436,10 @@ class ComisionController extends Controller
                 'comisiones_compartidas' => (bool) $t->comisiones_compartidas,
                 // Cada cuánto se liquida el pool: guardado en la tienda.
                 'periodicidad'           => self::esTiendaTrimestral((int) $t->id) ? self::TRIMESTRAL : self::MENSUAL,
-            ];
+            ] + ($avance === null ? [] : [
+                'vendido' => round($avance[$t->id . '_' . $mes]['vendido'] ?? 0),
+                'cuenta'  => round($avance[$t->id . '_' . $mes]['cuenta'] ?? 0),
+            ]);
         }));
     }
 
@@ -5421,6 +5430,10 @@ class ComisionController extends Controller
             // Contra la ORDEN entera: en una venta compartida o un reparto la fila
             // lleva solo su pedazo, y comparar con él daba 200%.
             'pct_pagado'       => $valorOrdenEntera > 0 ? round($pagado / $valorOrdenEntera * 100) : 0,
+            // En pesos, para decir cuánto le falta cobrar a una orden para que
+            // cuente (Excel "Cómo va el mes"): el % solo no lo dice.
+            'pagado_orden'       => round((float) $pagado),
+            'valor_orden_entera' => round($valorOrdenEntera),
             // Para poder rehacer la cuenta a mano: lo que entró por datáfono y
             // lo que se llevó la franquicia, que es plata que nunca llegó a la
             // caja y sobre la que nadie comisiona.

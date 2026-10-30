@@ -680,4 +680,32 @@ class ReglasDeComisionTest extends TestCase
         $prompt = (fn () => $this->reglasDeComisiones())->call(app(\App\Services\AgentService::class));
         $this->assertStringContainsString('− meta) ÷ 1,19 × 6%', $prompt);
     }
+
+    // ── Excel "Cómo va el mes" (2026-10-30) ─────────────────────────────────
+
+    public function test_como_va_el_mes_trae_lo_vendido_lo_que_cuenta_y_lo_pagado_de_cada_orden(): void
+    {
+        Carbon::setTestNow('2026-10-30 10:00:00');
+        // 30 M pagados del todo + 10 M con 3 M pagados (no cuenta: le faltan 2 M).
+        $this->orden(self::PAOLA, self::NORTE, 30_000_000, [['efectivo', 30_000_000]]);
+        $debe = $this->orden(self::PAOLA, self::NORTE, 10_000_000, [['efectivo', 3_000_000]]);
+        $jefe = Usuario::find(self::JEFE);
+
+        // Sin ?avance la pantalla de Metas no paga el cálculo de los totales.
+        $sin = collect($this->actingAs($jefe)->getJson('/api/comisiones/metas?mes=' . self::MES)->assertOk()->json());
+        $this->assertArrayNotHasKey('vendido', $sin->firstWhere('tienda_id', self::NORTE));
+
+        $norte = collect($this->actingAs($jefe)->getJson('/api/comisiones/metas?mes=' . self::MES . '&avance=1')->assertOk()->json())
+            ->firstWhere('tienda_id', self::NORTE);
+        $this->assertEquals(40_000_000, $norte['meta']);
+        $this->assertEquals(40_000_000, $norte['vendido']);
+        $this->assertEquals(30_000_000, $norte['cuenta']);
+
+        // Cada renglón dice en pesos lo pagado y el valor de la orden entera.
+        $fila = collect($this->actingAs($jefe)->getJson('/api/comisiones?mes=' . self::MES)->assertOk()->json())
+            ->firstWhere('orden_id', $debe);
+        $this->assertFalse($fila['req_50_pct']);
+        $this->assertEquals(3_000_000, $fila['pagado_orden']);
+        $this->assertEquals(10_000_000, $fila['valor_orden_entera']);
+    }
 }

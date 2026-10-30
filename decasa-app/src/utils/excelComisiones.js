@@ -305,7 +305,16 @@ function hojaResumen(wb, ctx) {
   titulo(ws, `Comisiones — ${mesEnPalabras(ctx.mes)}`,
     `Generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
 
-  seccion(ws, 'Con qué filtros se generó', 'Lo que hay en las demás hojas es lo que se veía en pantalla con estos filtros.')
+  // El mes en curso todavía se mueve: que no se lea como un cierre.
+  if (ctx.mes === ctx.mesDeHoy) {
+    const r = ws.addRow([`Mes en curso: cifras al ${ctx.generadoEl}. Todavía cambian con cada venta y cada abono.`])
+    r.font = { bold: true, color: { argb: 'FF92400E' } }
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AMBAR } }
+  }
+
+  seccion(ws, 'Con qué filtros se generó', ctx.filtros.vista === 'Mes completo'
+    ? 'El mes entero, sin los filtros de la pantalla.'
+    : 'Lo que hay en las demás hojas es lo que se veía en pantalla con estos filtros.')
   fichas(ws, [
     ['Mes', mesEnPalabras(ctx.mes)],
     ['Vista', ctx.filtros.vista],
@@ -958,7 +967,7 @@ export async function exportarComisionesExcel(datos) {
   const sufijo = [f.vendedorNombre, f.estado ? ESTADO[f.estado] : null].filter(Boolean)
     .map(s => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_')).join('_')
   a.href     = url
-  a.download = `comisiones_${datos.mes}${sufijo ? '_' + sufijo : ''}.xlsx`
+  a.download = `comisiones_${f.vista === 'mes' ? 'mes_' : ''}${datos.mes}${sufijo ? '_' + sufijo : ''}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -1000,9 +1009,10 @@ export async function armarLibro(datos) {
     // Con un vendedor de tienda elegido, los independientes no son lo que se mira.
     conIndependientes: !f.vendedorId || esIndep,
     generadoPor: datos.generadoPor,
+    mesDeHoy: `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`,
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
     filtros: {
-      vista: { estado: 'Por estado', vendedor: 'Por vendedor', resumen: 'Resumen' }[f.vista] ?? f.vista,
+      vista: { estado: 'Por estado', vendedor: 'Por vendedor', resumen: 'Resumen', mes: 'Mes completo' }[f.vista] ?? f.vista,
       estado: f.estado ? ESTADO[f.estado] : 'Todos (pendientes, listas y pagadas)',
       vendedor: f.vendedorNombre ?? 'Todos',
       agrupacion: f.vista === 'resumen'
