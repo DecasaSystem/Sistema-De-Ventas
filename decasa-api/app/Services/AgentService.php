@@ -1334,7 +1334,13 @@ class AgentService
 
         if (!empty($args['categoria'])) {
             $cat = $this->detectarCategoria($args['categoria']) ?? $args['categoria'];
-            $query->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($cat)]);
+            // Los sinónimos apuntan a los nombres de siempre ("sofas"); si un
+            // supervisor renombró la categoría, se busca también como se llama hoy.
+            $hoy = \App\Services\CategoriasProducto::actualDe($cat);
+            $query->where(function ($q) use ($cat, $hoy) {
+                $q->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($cat)]);
+                if ($hoy) $q->orWhere('categoria', $hoy);
+            });
         }
 
         if (!empty($args['busqueda'])) {

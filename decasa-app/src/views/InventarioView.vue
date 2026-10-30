@@ -25,8 +25,10 @@ import {
   ArrowDownTrayIcon,
   ArrowsUpDownIcon,
   TagIcon,
+  RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
+import CategoriasModal from '@/components/inventario/CategoriasModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
@@ -791,6 +793,7 @@ async function abrirHistorial(item) {
 const mostrarAgregarProducto = ref(false)
 const mostrarVariantes = ref(false)
 const mostrarPromociones = ref(false)
+const mostrarCategorias = ref(false)
 const creandoProducto = ref(false)
 const subiendoFoto = ref(false)
 const errCrearProducto = ref('')
@@ -951,7 +954,25 @@ async function cargarCategorias() {
   try {
     const { data } = await api.get('/productos/categorias')
     categoriasDisponibles.value = data.filter(c => c)
+    // El filtro se recuerda en cada aparato: si esa categoría se renombró
+    // desde otro, la pantalla quedaba vacía con una pastilla que ya no existe.
+    if (categoriaFiltro.value && !categoriasDisponibles.value.includes(categoriaFiltro.value)) {
+      categoriaFiltro.value = ''
+      resumenCategoria.value = null
+    }
   } catch {}
+}
+
+// Se renombró o se juntó una categoría (Inventario → Categorías): la que se
+// estaba mirando sigue escogida con su nombre nuevo.
+async function categoriaRenombrada({ de, a, juntadaCon }) {
+  if (categoriaFiltro.value && (categoriaFiltro.value === de || categoriaFiltro.value === juntadaCon)) {
+    categoriaFiltro.value = a
+  }
+  await cargarCategorias()
+  if (!tiendaId.value) return
+  cargarInventario(true)
+  if (categoriaFiltro.value) cargarResumenCategoria()
 }
 
 function seleccionarCategoria(cat) {
@@ -2359,6 +2380,15 @@ onMounted(async () => {
       </button>
       <button
         v-if="auth.isSupervisor"
+        @click="mostrarCategorias = true"
+        title="Renombrar o juntar categorías"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+      >
+        <RectangleStackIcon class="w-4 h-4 flex-shrink-0" />
+        Categorías
+      </button>
+      <button
+        v-if="auth.isSupervisor"
         @click="abrirDescuadres"
         title="Productos donde &quot;Apartado&quot; no coincide con lo real"
         class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
@@ -3044,6 +3074,7 @@ onMounted(async () => {
     <!-- Modal Catálogo Tela -->
     <ModalVariantes v-if="mostrarVariantes" @close="mostrarVariantes = false" />
     <PromocionesModal :show="mostrarPromociones" :tiendas="tiendas" @close="mostrarPromociones = false" @cambio="cargarPromosTienda" />
+    <CategoriasModal :show="mostrarCategorias" :etiquetas="CATEGORY_LABELS" @close="mostrarCategorias = false" @cambio="categoriaRenombrada" />
 
     <!-- Modal Agregar Producto -->
     <Transition name="fade">

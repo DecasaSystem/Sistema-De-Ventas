@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Catalogo;
 use App\Models\CatalogoPagina;
 use App\Models\Producto;
+use App\Services\CategoriasProducto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -29,9 +30,8 @@ class CatalogoPublicoController extends Controller
      */
     private static function normalizar(?string $texto): string
     {
-        $sinTildes = Str::ascii((string) $texto);
-
-        return preg_replace('/[^a-z0-9]/', '', mb_strtolower($sinTildes));
+        // La misma clave con que se anotan los renombres de categorías.
+        return CategoriasProducto::clave($texto);
     }
 
     /** GET /api/catalogo/{seccion} — público */
@@ -52,6 +52,15 @@ class CatalogoPublicoController extends Controller
         $deLaSeccion = $productos->filter(
             fn (Producto $p) => self::normalizar($p->categoria) === $buscada
         )->values();
+
+        // Un link mandado antes de renombrar la categoría ("Truf" → "Throw")
+        // trae el nombre viejo: se busca cómo se llama hoy.
+        if ($deLaSeccion->isEmpty() && ($hoy = CategoriasProducto::actualDe($buscada))) {
+            $claveHoy    = self::normalizar($hoy);
+            $deLaSeccion = $productos->filter(
+                fn (Producto $p) => self::normalizar($p->categoria) === $claveHoy
+            )->values();
+        }
 
         if ($deLaSeccion->isEmpty()) {
             return response()->json(['message' => 'Sección no encontrada.'], 404);

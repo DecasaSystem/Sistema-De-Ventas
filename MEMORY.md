@@ -647,6 +647,15 @@ escribiendo precios (Fase 1b).
   regla de la lista de Órdenes; "el más cargado" = más de 7 días de trabajo al ritmo de las
   últimas 4 semanas. De paso, Órdenes y Producción aceptan el filtro en la dirección y
   Órdenes tiene la opción "Devuelto" en el menú de estado. Tests en `CargaDeTrabajoTest`.
+- **Renombrar y juntar categorías de inventario** (2026-10-29, **sin subir**, rama
+  `claude/strange-shaw-a9d11b`, trae **migración** `2026_11_06_000001_crear_categorias_renombradas`,
+  solo crea tabla; y cambio en el repo `Desktop/Agentes`: `core/contrato-bd.js`, ya sincronizado,
+  **sin desplegar**). Queja del usuario: "si me equivoco no puedo editar los nombres de las
+  categorías". Aprobado por el usuario tras explicarle los riesgos (links ya mandados y Elena).
+  Solo supervisor; crear categorías sigue igual (vendedores también). Detalle en
+  `docs/PROYECTO.md` §6.5. Orden de despliegue: backend (crea la tabla) y luego los agentes; si
+  los agentes van antes, no pasa nada (la tabla es opcional). Trampa: en MySQL la comparación es
+  sin tildes ni mayúsculas, así que "Sofa" y "sofa" ya eran una sola en la lista; en SQLite no.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
