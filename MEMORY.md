@@ -926,6 +926,15 @@ Decisiones del dueño del 2026-10-08:
   Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
   avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
 
+- **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
+  Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
+  antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los
+  datos siempre llegan frescos; lo viejo es el código. Ahora cada compilación lleva su versión
+  (`__VERSION_APP__` y `/version.json`, en `vite.config.js`) y `AvisoVersionNueva.vue` pregunta
+  al volver a la app y cada 5 min; si cambió, aviso con "Recargar" (no recarga solo: podría
+  estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
+  "no le sale" a una persona, lo primero es preguntar si recargó.
+
 - Basura versionada por accidente (comandos de tinker mal escritos):
   `decasa-api/count())`, `decasa-api/get()`, `decasa-api/pluck('categoria')`,
   `decasa-api/pluck('tarifa'`, y en la raíz `C:UsersLenovoDesktopconfiguracion_export.sql`.

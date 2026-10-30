@@ -21,6 +21,7 @@ import VisorFoto from '@/components/common/VisorFoto.vue'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 import { esUrlDeFoto } from '@/utils/fotos'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
+import AvisoVersionNueva from '@/components/common/AvisoVersionNueva.vue'
 import AgentChat from '@/components/AgentChat.vue'
 import {
   HomeIcon,
@@ -937,6 +938,10 @@ function formatFecha(iso) {
 
     <!-- PWA install prompt -->
     <AppInstallPrompt />
+
+    <!-- Se subió algo nuevo y esta pestaña sigue con lo viejo: que recargue.
+         Solo con sesión: en la página del cliente (catálogo, firma) no. -->
+    <AvisoVersionNueva v-if="showNav" />
 
     <!-- Toasts globales -->
     <ToastContainer />
