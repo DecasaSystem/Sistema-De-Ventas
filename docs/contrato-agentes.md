@@ -111,6 +111,13 @@ Los agentes conocen las categorías de `categorias` / `mapaCategoriasBD` en su
 (las búsquedas y la foto usan la base), pero el bot avisa una vez por Telegram para que se
 le ponga nombre en `negocio.json`.
 
+Desde 2026-10-29 un supervisor puede **renombrar o juntar** categorías (Inventario →
+Categorías). Cada cambio queda en `categorias_renombradas` (`nombre_viejo`, `clave_vieja`,
+`nombre_nuevo`; tabla opcional del contrato). El bot la lee al arrancar y cada hora y agrega
+el nombre nuevo a su `mapaCategoriasBD` con la clave del viejo (`aplicarRenombres`), así que
+una renombrada no sale como "nueva". Una categoría que el bot no conocía sigue avisando.
+Los links `/catalogo/<nombre viejo>` siguen abriendo (`CatalogoPublicoController::seccion`).
+
 ## 3. Reglas de este sistema que el bot copia (cambiarlas en los dos lados)
 
 | Regla aquí | Dónde está en el agente | Qué pasa si cambia solo aquí |

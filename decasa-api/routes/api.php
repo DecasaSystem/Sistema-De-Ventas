@@ -391,6 +391,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Productos
     Route::get('/productos',             [ProductoController::class, 'index']);
     Route::get('/productos/categorias',  [ProductoController::class, 'categorias']);
+    // Renombrar una categoría cambia todas las tiendas y lo que dice Elena: solo supervisor.
+    Route::get('/productos/categorias/gestion',    [ProductoController::class, 'gestionCategorias'])->middleware('role:supervisor');
+    Route::post('/productos/categorias/renombrar', [ProductoController::class, 'renombrarCategoria'])->middleware('role:supervisor');
     Route::get('/productos/sugerencias', [ProductoController::class, 'sugerencias']);
     Route::get('/productos/unicos',      [ProductoController::class, 'unicosVendidos']);
     Route::post('/productos',            [ProductoController::class, 'store']);

@@ -657,9 +657,18 @@ escribiendo precios (Fase 1b).
   regla de la lista de Órdenes; "el más cargado" = más de 7 días de trabajo al ritmo de las
   últimas 4 semanas. De paso, Órdenes y Producción aceptan el filtro en la dirección y
   Órdenes tiene la opción "Devuelto" en el menú de estado. Tests en `CargaDeTrabajoTest`.
-- **Segunda foto para Elena + nombre de las hojas del catálogo** (2026-10-30, **sin subir**,
+- **Renombrar y juntar categorías de inventario** (2026-10-29, **sin subir**, rama
+  `claude/strange-shaw-a9d11b`, trae **migración** `2026_11_06_000001_crear_categorias_renombradas`,
+  solo crea tabla; y cambio en el repo `Desktop/Agentes`: `core/contrato-bd.js`, ya sincronizado,
+  **sin desplegar**). Queja del usuario: "si me equivoco no puedo editar los nombres de las
+  categorías". Aprobado por el usuario tras explicarle los riesgos (links ya mandados y Elena).
+  Solo supervisor; crear categorías sigue igual (vendedores también). Detalle en
+  `docs/PROYECTO.md` §6.5. Orden de despliegue: backend (crea la tabla) y luego los agentes; si
+  los agentes van antes, no pasa nada (la tabla es opcional). Trampa: en MySQL la comparación es
+  sin tildes ni mayúsculas, así que "Sofa" y "sofa" ya eran una sola en la lista; en SQLite no.
+- **Segunda foto para Elena + nombre de las hojas del catálogo** (2026-10-30, **subido a `main`** ese día con los dos bots,
   rama `claude/sharp-poincare-53acaf` + `Desktop/Agentes` (core, Agente-ws, Agente-ig), trae
-  **migración** `2026_11_06_000001_nombre_de_hojas_del_catalogo`, solo agrega
+  **migración** `2026_11_06_000002_nombre_de_hojas_del_catalogo`, solo agrega
   `catalogo_paginas.nombre`). Pedido del usuario: "2 imágenes en inventario para que la IA
   tenga 2 opciones o mandarle las 2 al cliente" y "ponerle nombre a las hojas del catálogo
   para saber qué hoja le está mandando". Lo que se encontró: `foto_url_2` ya existía e
