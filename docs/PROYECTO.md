@@ -709,6 +709,14 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
 - `CitaController`: citas presenciales o por mensaje; recordatorios diarios.
 - **Catálogo público** (`/catalogo/:seccion`) y **catálogos visuales** tipo
   revista (`/c`, `/c/:slug`, gestionados en Gestión → Catálogos, con QR).
+  Cada hoja tiene **nombre** (interno, 2026-10-30: lo usa Elena para saber qué hoja
+  manda y mandar solo esa) y **nota** (la ve el cliente encima de la hoja); se guardan
+  por separado (`PATCH …/paginas/{pid}` solo toca lo que llega). `/c/:slug?hoja=<id>`
+  abre el visor en esa hoja (por id, no por posición); el botón de enlace de cada hoja
+  en Gestión copia ese enlace. Migración `2026_11_06_000001_nombre_de_hojas_del_catalogo`.
+- **Dos fotos por producto** (Inventario → Gestionar: foto y "foto adicional",
+  `productos.foto_url_2`). Elena manda las dos al pedir la foto y reconoce la foto
+  del cliente con cualquiera de las dos. La adicional se puede quitar.
 
 ### 6.16 Anexo de garantías
 `AnexoGarantiaController`, `Support/AnexoGarantiaTexto` (texto de fábrica versionado;

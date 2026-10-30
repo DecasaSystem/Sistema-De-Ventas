@@ -113,7 +113,11 @@ class CatalogoPublicoController extends Controller
             return response()->json(['message' => 'Catálogo no encontrado.'], 404);
         }
 
-        $paginas = $catalogo->paginas()->get(['imagen_url', 'nota']);
+        // El id va para que /c/<slug>?hoja=<id> abra esa hoja (los agentes de chat
+        // mandan una hoja puntual así). Se usa el id y no la posición porque la
+        // portada se adelanta y el orden se puede cambiar. El nombre de la hoja
+        // no sale aquí: es interno, el cliente solo ve la nota.
+        $paginas = $catalogo->paginas()->get(['id', 'imagen_url', 'nota']);
 
         if ($paginas->isEmpty()) {
             return response()->json(['message' => 'Catálogo no encontrado.'], 404);
@@ -135,6 +139,7 @@ class CatalogoPublicoController extends Controller
             'slug'        => $catalogo->slug,
             'descripcion' => $catalogo->descripcion,
             'paginas'     => $paginas->map(fn (CatalogoPagina $p) => [
+                'id'         => $p->id,
                 'imagen_url' => $p->imagen_url,
                 'nota'       => $p->nota,
             ])->values(),

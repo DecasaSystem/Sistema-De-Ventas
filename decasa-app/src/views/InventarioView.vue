@@ -492,6 +492,24 @@ async function guardarFoto2Producto() {
   }
 }
 
+// Antes la segunda foto solo se podía cambiar, no quitar: si era de otro
+// producto, Elena la seguía mandando al cliente.
+async function borrarFoto2Producto() {
+  if (!confirm('¿Quitar la foto adicional? Elena dejará de mandarla.')) return
+  gestionFoto2Error.value = ''
+  gestionFoto2Loading.value = true
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url_2: null })
+    if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url_2 = null
+    toast.success('Foto adicional quitada.')
+    await cargarInventario(true)
+  } catch (e) {
+    gestionFoto2Error.value = e.response?.data?.message ?? 'No se pudo quitar la foto.'
+  } finally {
+    gestionFoto2Loading.value = false
+  }
+}
+
 async function guardarFotoProducto() {
   gestionFotoError.value = ''
   gestionFotoLoading.value = true
@@ -3422,6 +3440,16 @@ onMounted(async () => {
                   <p class="text-xs text-gray-400">JPG, PNG, WEBP · ángulo diferente del producto</p>
                 </div>
               </button>
+              <div v-if="!gestionFoto2PreviewUrl && itemGestionar?.producto?.foto_url_2" class="flex items-start justify-between gap-2 mt-1.5">
+                <p class="text-[11px] text-gray-500 leading-snug">
+                  Elena manda las dos fotos cuando el cliente pide la del producto y reconoce el mueble con cualquiera de las dos.
+                </p>
+                <button
+                  type="button" @click="borrarFoto2Producto" :disabled="gestionFoto2Loading"
+                  class="text-xs text-red-500 font-medium flex-shrink-0 disabled:opacity-50"
+                >Quitar</button>
+              </div>
+              <p v-if="!gestionFoto2PreviewUrl && gestionFoto2Error" class="text-xs text-red-600 mt-1">{{ gestionFoto2Error }}</p>
             </div>
 
             <div class="border-t border-gray-100" />

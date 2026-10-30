@@ -657,6 +657,24 @@ escribiendo precios (Fase 1b).
   regla de la lista de Órdenes; "el más cargado" = más de 7 días de trabajo al ritmo de las
   últimas 4 semanas. De paso, Órdenes y Producción aceptan el filtro en la dirección y
   Órdenes tiene la opción "Devuelto" en el menú de estado. Tests en `CargaDeTrabajoTest`.
+- **Segunda foto para Elena + nombre de las hojas del catálogo** (2026-10-30, **sin subir**,
+  rama `claude/sharp-poincare-53acaf` + `Desktop/Agentes` (core, Agente-ws, Agente-ig), trae
+  **migración** `2026_11_06_000001_nombre_de_hojas_del_catalogo`, solo agrega
+  `catalogo_paginas.nombre`). Pedido del usuario: "2 imágenes en inventario para que la IA
+  tenga 2 opciones o mandarle las 2 al cliente" y "ponerle nombre a las hojas del catálogo
+  para saber qué hoja le está mandando". Lo que se encontró: `foto_url_2` ya existía e
+  Instagram ya mandaba las dos, pero **WhatsApp nunca mandaba la segunda** (`db.js` la leía en
+  el SELECT y no la pasaba al producto) y el reconocimiento de la foto del cliente (hash exacto
+  y comparación con IA) solo miraba la primera. Ahora las dos se usan en los dos bots
+  (`core/fotos-producto.js`: la segunda se indexa en `producto_imagen_hash` con la clave
+  `<nombre> · foto 2`, sin cambiar la tabla). Hojas: el **nombre** es interno (Elena) y la
+  **nota** la ve el cliente; no se reusó la nota por eso. `enviar_catalogo` acepta `hoja`
+  (`core/catalogos.js` → `resolverHoja`: todas las palabras pedidas en el nombre; varias →
+  pregunta) y manda la imagen de la hoja + `/c/<slug>?hoja=<id>`. Orden de despliegue:
+  backend (migración) y después los bots (si no, el contrato opcional avisa que falta la
+  columna; sin ella se manda el catálogo completo como antes). No se probó con el modelo real
+  (`npm run eval` cuesta y no hay clave aquí). Comparar con dos fotos sube un poco los tokens de
+  visión en los productos que tienen foto adicional.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -36,7 +36,7 @@ class CatalogoVisualTest extends TestCase
         });
         Schema::create('catalogo_paginas', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('catalogo_id');
-            $t->string('imagen_url'); $t->string('nota')->nullable();
+            $t->string('imagen_url'); $t->string('nombre')->nullable(); $t->string('nota')->nullable();
             $t->unsignedInteger('orden')->default(0); $t->timestamps();
         });
     }
@@ -89,6 +89,38 @@ class CatalogoVisualTest extends TestCase
             [$this->img('3'), $this->img('2'), $this->img('1')],
             array_column($cat['paginas'], 'imagen_url'),
         );
+    }
+
+    /**
+     * El nombre de la hoja (2026-10-30) es para la tienda y para Elena; la nota
+     * es lo que ve el cliente. Guardar uno no puede borrar el otro, y el público
+     * recibe el id de cada hoja (para /c/<slug>?hoja=<id>) pero no su nombre.
+     */
+    public function test_la_hoja_tiene_nombre_aparte_de_la_nota_y_el_publico_no_lo_ve(): void
+    {
+        $jefe = $this->jefe();
+        $id = $this->actingAs($jefe)->postJson('/api/catalogos-visuales', ['nombre' => 'Camas'])->json('id');
+        $pid = $this->actingAs($jefe)->postJson("/api/catalogos-visuales/{$id}/paginas", [
+            'imagenes' => [$this->img('1'), $this->img('2')],
+        ])->json('paginas.1.id');
+
+        $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}/paginas/{$pid}", ['nota' => 'Nueva colección'])
+            ->assertOk();
+        $cat = $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}/paginas/{$pid}", ['nombre' => '  Camas Bali y Roma '])
+            ->assertOk()->json();
+
+        $this->assertSame('Camas Bali y Roma', $cat['paginas'][1]['nombre']);
+        $this->assertSame('Nueva colección', $cat['paginas'][1]['nota']);
+
+        // Borrar el nombre deja la nota.
+        $cat = $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}/paginas/{$pid}", ['nombre' => ''])->json();
+        $this->assertNull($cat['paginas'][1]['nombre']);
+        $this->assertSame('Nueva colección', $cat['paginas'][1]['nota']);
+
+        $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}/paginas/{$pid}", ['nombre' => 'Camas Bali y Roma']);
+        $pub = $this->getJson('/api/c/camas')->assertOk()->json();
+        $this->assertSame($pid, $pub['paginas'][1]['id']);
+        $this->assertArrayNotHasKey('nombre', $pub['paginas'][1]);
     }
 
     public function test_el_publico_ve_las_paginas_en_orden_y_no_ve_lo_apagado(): void

@@ -151,16 +151,30 @@ class CatalogoVisualController extends Controller
         return response()->json($this->conPaginas($catalogo->load('paginas')));
     }
 
-    /** PATCH /api/catalogos-visuales/{id}/paginas/{pid} — nota de una página. */
+    /**
+     * PATCH /api/catalogos-visuales/{id}/paginas/{pid} — nombre y/o nota de una página.
+     * Solo se cambia lo que llega: la pantalla guarda cada campo por separado
+     * y un PATCH del nombre no puede borrar la nota (ni al revés).
+     */
     public function actualizarPagina(Request $request, int $id, int $pid)
     {
         $pagina = CatalogoPagina::where('catalogo_id', $id)->findOrFail($pid);
 
         $data = $request->validate([
-            'nota' => 'nullable|string|max:200',
+            'nombre' => 'sometimes|nullable|string|max:120',
+            'nota'   => 'sometimes|nullable|string|max:200',
         ]);
 
-        $pagina->update(['nota' => $data['nota'] ?? null]);
+        $cambios = [];
+        foreach (['nombre', 'nota'] as $campo) {
+            if (array_key_exists($campo, $data)) {
+                $valor = trim((string) $data[$campo]);
+                $cambios[$campo] = $valor === '' ? null : $valor;
+            }
+        }
+        if ($cambios) {
+            $pagina->update($cambios);
+        }
 
         return response()->json($this->conPaginas($pagina->catalogo->load('paginas')));
     }
@@ -194,6 +208,7 @@ class CatalogoVisualController extends Controller
             'paginas'     => $catalogo->paginas->map(fn (CatalogoPagina $p) => [
                 'id'         => $p->id,
                 'imagen_url' => $p->imagen_url,
+                'nombre'     => $p->nombre,
                 'nota'       => $p->nota,
                 'orden'      => $p->orden,
             ])->values(),

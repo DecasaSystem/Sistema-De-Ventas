@@ -61,7 +61,7 @@ No renombres ni borres estas columnas sin cambiar antes los agentes
 
 | Tabla | Columnas |
 |---|---|
-| `productos` | id, nombre, precio_base, foto_url, foto_url_2, medidas, material, categoria, activo, descripcion, piezas_por_juego, precio_pieza. Con `piezas_por_juego` el bot dice que el precio es **del juego** y da la pieza suelta como `Producto::precioPieza` |
+| `productos` | id, nombre, precio_base, foto_url, foto_url_2 (foto adicional: `enviar_foto` manda las dos y el reconocimiento de fotos del cliente compara con las dos, 2026-10-30), medidas, material, categoria, activo, descripcion, piezas_por_juego, precio_pieza. Con `piezas_por_juego` el bot dice que el precio es **del juego** y da la pieza suelta como `Producto::precioPieza` |
 | `inventario` | producto_id, tienda_id, cantidad_disponible, cantidad_reservada |
 | `tiendas` | id, nombre, es_fabrica, activa. Los ids de las sedes están en `negocio.json` de los agentes; cada hora comparan con `activa` y **dejan de ofrecer para citas la sede cuya tienda esté cerrada**, y alertan |
 | `producto_variante_configs` | producto_id, tipo_variante_id, opcion_id, precio_adicional (**precio absoluto**, 0 = precio_base), piezas_por_juego (opcional, consulta aparte). Con dos o más tipos con precio, el sistema suma; el bot **no** cotiza esa combinación, la pasa a un asesor (`core/precio-variantes.js`) |
@@ -72,7 +72,7 @@ No renombres ni borres estas columnas sin cambiar antes los agentes
 | `configuracion` | clave, valor. Respaldo viejo de catálogos (no borrar las filas `catalogo_*` todavía) |
 | `conversaciones_wa` | telefono, estado, tipo, created_at. El bot se calla si hay una tarjeta `tomada`. "Archivar terminadas" llena `archivada_at`; **no borres filas**: el bot las mira para saber si un asesor ya atendió |
 
-| `catalogos`, `catalogo_paginas` | nombre, slug, activo, orden · catalogo_id. Catálogos visuales de Gestión (opcionales para el bot) |
+| `catalogos`, `catalogo_paginas` | nombre, slug, activo, orden · id, catalogo_id, imagen_url, **nombre**, orden. Catálogos visuales de Gestión (opcionales para el bot). `catalogo_paginas.nombre` (2026-10-30) es el nombre interno de la hoja: el bot lo usa para mandar una hoja puntual; el cliente no lo ve (ve la `nota`) |
 
 ### Enlaces públicos que mandan los agentes
 
@@ -85,6 +85,8 @@ No renombres ni borres estas columnas sin cambiar antes los agentes
    categoría con productos activos, aunque no tenga catálogo (p. ej. Cunas).
 3. Enlace viejo de Herramientas (`herramientas.clave = catalogo_*`), solo si no hay nada de
    lo anterior. Si da 404/410 no se manda, y el bot alerta por Telegram.
+
+**Una hoja puntual** (2026-10-30): `enviar_catalogo` acepta `hoja` (el nombre que la tienda le puso en Gestión → Catálogos, o lo que busca el cliente). Si encaja una sola hoja (todas las palabras pedidas están en su nombre), el bot manda la imagen de esa hoja (Cloudinary, 1600 px) y el enlace `https://<app>/c/<slug>?hoja=<id>`, que abre el visor en esa hoja (va por **id**, no por posición: la portada se adelanta y el orden cambia). Si encajan varias, manda el catálogo completo y pregunta cuál; si ninguna, el catálogo completo. Al mandar un catálogo visual, la respuesta de la herramienta le lista al modelo los nombres de sus hojas. `GET /api/c/{slug}` devuelve el `id` de cada hoja (no su nombre). **No cambiar `?hoja=` sin avisar a los agentes.**
 
 Sin categoría ("el catálogo") el bot manda la portada `https://<app>/c`. La categoría se
 compara por palabras (sin tildes ni conectores, singular/plural) y tienen que ser las
