@@ -53,7 +53,7 @@ export function soloHttps(urls) {
  * `OrdenItem::tipo_item` en el servidor; el de inventario no lleva etiqueta
  * (es lo normal).
  */
-const TRABAJOS = { tela: 'Cambio de tela', color: 'Cambio de color', arreglo: 'Arreglo' }
+const TRABAJOS = { tela: 'Cambio de tela', color: 'Cambio de color', arreglo: 'Arreglo', modificacion: 'Modificación' }
 
 export function tipoParaCliente(tipo, trabajo = null) {
   switch (tipo) {

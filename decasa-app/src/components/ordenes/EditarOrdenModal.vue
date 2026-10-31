@@ -992,8 +992,13 @@ function telaActualItem(item) {
  */
 const TRABAJOS_FABRICA = [
   { k: 'tela',    label: 'Cambio de tela',  icono: '🧵' },
-  { k: 'color',   label: 'Cambio de color', icono: '🎨' },
-  { k: 'arreglo', label: 'Arreglo',         icono: '🔧' },
+  { k: 'color',   label: 'Cambio de color', icono: '🎨',
+    pregunta: '¿Qué color lleva?', ejemplo: 'Ej: lacar en nogal oscuro, patas en negro mate…' },
+  { k: 'arreglo', label: 'Arreglo',         icono: '🔧',
+    pregunta: '¿Qué hay que arreglarle?', ejemplo: 'Ej: cambiar pata rota, ajustar cajón, retocar rayón…' },
+  // Agregarle o cambiarle algo que no está roto (cubierta de madera en vez de vidrio).
+  { k: 'modificacion', label: 'Modificación', icono: '🪚',
+    pregunta: '¿Qué se le agrega o se le cambia?', ejemplo: 'Ej: cubierta de madera en vez de vidrio, agregarle un cajón…' },
 ]
 function trabajoDe(item) {
   // `trabajo` suelto es el del ítem que se está agregando, que aún no tiene specs.
@@ -1925,11 +1930,11 @@ function solicitudEnviada() {
               <!-- Cambio de tela: qué tela tiene y cuál le va. Es lo único que
                    el taller necesita de un mueble que ya existe; medidas y
                    acabados son los que tiene. -->
-              <div v-if="item._retapizar" class="flex gap-1.5">
+              <div v-if="item._retapizar" class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 <button
                   v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
                   @click="elegirTrabajoItem(item, t.k)"
-                  :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+                  :class="['rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
                     trabajoDe(item) === t.k
                       ? 'bg-orange-600 border-orange-600 text-white'
                       : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
@@ -1939,15 +1944,13 @@ function solicitudEnviada() {
               <!-- Cambio de color o arreglo: no hay tela nueva, hay que decir qué. -->
               <div v-if="item._retapizar && !esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
                 <p class="text-xs font-semibold text-orange-800">
-                  {{ trabajoDe(item) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                  {{ trabajoInfo(item).pregunta }}
                   <span class="text-red-500">*</span>
                 </p>
                 <textarea
                   v-model="item.specs_notas"
                   rows="2"
-                  :placeholder="trabajoDe(item) === 'color'
-                    ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
-                    : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…'"
+                  :placeholder="trabajoInfo(item).ejemplo"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
                 />
               </div>
@@ -2262,11 +2265,11 @@ function solicitudEnviada() {
                   <p class="text-[11px] text-orange-700 -mt-1">
                     Se aparta el mueble del inventario de la tienda elegida y entra a producción antes de entregarlo.
                   </p>
-                  <div class="flex gap-1.5">
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     <button
                       v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
                       @click="elegirTrabajoItem(nuevoItem, t.k)"
-                      :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+                      :class="['rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
                         trabajoDe(nuevoItem) === t.k
                           ? 'bg-orange-600 border-orange-600 text-white'
                           : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
@@ -2350,14 +2353,13 @@ function solicitudEnviada() {
                       <label class="block text-[11px] text-gray-500 mb-0.5">
                         <template v-if="esCambioTela(nuevoItem)">Notas para el taller</template>
                         <template v-else>
-                          {{ trabajoDe(nuevoItem) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                          {{ trabajoInfo(nuevoItem).pregunta }}
                           <span class="text-red-500">*</span>
                         </template>
                       </label>
                       <textarea v-model="nuevoItem.specs_notas" rows="2"
                         :placeholder="esCambioTela(nuevoItem) ? 'Qué partes se cambian, detalles… (opcional)'
-                          : trabajoDe(nuevoItem) === 'color' ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
-                          : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón…'"
+                          : trabajoInfo(nuevoItem).ejemplo"
                         class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"></textarea>
                     </div>
                   </div>
