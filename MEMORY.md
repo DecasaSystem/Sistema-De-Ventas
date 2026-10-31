@@ -960,6 +960,12 @@ Decisiones del dueño del 2026-10-08:
   Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
   avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
 
+- **"Fecha de entrega 10 jul · Prometida 10 nov"** (2026-10-31, subido a `main` ese día, sin
+  migración). Los ítems nacen con la fecha prometida, pero corregir la prometida en Editar orden
+  no los movía (el vendedor se equivocó de mes y lo arregló solo arriba). Ahora
+  `OrdenController::update` mueve los ítems que seguían con la vieja (o sin fecha) y el
+  `fecha_compromiso` del taller; los que un supervisor puso en otra fecha se quedan. Las órdenes
+  que ya estaban así se corrigen a mano ("usar fecha sugerida" en Detalle).
 - **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
   Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
   antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los

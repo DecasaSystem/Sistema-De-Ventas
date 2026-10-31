@@ -40,7 +40,24 @@ const auth  = useAuthStore()
 const notas          = ref('')
 // Fecha que se le prometio al cliente; referencia para quien asigna la entrega
 const fechaSugeridaVendedor = ref('')
-const canal          = ref('')
+
+/**
+ * Al corregir la fecha prometida, los ítems que seguían con la vieja la siguen
+ * (el servidor hace lo mismo). Así quien edita ve aquí lo que va a quedar, y no
+ * "10 jul" en el ítem con "10 nov" arriba. El que ya tenía otra fecha se queda.
+ */
+function cambiarFechaPrometida(e) {
+  const vieja = fechaSugeridaVendedor.value
+  const nueva = e.target.value
+  fechaSugeridaVendedor.value = nueva
+  if (!nueva) return
+  for (const item of items.value) {
+    if (!item.fecha_entrega_prom || item.fecha_entrega_prom === vieja) {
+      item.fecha_entrega_prom = nueva
+    }
+  }
+}
+const canal        = ref('')
 const direccionEnvio = ref('')
 const ciudadEnvio    = ref('')
 const anticipoPct    = ref('')
@@ -1409,12 +1426,13 @@ function solicitudEnviada() {
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Fecha prometida al cliente</label>
                 <input
-                  v-model="fechaSugeridaVendedor"
+                  :value="fechaSugeridaVendedor"
+                  @change="cambiarFechaPrometida"
                   type="date"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p class="text-[11px] text-gray-500 mt-1">
-                  Lo que se le dijo al cliente. No es la fecha de entrega — esa se asigna por ítem.
+                  Lo que se le dijo al cliente. Los ítems que tenían la fecha anterior pasan a esta; los que tienen otra fecha se quedan con la suya.
                 </p>
               </div>
               <!-- Fotos de la orden -->

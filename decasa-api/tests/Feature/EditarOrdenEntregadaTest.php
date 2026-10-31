@@ -192,6 +192,54 @@ class EditarOrdenEntregadaTest extends TestCase
         $this->assertSame('https://x.example/anexo.jpg', $orden->fresh()->anexo_foto_url);
     }
 
+    /**
+     * El vendedor puso julio en vez de noviembre y lo corrigió en la fecha
+     * prometida. Antes los ítems se quedaban en julio y la orden decía
+     * "Fecha de entrega 10 jul · Prometida 10 nov".
+     */
+    public function test_corregir_la_fecha_prometida_mueve_los_items_que_la_tenian(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada('en_produccion');
+        $orden->update(['fecha_sugerida_vendedor' => '2026-07-10']);
+        $mesa->update(['fecha_entrega_prom' => '2026-07-10']);
+        // A esta un supervisor ya le puso otra fecha: no se toca.
+        $silla = OrdenItem::create(['orden_id' => $orden->id, 'nombre_custom' => 'Silla', 'cantidad' => 1,
+                                    'precio_unitario' => 0, 'fecha_entrega_prom' => '2026-12-01']);
+        DB::table('produccion')->insert(['orden_item_id' => $mesa->id, 'fecha_compromiso' => '2026-07-10']);
+        // Con la mesa en el taller, se le avisa a quien la fabrica.
+        Schema::create('tipos_proceso', function (Blueprint $t) { $t->id(); $t->string('nombre')->nullable(); $t->boolean('activo')->default(true); });
+        Schema::create('proceso_trabajadores', function (Blueprint $t) { $t->unsignedBigInteger('tipo_proceso_id'); $t->unsignedBigInteger('usuario_id'); });
+
+        $vendedor = Usuario::create(['nombre' => 'Vendedora', 'email' => 'v@d.com', 'password' => 'x',
+                                     'rol' => 'vendedor', 'created_at' => now()]);
+        $orden->update(['vendedor_id' => $vendedor->id]);
+
+        $this->actingAs($vendedor)->patchJson("/api/ordenes/{$orden->id}", [
+            'fecha_sugerida_vendedor' => '2026-11-10',
+        ])->assertOk();
+
+        $this->assertSame('2026-11-10', $mesa->fresh()->fecha_entrega_prom->toDateString());
+        $this->assertSame('2026-12-01', $silla->fresh()->fecha_entrega_prom->toDateString());
+        $this->assertSame('2026-11-10', DB::table('produccion')->where('orden_item_id', $mesa->id)->value('fecha_compromiso'));
+    }
+
+    /** El modal manda también los ítems; la fecha no se anota dos veces. */
+    public function test_el_supervisor_corrige_la_prometida_sin_cambio_doble_en_el_historial(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada('en_produccion');
+        $orden->update(['fecha_sugerida_vendedor' => '2026-07-10']);
+        $mesa->update(['fecha_entrega_prom' => '2026-07-10']);
+
+        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'fecha_sugerida_vendedor' => '2026-11-10',
+            'items' => [['id' => $mesa->id, 'fecha_entrega_prom' => '2026-11-10']],
+        ])->assertOk();
+
+        $this->assertSame('2026-11-10', $mesa->fresh()->fecha_entrega_prom->toDateString());
+        $cambios = json_decode(DB::table('orden_ediciones')->where('orden_id', $orden->id)->value('cambios'), true);
+        $this->assertCount(1, array_filter($cambios, fn ($c) => $c['campo'] === "item_{$mesa->id}_fecha"));
+    }
+
     // ── Lo que no ─────────────────────────────────────────────────────────────
 
     /** Quien vendió no le corrige el precio a lo entregado: eso es del supervisor. */
