@@ -966,7 +966,7 @@ Decisiones del dueño del 2026-10-08:
   `OrdenController::update` mueve los ítems que seguían con la vieja (o sin fecha) y el
   `fecha_compromiso` del taller; los que un supervisor puso en otra fecha se quedan. Las órdenes
   que ya estaban así se corrigen a mano ("usar fecha sugerida" en Detalle).
-- **Catálogo visual borroso y recortado** (2026-11-03, **sin subir**, sin migración, solo front,
+- **Catálogo visual borroso y recortado** (2026-11-03, **subido a `main`** ese día, commit 0857a88, sin migración, solo front,
   rama `claude/catalogo-imagen-calidad-e355ef`). Queja: en el link `/c/<slug>` las hojas se veían
   "con zoom", recortadas y en mala calidad. Causas: (1) el visor pedía la imagen por el tamaño de
   la ventana suponiendo hoja vertical y densidad máx. 2 (hoja horizontal en PC: llegaba a 1.000 px
@@ -976,7 +976,14 @@ Decisiones del dueño del 2026-10-08:
   recomprimía; ahora se sube el original si cabe en 10 MB. (3) Portada pública, miniaturas del
   visor y de Gestión con `object-cover` (+ zoom al pasar el mouse en la portada): ahora enteras.
   Las hojas ya subidas mejoran por (1); las que se comprimieron al subir solo mejoran si se
-  vuelven a subir.
+  vuelven a subir. **Mismo día, el link de las categorías de Inventario** (`/catalogo/:seccion`,
+  `CatalogoPublicoView`, **sin subir**): fotos cuadradas o verticales en cajas 4:5 con
+  `object-cover` (al reloj Angel le cortaba el aro, al Romano casi un tercio). Ahora enteras
+  (`contain`) sobre caja **blanca**; se probó `mix-blend-multiply` sobre el marfil y teñía de
+  beige lo blanco del mueble: no usarlo. Una foto que en el inventario es chica (Reloj Togo,
+  205 px) se ve borrosa igual: hay que subirla mejor.
+  Trampa de entorno: ese día `vite build` del worktree se caía con "Illegal instruction" (exit
+  132), también con el código de `main`; para revisar un .vue sirve `@vue/compiler-sfc`.
 - **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
   Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
   antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los
