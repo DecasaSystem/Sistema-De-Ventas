@@ -90,10 +90,23 @@ class StatsController extends Controller
         // 30 días.
         [$desde, $hasta] = RangoFechas::de($r);
 
-        // Período anterior (misma duración) para comparativa
-        $duracion       = Carbon::parse($desde)->diffInDays(Carbon::parse($hasta)) + 1;
-        $desdeAnterior  = Carbon::parse($desde)->subDays($duracion)->toDateString();
-        $hastaAnterior  = Carbon::parse($desde)->subDay()->toDateString();
+        // Período anterior para la comparativa. Si el rango son meses
+        // completos (octubre, o jul–sep), se compara contra los mismos meses
+        // completos de antes: con "los mismos días hacia atrás" octubre (31
+        // días) se medía contra 31 ago–30 sep, el 31 de agosto traía $29,6 M
+        // y salía "↓ 5,5 %" cuando octubre vendió 3 % más que septiembre
+        // (visto 2026-11-03). Cualquier otro rango sigue con la misma duración.
+        $d = Carbon::parse($desde);
+        $h = Carbon::parse($hasta);
+        if ($d->day === 1 && $h->isSameDay($h->copy()->endOfMonth())) {
+            $meses          = ($h->year - $d->year) * 12 + $h->month - $d->month + 1;
+            $desdeAnterior  = $d->copy()->subMonthsNoOverflow($meses)->toDateString();
+            $hastaAnterior  = $d->copy()->subDay()->toDateString();
+        } else {
+            $duracion       = $d->diffInDays($h) + 1;
+            $desdeAnterior  = $d->copy()->subDays($duracion)->toDateString();
+            $hastaAnterior  = $d->copy()->subDay()->toDateString();
+        }
 
         return compact('desde', 'hasta', 'desdeAnterior', 'hastaAnterior');
     }
