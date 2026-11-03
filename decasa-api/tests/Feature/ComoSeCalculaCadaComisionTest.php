@@ -388,6 +388,46 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(2, DB::table('orden_ediciones')->count());
     }
 
+    /**
+     * La #4423 (Lina María Otálvaro) es del 31 de octubre y se subió en
+     * noviembre (2026-11-03): su comisión tiene que irse a octubre con ella.
+     */
+    public function test_la_4423_vuelve_al_31_de_octubre(): void
+    {
+        Schema::create('orden_ediciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id');
+            $t->json('cambios'); $t->timestamps();
+        });
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'LINA MARIA OTALVARO']);
+
+        $orden = $this->orden(self::GLADYS, self::EDEN, 2_000_000);
+        DB::table('ordenes')->where('id', $orden->id)->update([
+            'numero_orden' => 4423, 'cliente_id' => 1, 'created_at' => '2026-11-03 15:20:00',
+        ]);
+        // Como está en producción: la comisión nació en noviembre.
+        Comision::where('orden_id', $orden->id)->update([
+            'mes_venta' => '2026-11', 'fecha_venta' => '2026-11-03', 'fecha_disponible' => '2026-11-20',
+        ]);
+
+        $migracion = database_path('migrations/2026_11_07_000001_orden_4423_es_de_octubre.php');
+        (require $migracion)->up();
+
+        $this->assertEquals('2026-10-31', $orden->fresh()->created_at->copy()->setTimezone('America/Bogota')->toDateString());
+        $filas = Comision::where('orden_id', $orden->id)->get();
+        $this->assertEquals(['2026-10'], $filas->pluck('mes_venta')->unique()->values()->all());
+        $this->assertEquals('2026-10-31', substr((string) $filas->first()->fecha_venta, 0, 10));
+        // Lo de octubre se paga el día de pago de octubre (en noviembre).
+        $this->assertEquals(
+            ComisionController::diaDePagoDe('2026-10', self::EDEN)->toDateString(),
+            substr((string) $filas->first()->fecha_disponible, 0, 10)
+        );
+        $this->assertEquals(1, DB::table('orden_ediciones')->count());
+
+        // Correrla otra vez no hace nada.
+        (require $migracion)->up();
+        $this->assertEquals(1, DB::table('orden_ediciones')->count());
+    }
+
     public function test_addi_cuenta_igual_que_la_tarjeta(): void
     {
         // Addi también se queda el 5,5%: la misma cuenta que con tarjeta.

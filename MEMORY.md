@@ -598,6 +598,15 @@ escribiendo precios (Fase 1b).
   la promoción no se copia (es interno). La promoción se busca con `promoParaItem`
   (la misma regla de Nueva orden). Con dos tipos de opción (medida + baúl) cada opción sale
   con su precio por separado, no combinadas.
+- **#4423 (Lina María Otálvaro, El Edén) pasa al 31 de octubre** (2026-11-03, **subido a
+  `main`** ese día, rama `claude/creation-date-october-fix-715b48`, trae **migración** de datos
+  `2026_11_07_000001_orden_4423_es_de_octubre`). Se les olvidó subirla y se subió en noviembre.
+  Cambia `created_at` a mediodía en Bogotá, deja el número y los pagos, queda en el historial y
+  mueve su comisión a octubre. Busca la orden por número, cliente y fecha de noviembre; si no la
+  encuentra así, no hace nada. **Trampa:** `sincronizarValorOrden` NO mueve el mes de la comisión
+  de una venta normal (`crearParaOrden` es `firstOrCreate`; solo las restauraciones se rehacen):
+  al cambiar la fecha de una venta, actualizar `mes_venta`/`fecha_venta`/`fecha_disponible` en su
+  sitio. No borrarlas para recrearlas: `comision_anticipos.comision_id` borra en cascada.
 - **Aviso de entrega próxima solo el día antes** (2026-11-03, **subido a `main`** ese día, sin migración).
   Pedido del dueño: "solo notifique cuando la entrega sea en 1 día… en 3 días o en 2 no las
   veo tan necesarias; que se pueda personalizar". Los avisos `por_vencer` ("Entrega próxima")
