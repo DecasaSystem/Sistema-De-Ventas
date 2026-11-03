@@ -19,7 +19,8 @@
  *    y la página no cambiaba ("solo pasa la animación").
  *  - Saltar lejos desde las miniaturas muestra al instante la miniatura (ya
  *    bajada) mientras llega la imagen grande.
- *  - La imagen grande se pide del tamaño de la pantalla, no siempre a 1600.
+ *  - La imagen grande se pide del tamaño en que de verdad se pinta la hoja,
+ *    no siempre a 1600 (ver `anchoImg`).
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -50,17 +51,28 @@ const miniRef    = ref(null)
 
 const total = computed(() => paginas.value.length)
 
-// Del tamaño de la pantalla (hasta 2x de densidad): un iPhone no necesita
-// 1600 px para una hoja que ocupa 390 de ancho. Se fija una vez para que un
-// giro de pantalla no vuelva a bajar todo.
-const ANCHO_IMG = (() => {
-  if (typeof window === 'undefined') return 1200
-  const dpr  = Math.min(window.devicePixelRatio || 1, 2)
-  const base = Math.min(window.innerWidth, window.innerHeight * 0.75)
-  return Math.min(1600, Math.max(600, Math.ceil((base * dpr) / 200) * 200))
-})()
-const grande = (url) => cloudinaryOpt(url, ANCHO_IMG)
+// La imagen grande se pide del ancho en que se pinta la hoja × la densidad de
+// la pantalla. Antes se sacaba de la ventana suponiendo una hoja vertical y con
+// densidad máxima 2: una hoja horizontal en el computador (1.250 px de ancho)
+// llegaba a 1.000 y el navegador la estiraba, y en un celular de densidad 3
+// llegaba a 800 para 1.160 puntos reales. Por eso se veía "con zoom", borrosa.
+// Va en escalones de 400 y solo sube (un giro de pantalla o salir de pantalla
+// completa no vuelve a bajar todo); c_limit nunca la agranda más que el original.
+const DPR = typeof window === 'undefined' ? 2 : Math.min(window.devicePixelRatio || 1, 3)
+const anchoImg = ref(0)
+const grande = (url) => cloudinaryOpt(url, anchoImg.value, { calidad: 'best' })
 const mini   = (url) => cloudinaryOpt(url, 120)
+
+// Las hojas se montan cuando ya se sabe su proporción (la da la miniatura, que
+// es liviana): así la grande se pide una sola vez, ya del tamaño correcto.
+const medida = ref(false)
+// Hojas cuya imagen grande ya llegó: se quita la miniatura de atrás (en un PNG
+// con partes transparentes se veía borrosa por detrás de la buena).
+const cargadas = ref(new Set())
+function alCargar(idx) {
+  if (cargadas.value.has(idx)) return
+  cargadas.value = new Set(cargadas.value).add(idx)
+}
 
 const reducirMovimiento = typeof window !== 'undefined'
   && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -79,6 +91,10 @@ function medir() {
   const H = s.clientHeight - parseFloat(cs.paddingTop)  - parseFloat(cs.paddingBottom)
   const w = Math.max(0, Math.min(W, H * proporcion.value))
   caja.value = { w: Math.floor(w), h: Math.floor(w / proporcion.value) }
+  if (medida.value && caja.value.w) {
+    const pedir = Math.min(3200, Math.max(800, Math.ceil((caja.value.w * DPR) / 400) * 400))
+    if (pedir > anchoImg.value) anchoImg.value = pedir
+  }
 }
 
 let ro = null
@@ -112,13 +128,17 @@ onMounted(async () => {
     const primera = paginas.value[i.value]
     if (primera) {
       const img = new Image()
-      img.onload = () => {
-        if (img.naturalWidth && img.naturalHeight) {
-          proporcion.value = img.naturalWidth / img.naturalHeight
-          medir()
-        }
+      const listo = () => {
+        if (medida.value) return
+        if (img.naturalWidth && img.naturalHeight) proporcion.value = img.naturalWidth / img.naturalHeight
+        medida.value = true
+        medir()
       }
-      img.src = grande(primera.imagen_url)
+      img.onload = listo
+      img.onerror = listo
+      // Si la miniatura se demora, no dejar la pantalla vacía
+      setTimeout(listo, 2500)
+      img.src = mini(primera.imagen_url)
     }
   } catch {
     noExiste.value = true
@@ -138,12 +158,15 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFsChange)
 })
 
-// Se bajan las que siguen, para que al llegar ya estén. Una sola vez cada una.
+// Se bajan las que siguen, para que al llegar ya estén. Una sola vez cada una
+// (por tamaño: si la pantalla crece, se piden otra vez más grandes).
 const yaPedidas = new Set()
-watch([i, total], () => {
+watch([i, total, anchoImg], () => {
+  if (!anchoImg.value) return
   for (const idx of [i.value + 1, i.value - 1, i.value + 2, i.value + 3]) {
-    if (idx < 0 || idx >= total.value || yaPedidas.has(idx)) continue
-    yaPedidas.add(idx)
+    const clave = `${idx}:${anchoImg.value}`
+    if (idx < 0 || idx >= total.value || yaPedidas.has(clave)) continue
+    yaPedidas.add(clave)
     const img = new Image()
     img.decoding = 'async'
     img.src = grande(paginas.value[idx].imagen_url)
@@ -461,6 +484,7 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
             class="relative pointer-events-none"
             :style="{ width: caja.w + 'px', height: caja.h + 'px', perspective: '2200px' }"
           >
+            <template v-if="anchoImg">
             <div
               v-for="idx in ventana"
               :key="idx"
@@ -470,6 +494,7 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
             >
               <!-- La miniatura (ya bajada) mientras llega la grande -->
               <div
+                v-if="!cargadas.has(idx)"
                 class="absolute inset-0 bg-center bg-no-repeat bg-contain"
                 :style="{ backgroundImage: `url(${mini(paginas[idx].imagen_url)})` }"
               />
@@ -479,6 +504,7 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
                 class="absolute inset-0 w-full h-full object-contain"
                 decoding="async"
                 draggable="false"
+                @load="alCargar(idx)"
               />
               <div data-sombra class="absolute inset-0 bg-black" style="opacity: 0" />
               <div data-reverso class="absolute inset-0" style="background: #e9e7e1; opacity: 0" />
@@ -488,6 +514,7 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
                 style="background: linear-gradient(to right, rgba(0,0,0,0.28), transparent); opacity: 0"
               />
             </div>
+            </template>
           </div>
         </div>
 
@@ -539,10 +566,12 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
             :class="idx === i ? 'ring-emerald-400' : 'ring-transparent opacity-50'"
             :aria-label="`Ir a la página ${idx + 1}`"
           >
+            <!-- La hoja entera, con su forma (una horizontal sale más ancha):
+                 recortada al centro no se reconocía cuál era. -->
             <img
               :src="mini(pg.imagen_url)"
               alt=""
-              class="h-12 w-9 object-cover bg-[#222]"
+              class="block h-12 w-auto max-w-[5rem] object-contain bg-[#222]"
               loading="lazy"
               decoding="async"
               width="36"

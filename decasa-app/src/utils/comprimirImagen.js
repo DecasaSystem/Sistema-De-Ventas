@@ -17,15 +17,18 @@
  * @param {number}    opts.maxDim   px máximos por lado (default 1920)
  * @param {number}    opts.quality  calidad JPEG 0-1 (default 0.82)
  * @param {number}    opts.skipBytes tamaño en bytes por debajo del cual no comprime (default 1 MB)
+ * @param {boolean}   opts.reducirAlLeer false = leerla a su tamaño real (gasta más
+ *   memoria, pero una vertical no se agranda y se vuelve a achicar: más nítida).
+ *   Para hojas de catálogo, que se suben desde el computador.
  * @returns {Promise<Blob>}
  */
-export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, skipBytes = 1_048_576 } = {}) {
+export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, skipBytes = 1_048_576, reducirAlLeer = true } = {}) {
   if (!archivo || archivo.size <= skipBytes) return archivo
   // Un PDF (comprobante del banco, anexo escaneado) no es una imagen: va tal cual.
   if (esPdf(archivo)) return archivo
 
   try {
-    const fuente = await decodificar(archivo, maxDim)
+    const fuente = await decodificar(archivo, reducirAlLeer ? maxDim : 0)
     let { width, height } = fuente
     if (!width || !height) throw new Error('Imagen sin dimensiones')
 
@@ -68,10 +71,12 @@ export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, 
  */
 async function decodificar(archivo, maxDim = 1920) {
   if (typeof createImageBitmap === 'function') {
-    try {
-      return await createImageBitmap(archivo, { resizeWidth: maxDim, resizeQuality: 'high', imageOrientation: 'from-image' })
-    } catch {
-      // Navegador sin redimensionar al decodificar: los intentos de siempre.
+    if (maxDim) {
+      try {
+        return await createImageBitmap(archivo, { resizeWidth: maxDim, resizeQuality: 'high', imageOrientation: 'from-image' })
+      } catch {
+        // Navegador sin redimensionar al decodificar: los intentos de siempre.
+      }
     }
     try {
       return await createImageBitmap(archivo, { imageOrientation: 'from-image' })

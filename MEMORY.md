@@ -966,6 +966,17 @@ Decisiones del dueño del 2026-10-08:
   `OrdenController::update` mueve los ítems que seguían con la vieja (o sin fecha) y el
   `fecha_compromiso` del taller; los que un supervisor puso en otra fecha se quedan. Las órdenes
   que ya estaban así se corrigen a mano ("usar fecha sugerida" en Detalle).
+- **Catálogo visual borroso y recortado** (2026-11-03, **sin subir**, sin migración, solo front,
+  rama `claude/catalogo-imagen-calidad-e355ef`). Queja: en el link `/c/<slug>` las hojas se veían
+  "con zoom", recortadas y en mala calidad. Causas: (1) el visor pedía la imagen por el tamaño de
+  la ventana suponiendo hoja vertical y densidad máx. 2 (hoja horizontal en PC: llegaba a 1.000 px
+  para 1.250 en pantalla; celular de densidad 3: 800 para 1.160) → el navegador la estiraba;
+  ahora se pide por el ancho real de la hoja × densidad (hasta 3) con `q_auto:best`.
+  (2) La subida pasaba a JPEG 88 % a 2.400 px toda hoja de más de 1 MB y Cloudinary la
+  recomprimía; ahora se sube el original si cabe en 10 MB. (3) Portada pública, miniaturas del
+  visor y de Gestión con `object-cover` (+ zoom al pasar el mouse en la portada): ahora enteras.
+  Las hojas ya subidas mejoran por (1); las que se comprimieron al subir solo mejoran si se
+  vuelven a subir.
 - **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
   Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
   antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los
