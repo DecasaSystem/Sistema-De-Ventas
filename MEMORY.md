@@ -587,6 +587,17 @@ escribiendo precios (Fase 1b).
   Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
   también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
   pantalla advierte en ámbar. Lo cambia solo un supervisor.
+- **Botón Copiar en la tarjeta de Inventario** (2026-11-03, **sin subir**, sin migración, solo
+  front). Pedido del dueño: un atajo para cuando un cliente pregunta por un producto. Copia
+  un texto listo para WhatsApp (`utils/textoProducto.js`): nombre, precio ("desde" si las
+  versiones valen distinto), juego/pieza suelta, medidas, material, descripción (lo mismo que
+  ya muestra el catálogo público), cada opción con su precio, tallas, telas **con stock** y la
+  promoción tachada con "hasta el …". Nada de costos ni cantidades. **Confirmado por el
+  dueño (2026-11-03):** la promoción es la de la **tienda que se está mirando** (la misma de
+  la pastilla 🏷️) y en "Todas las tiendas" no se copia ninguna. Por defecto mío: el nombre de
+  la promoción no se copia (es interno). La promoción se busca con `promoParaItem`
+  (la misma regla de Nueva orden). Con dos tipos de opción (medida + baúl) cada opción sale
+  con su precio por separado, no combinadas.
 - **Aviso de entrega próxima solo el día antes** (2026-11-03, **subido a `main`** ese día, sin migración).
   Pedido del dueño: "solo notifique cuando la entrega sea en 1 día… en 3 días o en 2 no las
   veo tan necesarias; que se pueda personalizar". Los avisos `por_vencer` ("Entrega próxima")

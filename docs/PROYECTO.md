@@ -329,6 +329,12 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   `orden_items.categoria_custom` (historia de la orden) ni `fichas_tecnicas.categoria`
   (lista fija del cotizador). La pantalla muestra el nombre real: `CATEGORY_LABELS` de
   Inventario pone nombres bonitos a algunas ("Bases comedor" es `comedores`).
+- **Copiar el producto** (2026-11-03, botón *Copiar* junto al precio de cada tarjeta, todos):
+  deja en el portapapeles el texto para mandarle al cliente por WhatsApp
+  (`utils/textoProducto.js`): nombre, precio o "desde", medidas, material, descripción,
+  cada opción/talla con su precio completo (`precio_adicional` / `precio_variante`, 0 = el del
+  producto), telas con stock y la promoción vigente de la tienda que se mira (`promoParaItem`)
+  con su fecha final. En "Todas las tiendas" no lleva promoción. Nunca costos ni cantidades.
 - **Promociones por tienda** (2026-10-15, botón *Promociones* en Inventario, supervisor;
   `PromocionController`, `Promocion`, `components/inventario/PromocionesModal.vue`,
   `utils/promociones.js`). Se programa una vez: qué se rebaja (el producto entero, una
