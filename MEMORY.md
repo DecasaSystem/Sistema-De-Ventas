@@ -587,6 +587,15 @@ escribiendo precios (Fase 1b).
   Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
   también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
   pantalla advierte en ámbar. Lo cambia solo un supervisor.
+- **Aviso de entrega próxima solo el día antes** (2026-11-03, **subido a `main`** ese día, sin migración).
+  Pedido del dueño: "solo notifique cuando la entrega sea en 1 día… en 3 días o en 2 no las
+  veo tan necesarias; que se pueda personalizar". Los avisos `por_vencer` ("Entrega próxima")
+  salían a 3, 2 y 1 día fijos de cada pieza `en_proceso` (`AlertarRetrasoProduccion`, 7:00 a. m.).
+  Ahora los días se escogen en **Gestión → Ajustes** (casillas 1/2/3, clave
+  `avisar_entrega_dias_antes` en `configuracion`, `AjustesSistema::diasAvisoEntrega`); de
+  fábrica, solo 1. Es **para todo el sistema** (supervisores y vendedor de la orden); por
+  persona ya se apaga el grupo "Próximos a entregar" en Trabajadores. "Entrega hoy" no cambia.
+  Tests en `AvisoEntregaProximaTest`.
 - **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
   `claude/special-warranty-client-signature-ed7f21`, trae **migración**
   `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel

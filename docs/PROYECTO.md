@@ -864,6 +864,11 @@ sesión, `PATCH` solo supervisor. Interruptores:
   aunque una app vieja los mande. Lo ya calificado se conserva y se sigue viendo
   (Usuarios, detalle de la orden, Mis pasos). No toca plata: Nómina y bonificaciones
   (`nomina_producciones`, a mano) no leen las calificaciones.
+- **Aviso de entrega próxima** (2026-11-03, `avisar_entrega_dias_antes`, guarda `'1,2'`;
+  de fábrica solo `1`). Con cuántos días de anticipación `AlertarRetrasoProduccion` manda
+  `por_vencer` por cada pieza `en_proceso` (antes 3, 2 y 1 fijos). Casillas 1/2/3; sin
+  ninguna, solo sale "Entrega hoy". Vale para todos; por persona se apaga el grupo
+  "Próximos a entregar".
 Para agregar otro: entrada en `AjustesSistema::DEFINICION` y en `todos()`, validación en
 el controlador, y que el backend lo respete.
 

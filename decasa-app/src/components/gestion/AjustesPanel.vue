@@ -10,7 +10,7 @@ import { ref, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { getAjustesSistema, guardarAjustesSistema } from '@/api/ajustes'
 import AppSpinner from '@/components/common/AppSpinner.vue'
-import { WrenchScrewdriverIcon, DocumentCheckIcon } from '@heroicons/vue/24/outline'
+import { WrenchScrewdriverIcon, DocumentCheckIcon, BellAlertIcon } from '@heroicons/vue/24/outline'
 
 const toast = useToast()
 
@@ -60,6 +60,27 @@ async function cambiar(clave) {
   }
 }
 
+// Con cuántos días de anticipación avisar que una pieza del taller se vence.
+// Antes eran 3, 2 y 1 fijos y la campana se llenaba (dueño, 2026-11-03); de
+// fábrica, solo el día antes.
+const diasPosibles = [1, 2, 3]
+
+async function cambiarDiaAviso(dia) {
+  if (guardando.value) return
+  const actuales = ajustes.value.avisar_entrega_dias_antes ?? []
+  const nuevos = actuales.includes(dia) ? actuales.filter(d => d !== dia) : [...actuales, dia].sort()
+  guardando.value = 'avisar_entrega_dias_antes'
+  try {
+    const { data } = await guardarAjustesSistema({ avisar_entrega_dias_antes: nuevos })
+    ajustes.value = data
+    toast.success('Guardado.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
+  } finally {
+    guardando.value = ''
+  }
+}
+
 onMounted(cargar)
 </script>
 
@@ -98,6 +119,40 @@ onMounted(cargar)
             </span>
           </span>
         </label>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div>
+          <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+            <BellAlertIcon class="w-4 h-4 text-blue-600" />
+            Aviso de entrega próxima
+          </h3>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Cuántos días antes de la fecha prometida se avisa que una pieza del taller se vence.
+            Le llega a los supervisores y al vendedor de la orden. El aviso "Entrega hoy" sale siempre.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="dia in diasPosibles" :key="dia"
+            type="button"
+            :aria-pressed="(ajustes.avisar_entrega_dias_antes ?? []).includes(dia)"
+            :disabled="guardando === 'avisar_entrega_dias_antes'"
+            @click="cambiarDiaAviso(dia)"
+            :class="['px-3 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50',
+              (ajustes.avisar_entrega_dias_antes ?? []).includes(dia)
+                ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600']"
+          >
+            {{ dia === 1 ? '1 día antes' : `${dia} días antes` }}
+          </button>
+        </div>
+        <p v-if="!(ajustes.avisar_entrega_dias_antes ?? []).length" class="text-xs text-amber-600">
+          Sin días escogidos no se avisa con anticipación, solo el mismo día.
+        </p>
+        <p class="text-xs text-gray-400">
+          Para que a una persona no le lleguen, se apaga "Próximos a entregar" en Trabajadores → su ficha → Notificaciones.
+        </p>
       </div>
 
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
