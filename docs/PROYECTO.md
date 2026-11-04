@@ -549,7 +549,10 @@ entregada"). Solo supervisor.
   trimestre en curso o con deuda. Los textos salen de `utils/explicarListas.js`, que usa
   también el Excel de Listas. Si la persona vendió además en una de esas tiendas (Génesis en
   Circunvalar jul–ago antes de pasarse a Unicentro), su tarjeta lo dice con el porqué
-  (`personas[].en_tiendas_sin_pago`).
+  (`personas[].en_tiendas_sin_pago`). Cada bloque trae sus traslados y reemplazos del mes
+  (`movimientos`: "estuvo por traslado del 27/08 al 31/08…") y la tienda sin pago, si cerró,
+  `cerrada_en`. Solo entran tiendas sin pool del mes que toca (o del trimestre que toca, en
+  las trimestrales). El Excel de Listas tiene la hoja **Sin comisión** con lo mismo.
 - **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
   (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
   (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;

@@ -79,6 +79,12 @@ class Tienda extends Model
             ->all();
     }
 
+    /** El día en que cerró la tienda ('Y-m-d'), o null si sigue abierta. */
+    public static function fechaDeCierre(int $tiendaId): ?string
+    {
+        return self::fechasDeCierre()[$tiendaId] ?? null;
+    }
+
     private static array $cerradas = [];
     private static ?array $fechasDeCierre = null;
 

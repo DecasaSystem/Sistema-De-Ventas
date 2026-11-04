@@ -2997,8 +2997,12 @@ class ComisionController extends Controller
             foreach ($this->resumenDelMes($mes, $conDetalle) as $t) {
                 $lista = round(self::loListoDe($t));
                 $claveTienda = $mes . '_' . (int) $t['tienda_id'];
+                // Solo el mes que toca, o el trimestre que toca en una trimestral:
+                // con la copia de producción salían Norte y El Edén de julio, que
+                // ya se pagaron el 26 de agosto, como "sin comisión".
+                $trimestralT = ($t['resumen_tienda']['pool']['periodicidad'] ?? 'mensual') === self::TRIMESTRAL;
                 if ($conDetalle && empty($t['es_independiente']) && ! empty($t['resumen_tienda']['pool'])
-                    && ($mes === $mesQueToca || self::trimestreDeMes($mes) === $trimestreQueToca)) {
+                    && ($mes === $mesQueToca || ($trimestralT && self::trimestreDeMes($mes) === $trimestreQueToca))) {
                     $todasLasTiendas[$claveTienda] ??= ['mes' => $mes, 'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre']]
                         + collect($t['resumen_tienda'])->except('detalle')->all();
                     // Lo que vendió cada uno ahí sin cobrar nada: Génesis vendió
@@ -3049,6 +3053,35 @@ class ComisionController extends Controller
         // descuenta, pero se dicen aparte para que se vea de dónde salen.
         $abonos  = AnticiposComision::abonosPorMes($bloques->pluck('vendedor_id')->unique()->values()->all());
         $bloques = $bloques->map(fn ($b) => $b + ['abonos' => (float) ($abonos[$b['vendedor_id']][$b['mes']] ?? 0)]);
+
+        // Con detalle, los traslados y reemplazos de la persona en esa tienda
+        // que tocan el mes (o el trimestre): explican sus días. "5 días de 127"
+        // no se entiende sin "llegó el 27 de agosto, cuando cerró Circunvalar".
+        if ($conDetalle && $bloques->isNotEmpty()) {
+            $ids = $bloques->pluck('vendedor_id')->unique()->values()->all();
+            $movs = TiendaReemplazo::with(['usuario:id,nombre', 'reemplazaA:id,nombre'])
+                ->where(fn ($q) => $q->whereIn('usuario_id', $ids)->orWhereIn('reemplaza_a_id', $ids))
+                ->get();
+            $bloques = $bloques->map(function ($b) use ($movs) {
+                // Los del mes del bloque, también en trimestral: el traslado del
+                // 27 de agosto no explica los días de septiembre.
+                $inicio = $b['mes'] . '-01';
+                $fin    = Carbon::parse($inicio)->endOfMonth()->toDateString();
+                $suyos = $movs->filter(fn ($r) => (int) $r->tienda_id === (int) $b['tienda_id']
+                    && ((int) $r->usuario_id === (int) $b['vendedor_id'] || (int) $r->reemplaza_a_id === (int) $b['vendedor_id'])
+                    && $r->desde?->toDateString() <= $fin && ($r->hasta === null || $r->hasta->toDateString() >= $inicio));
+
+                return $b + ['movimientos' => $suyos->sortBy('desde')->map(fn ($r) => [
+                    'tipo'      => $r->tipo,
+                    'quien'     => $r->usuario?->nombre,
+                    'reemplaza' => $r->reemplazaA?->nombre,
+                    'es_quien_cubre' => (int) $r->usuario_id === (int) $b['vendedor_id'],
+                    'desde'     => $r->desde?->toDateString(),
+                    'hasta'     => $r->hasta?->toDateString(),
+                    'nota'      => $r->nota,
+                ])->values()->all()];
+            });
+        }
 
         $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) use ($conDetalle) {
             $nombre = $suyos->first()['vendedor_nombre'];
@@ -3157,8 +3190,13 @@ class ComisionController extends Controller
             $cobra = $bloques->contains(fn ($b) => (int) $b['tienda_id'] === $t['tienda_id']
                 && ($b['mes'] === $t['mes'] || ($trimestral && self::trimestreDeMes($b['mes']) === self::trimestreDeMes($t['mes']))));
             if ($cobra) continue;
+            // Con pool no es "sin comisión": ya se pagó (o se paga por otro lado).
+            if ((float) ($trimestral ? ($t['pool']['trimestre']['pool_pagado'] ?? 0) : ($t['pool']['pool'] ?? 0)) > 0) continue;
             $clave = $t['tienda_id'] . '_' . ($trimestral ? self::trimestreDeMes($t['mes']) : $t['mes']);
-            if (! isset($out[$clave]) || $out[$clave]['mes'] < $t['mes']) $out[$clave] = $t;
+            if (! isset($out[$clave]) || $out[$clave]['mes'] < $t['mes']) {
+                // "Su tienda cerró" también es un porqué (Circunvalar, 27 ago 2026).
+                $out[$clave] = $t + ['cerrada_en' => Tienda::fechaDeCierre($t['tienda_id'])];
+            }
         }
         usort($out, fn ($a, $b) => strcmp($a['tienda_nombre'], $b['tienda_nombre']) ?: strcmp($a['mes'], $b['mes']));
 

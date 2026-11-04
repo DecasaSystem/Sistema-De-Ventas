@@ -456,7 +456,7 @@ function motivoSinPago(v) {
 }
 
 const tiendasSinPago = computed(() => (listasData.value.tiendas_sin_pago ?? [])
-  .map(t => ({ ...t, lineas: porQueNoComisiona(t, reglasListasDe(t.mes, t.tienda_id)) })))
+  .map(t => ({ ...t, lineas: porQueNoComisiona(t, reglasListasDe(t.mes, t.tienda_id), listasData.value.mes_que_toca) })))
 
 function toggleExpandLista(clave) {
   const s = new Set(expandidosListas.value)

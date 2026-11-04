@@ -37,7 +37,8 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
     const delPool = suma(['pool', 'parte_pool'])
     if (c.por_pool && delPool > 0) {
       if (b.periodicidad === 'trimestral') {
-        lineas.push(`${b.tienda_nombre} es trimestral (${c.trimestre ?? ''}): los tres meses se juntan en un solo pool, ya descontada la deuda que traía: ${pesos(c.comision_pool)}.${verHoja}`)
+        lineas.push(`${b.tienda_nombre} es trimestral (${c.trimestre ?? ''}): los tres meses se juntan en un solo pool: ${pesos(c.comision_pool)}.${verHoja}`)
+        lineas.push(...trimestreTexto(b, r, tienda?.pool?.trimestre, c))
         lineas.push(`Su pedazo de ${mesEnPalabras(b.mes)}: ${c.parte_dias} días de ${c.partes_dias} días de todo el equipo en el trimestre = ${pesos(c.comision_asesor)}.`)
         if (n(c.partes_dias) > 0 && n(c.parte_dias) / n(c.partes_dias) < 0.2) {
           lineas.push(`Es poco porque en ${mesEnPalabras(b.mes)} estuvo pocos días en la tienda: el pool se parte por los días que trabajó cada uno.`)
@@ -51,6 +52,7 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
           lineas.push(`No cuentan todavía ${pesos(tienda.pool.sin_mitad)} de ventas de la tienda sin ${partePagada(r.meta_req_pagado_pct)}: cuando las paguen, el pool crece y sale la diferencia.`)
         }
       }
+      lineas.push(...movimientosTexto(p, b))
       lineas.push(n(c.ya_pagado_pool) > 0
         ? `Ya se le pagó de este pool ${pesos(c.ya_pagado_pool)}: queda ${pesos(delPool)}.`
         : `Del pool se le paga ahora ${pesos(delPool)}.`)
@@ -79,16 +81,67 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
 }
 
 /**
+ * Por qué un mes de una tienda trimestral cobra aunque ese mes no llegó a la
+ * meta: se suman los tres. Juan Esteban (Unicentro, agosto 2026) veía "cobra
+ * $346.245" al lado de una tabla donde agosto quedó por debajo, y nada decía
+ * que julio y septiembre lo cubrieron (dueño, 2026-11-04).
+ */
+function trimestreTexto(b, r, q, c) {
+  if (!q?.meses?.length) return []
+  const mesCorto = m => mesEnPalabras(m).replace(/ de \d{4}$/, '')
+  const firmado = v => (n(v) >= 0 ? '+' : '−') + pesos(Math.abs(n(v)))
+  const lineas = []
+  const este = q.meses.find(m => m.mes === b.mes)
+  if (este && n(este.meta) > 0) {
+    lineas.push(n(este.cuenta) < n(este.meta)
+      ? `En ${mesCorto(b.mes)} la tienda no llegó a la meta (${pesos(este.cuenta)} de ${pesos(este.meta)}), pero en una tienda trimestral no se mira cada mes solo: se suman los tres.`
+      : `En ${mesCorto(b.mes)} la tienda pasó la meta por ${pesos(n(este.cuenta) - n(este.meta))}; igual se mira el trimestre completo.`)
+  }
+  // El saldo ya arranca con la deuda del trimestre anterior (cuentaDelTrimestre).
+  const saldo = n([...q.meses].reverse().find(m => m.saldo != null)?.saldo)
+  const deuda = n(q.deuda_en_ventas)
+  lineas.push(`Cada mes, lo que cuenta menos la meta: ${q.meses.map(m => `${mesCorto(m.mes)} ${firmado(m.diferencia)}`).join(', ')}`
+    + (deuda > 0 ? `, menos ${pesos(deuda)} de deuda del trimestre anterior` : '')
+    + `. El trimestre quedó ${firmado(saldo)}: ${pesos(saldo)} ${cuentaPool(r)} = pool de ${pesos(c.comision_pool)}.`)
+  lineas.push('Ese pool se reparte por los días que estuvo cada uno en los tres meses: a cada mes le toca lo de sus días, aunque ese mes solo no haya llegado.')
+  return lineas
+}
+
+/**
+ * Los traslados y reemplazos de la persona en esa tienda (bloque.movimientos):
+ * son los que explican sus días. Génesis: "llegó el 27/08/2026 por traslado
+ * (Se pasó a Unicentro al cerrar Circunvalar)".
+ */
+export function movimientosTexto(p, b) {
+  const rango = m => m.hasta ? `del ${fecha(m.desde)} al ${fecha(m.hasta)}` : `desde el ${fecha(m.desde)}`
+  const nota = m => m.nota ? ` (${m.nota})` : ''
+  return (b.movimientos ?? []).map(m => {
+    if (m.tipo === 'traslado') {
+      return `Estuvo en ${b.tienda_nombre} por traslado ${rango(m)}${nota(m)}: esos días son los que le cuentan aquí.`
+    }
+    return m.es_quien_cubre
+      ? `Cubrió a ${m.reemplaza ?? 'alguien'} ${rango(m)}${nota(m)}: esos días le cuentan a ${p.vendedor_nombre}.`
+      : `${m.quien} cubrió a ${p.vendedor_nombre} ${rango(m)}${nota(m)}: esos días son de ${m.quien}.`
+  })
+}
+
+/**
  * Por qué una tienda no comisiona nada en este pago (respuesta.tiendas_sin_pago).
  * Es lo que hay que poder decirle al vendedor.
  */
-export function porQueNoComisiona(t, r) {
+export function porQueNoComisiona(t, r, mesQueToca = null) {
   const pool = t.pool ?? {}
   const lineas = []
+  if (t.cerrada_en) {
+    lineas.push(`La tienda cerró el ${fecha(t.cerrada_en)}. Lo que se vendió antes sí contó para su meta, pero no alcanzó.`)
+  }
   if (pool.periodicidad === 'trimestral' && pool.trimestre) {
     const q = pool.trimestre
+    // Cerrado si su último mes ya es el que se paga (o pasó). Circunvalar no
+    // tiene ventas de septiembre (cerró el 27 de agosto): mirar solo el mes de
+    // su cuenta lo daba por "en curso".
     const cierra = (q.meses ?? []).map(m => m.mes).sort().pop() ?? t.mes
-    if (cierra > t.mes) {
+    if (mesQueToca ? cierra > mesQueToca : cierra > t.mes) {
       lineas.push(`Es trimestral (${q.trimestre}): el pool se paga al cerrar el trimestre, no cada mes. Va así:`)
     } else {
       lineas.push(`Es trimestral (${q.trimestre}): sumando los tres meses no pasó de la meta, así que no hay pool.`)

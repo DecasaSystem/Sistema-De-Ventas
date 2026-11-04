@@ -472,6 +472,21 @@ escribiendo precios (Fase 1b).
   paga y, "aunque no comisione nada", por qué. Detalle en `docs/PROYECTO.md` (Comisiones). No
   cambió ninguna cifra. Los textos del Excel de Listas y de la pantalla salen del mismo archivo
   (`utils/explicarListas.js`): cambiar uno cambia los dos.
+  **Datos para darles (revisado en producción, solo lectura, 2026-11-04; pago del 20 oct =
+  septiembre + agosto atrasado, 13 personas, $14.154.505):** Génesis (id 14) estuvo en el equipo
+  de Circunvalar en julio (8 órdenes, $34,1 M, con su mitad de #1224) y del 1 al 26 de agosto
+  (4 órdenes, $22,4 M); traslado a Unicentro del 27 al 31 ago ("Se pasó a Unicentro al cerrar
+  Circunvalar"); en septiembre ya en el equipo de Unicentro. Circunvalar cerró el 27/08/2026 y
+  su Q3 no tuvo pool (le faltaron $23.462.380 de ventas que cuentan; deja deuda de $1.115.900):
+  lo de ella allá da $0. Unicentro Q3: pool $1.403.125 por días, 127 en total (Juan Esteban 92,
+  Génesis 5 + 30). Génesis: ago $55.241 + R-1100 $3.750 = $58.991; sep $331.447 + $93.500 =
+  $424.947; total $483.938. Juan Esteban $1.113.687. Norte y El Edén agosto **siguen sin pagar**
+  (atrasados desde el 20 sep). Reemplazos que explican días: Paola cubrió a Martha 1–4 ago (Norte),
+  Manuela cubrió a Sebastián 18–22 ago (El Edén; de ahí ya se le pagaron $32.277) y a Paola todo
+  septiembre (Norte). Jessica Rincón sale con $241.596 en Independientes (sep): verificar con el
+  dueño si es lo que se le debe aparte. Para repetir la revisión: copiar producción a un SQLite
+  (esquema con `scripts/perf/migrar.php`, quitar NOT NULL/CHECK) y llamar
+  `loQueHayPorPagar(null, true)`; `resumenDelMes` escribe, así que nunca contra producción.
 - **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
   rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
   (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF

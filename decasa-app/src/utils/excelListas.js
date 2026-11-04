@@ -20,7 +20,7 @@ import {
   FORMA, CANAL, VERDE_CLARO, GRIS_TEXTO, AMBAR,
   mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar,
 } from './excelComisiones'
-import { explicacionDelBloque } from './explicarListas'
+import { explicacionDelBloque, porQueNoComisiona } from './explicarListas'
 import { reglasPara, num, divisor, cuentaPool, cuentaVenta, mediosConFranquicia, laParte, partePagada, cuandoSePaga } from './reglasComision'
 
 const MEDIO = {
@@ -300,6 +300,7 @@ function hojaResumen(wb, ctx) {
   fichas(ws, [
     ['Por persona', 'Cada persona, mes por mes: de dónde sale lo que cobra y las órdenes que entran.'],
     ['Por tienda', 'Cada tienda: meta, lo que cuenta, el pool y cómo se reparte entre el equipo.'],
+    ['Sin comisión', 'Las tiendas donde nadie cobra en este pago y por qué (meta, trimestre, cierre), con quién vendió ahí.'],
     ['Todas las órdenes', 'Una fila por orden, con filtro, para buscar o sumar a gusto.'],
     ['Cómo se calcula', 'Las reglas en palabras.'],
   ])
@@ -319,6 +320,17 @@ function hojaPorPersona(wb, ctx) {
       seccion(ws, `${b.tienda_nombre} · ${mesEnPalabras(b.mes)}${b.periodicidad === 'trimestral' ? ' (trimestral)' : ''}${b.atrasada ? ' · ATRASADA' : ''}`)
       explicar(ws, explicacionDe(p, b, ctx.tiendaDe))
       tabla(ws, columnasOrdenes(), renglonesDe(p, b), { totales: true, etiquetaTotal: `Total ${mesEnPalabras(b.mes)}`, filtro: false })
+    }
+    // Lo que vendió en una tienda donde no hubo comisión (Génesis en Circunvalar):
+    // también hay que poder decírselo, aunque sea $0.
+    for (const v of p.en_tiendas_sin_pago ?? []) {
+      seccion(ws, `${v.tienda_nombre} · ${v.meses.map(mesEnPalabras).join(' y ')} · sin comisión`)
+      const t = (ctx.datos.tiendas_sin_pago ?? []).find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
+      explicar(ws, [
+        `• También vendió aquí: ${v.ordenes} orden(es) por ${pesos(v.ventas)}. No le da comisión en este pago: ${pesos(0)}.`,
+        ...(t ? porQueNoComisiona(t, R(t.mes, t.tienda_id), ctx.datos.mes_que_toca).map(l => `• ${l}`) : []),
+        '• Ver hoja "Sin comisión".',
+      ])
     }
     if (n(p.sigue_debiendo) > 0) {
       explicar(ws, [`• Después de este pago sigue debiendo ${pesos(p.sigue_debiendo)} de anticipos: se descuenta en el próximo.`])
@@ -538,6 +550,56 @@ function bloqueIndependientes(ws, parte, columnasPago, pagoDe) {
   tabla(ws, columnasPago(false), del.map(pagoDe), { totales: true, filtro: false })
 }
 
+/**
+ * Las tiendas donde nadie cobra en este pago, con el porqué y quién vendió
+ * ahí (dueño, 2026-11-04: "aunque no comisione nada hay que decirle al
+ * vendedor por qué"). Mismos textos que Listas (utils/explicarListas).
+ */
+function hojaSinComision(wb, ctx) {
+  const d = ctx.datos
+  const ws = wb.addWorksheet('Sin comisión')
+  titulo(ws, 'Tiendas sin comisión en este pago', 'Nadie cobra aquí en este pago. Esto es lo que hay que decirle a quien vendió.')
+  const tiendas = d.tiendas_sin_pago ?? []
+  if (!tiendas.length) {
+    ws.addRow(['Todas las tiendas con pool tienen algo que pagar en este pago.'])
+    return
+  }
+  for (const t of tiendas) {
+    const q = t.pool?.periodicidad === 'trimestral' ? t.pool.trimestre : null
+    franja(ws, `${t.tienda_nombre} — ${q ? `trimestre ${q.trimestre}` : mesEnPalabras(t.mes)}`,
+      t.cerrada_en ? `Cerró el ${fecha(t.cerrada_en)}.` : 'Sin comisión en este pago.')
+    explicar(ws, porQueNoComisiona(t, R(t.mes, t.tienda_id), ctx.datos.mes_que_toca).map(l => `• ${l}`))
+    if (q) {
+      seccion(ws, 'Meta y ventas de cada mes del trimestre')
+      tabla(ws, [
+        { titulo: 'Mes de las ventas', campo: m => mesEnPalabras(m.mes), ancho: 36 },
+        { titulo: 'Meta', campo: 'meta', fmt: 'pesos', ancho: 18 },
+        { titulo: 'Cuenta (con la mitad pagada)', campo: 'cuenta', fmt: 'pesos', ancho: 16 },
+        { titulo: 'Cuenta − meta', campo: 'diferencia', fmt: 'pesos', ancho: 16, total: 'suma' },
+        { titulo: 'Saldo acumulado', campo: 'saldo', fmt: 'pesos', ancho: 16 },
+      ], q.meses ?? [], { totales: true, filtro: false })
+    } else {
+      fichas(ws, [
+        ['Meta', n(t.pool?.meta), 'pesos'],
+        ['Cuenta (con la mitad pagada)', n(t.pool?.ventas_cuentan), 'pesos'],
+        ['Vendido que todavía no cuenta', n(t.pool?.sin_mitad), 'pesos'],
+      ])
+    }
+    const vendieron = (d.personas ?? []).flatMap(p => (p.en_tiendas_sin_pago ?? [])
+      .filter(v => v.tienda_id === t.tienda_id && v.mes_de_la_cuenta === t.mes)
+      .map(v => ({ nombre: p.vendedor_nombre, meses: v.meses.map(mesEnPalabras).join(', '), ordenes: v.ordenes, ventas: v.ventas })))
+    if (vendieron.length) {
+      seccion(ws, 'Quién vendió aquí y cobra en otra tienda', 'Quien no cobra en ninguna tienda no tiene tarjeta en Listas y no sale en esta tabla.')
+      tabla(ws, [
+        { titulo: 'Persona', campo: 'nombre', ancho: 36 },
+        { titulo: 'Meses', campo: 'meses', ancho: 18 },
+        { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 16, total: 'suma' },
+        { titulo: 'Vendió', campo: 'ventas', fmt: 'pesos', ancho: 16, total: 'suma' },
+      ], vendieron, { totales: true, filtro: false })
+    }
+  }
+}
+
 function hojaTodas(wb, ctx) {
   const ws = wb.addWorksheet('Todas las órdenes')
   titulo(ws, 'Todas las órdenes que se pagan', 'Una fila por orden (y por el bolsón de los independientes). Con filtro: el total de abajo es el de Listas.')
@@ -615,6 +677,7 @@ export async function armarLibroListas({ porPagar, reglas = {}, generadoPor }) {
   hojaResumen(wb, ctx)
   hojaPorPersona(wb, ctx)
   hojaPorTienda(wb, ctx)
+  hojaSinComision(wb, ctx)
   hojaTodas(wb, ctx)
   hojaComoSeCalcula(wb, ctx)
   return wb
