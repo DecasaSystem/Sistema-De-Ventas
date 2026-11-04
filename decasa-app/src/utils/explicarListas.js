@@ -130,7 +130,11 @@ function pendientesTexto(b, r) {
   for (const o of lista) {
     const quien = `${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}`
     if (o.cumple_pago) {
-      lineas.push(`   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}; espera ${b.periodicidad === 'trimestral' ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
+      // Los meses de Listas ya terminaron: si la tienda no llegó, ya no va a llegar.
+      const sinMeta = b.cuenta?.por_pool && b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
+      lineas.push(sinMeta
+        ? `   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}, pero la tienda no llegó a la meta de ${mesEnPalabras(b.mes)}: no comisiona.`
+        : `   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}; espera ${b.periodicidad === 'trimestral' ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
     } else {
       const falta = Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado)))
       lineas.push(`   ${quien}: ha pagado ${pesos(o.pagado)} de ${pesos(o.valor_total)}; le faltan ${pesos(falta)} para ${laParte(r.req_pagado_pct)}. Cuando los pague entra en el próximo pago.`)

@@ -72,6 +72,17 @@ limitar a un vendedor a solo lo suyo.
   fija). Unicentro Q3 con esto: pool $1.340.100 (antes $1.230.856). Tests en
   `PoolTrimestralSePagaUnaVezTest`.
 
+### Unicentro Pereira pasa a mensual desde julio 2026 (dueño, 2026-11-04)
+- Ya no es trimestral: julio, agosto y septiembre se liquidan **cada mes por su cuenta** ("la
+  plata de septiembre es de septiembre", "que no se pague nada dos veces"). Metas: jul y ago
+  $40 M, **sep $50 M**, **oct en adelante $60 M**. Mismo cálculo; se parte por días entre el
+  equipo (Juan Esteban y Génesis desde septiembre). Circunvalar no cambia (trimestral, cerrada).
+- No hizo falta código: Unicentro no tiene comisiones antes de julio, así que basta con ponerla
+  "Cada mes" en Comisiones → Metas y cargar las metas. Simulado en una copia de producción: solo
+  cambia Unicentro. Juan Esteban $1.113.687 → $719.705 (jul $30.606, ago $3.750 de restauración,
+  sep $685.349); Génesis $483.938 → $689.099 (ago $3.750, sep $685.349). Total del pago
+  $14.154.505 → $13.965.684. Lo hace un supervisor en la app (no se tocó producción).
+
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
   pagaban con solo llegar el 20; se cambió en `enriquecer` y `ComisionIndependientes::delMes`.
