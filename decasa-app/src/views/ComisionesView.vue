@@ -2399,6 +2399,13 @@ onMounted(async () => {
                           v-if="o.forma_pago && o.forma_pago !== 'pool'"
                           :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', formaPago(o).clase]"
                         >{{ formaPago(o).etiqueta }}</span>
+                        <!-- Por qué la base es menor que la orden: compartida o tarjeta -->
+                        <span v-if="o.es_compartida" class="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 bg-gray-100 text-gray-600">Compartida</span>
+                        <span
+                          v-if="Number(o.costo_datafono) > 0"
+                          class="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 bg-gray-100 text-gray-600"
+                          :title="`Pagó ${cop(o.pagado_tarjeta)} con tarjeta o Addi: la franquicia se lleva ${cop(o.costo_datafono)} y sobre eso no se comisiona`"
+                        >Tarjeta −{{ cop(o.costo_datafono) }}</span>
                         <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
                       </div>
                       <div class="text-right shrink-0 ml-2">
@@ -2502,6 +2509,13 @@ onMounted(async () => {
               </li>
             </ul>
             <CuentaDeLaTienda :tienda="t" />
+            <div v-if="t.vendieron?.length" class="rounded-lg border border-gray-100 px-2.5 py-1.5">
+              <p class="text-[10px] text-gray-400 mb-0.5">Quién vendió aquí (a cada uno hay que decirle esto)</p>
+              <div v-for="v in t.vendieron" :key="v.vendedor_id" class="flex justify-between text-[11px] text-gray-700 py-0.5">
+                <span class="truncate">{{ v.nombre }} · {{ v.ordenes }} {{ v.ordenes !== 1 ? 'órdenes' : 'orden' }}</span>
+                <span class="shrink-0 ml-2">{{ cop(v.ventas) }}</span>
+              </div>
+            </div>
           </div>
         </div>
 

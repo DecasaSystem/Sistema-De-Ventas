@@ -53,29 +53,88 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
         }
       }
       lineas.push(...movimientosTexto(p, b))
+      if (suma(['parte_pool']) > 0 && suma(['pool']) === 0) {
+        lineas.push('No tiene ventas propias que ya cuenten este mes, pero es del equipo: su parte del pool se le paga entera, en un renglón sin orden.')
+      }
       lineas.push(n(c.ya_pagado_pool) > 0
         ? `Ya se le pagó de este pool ${pesos(c.ya_pagado_pool)}: queda ${pesos(delPool)}.`
         : `Del pool se le paga ahora ${pesos(delPool)}.`)
+    } else if (c.por_pool) {
+      // Es de un equipo con pool, pero este mes no hubo pool: solo cobra lo de abajo.
+      if (b.periodicidad === 'trimestral') {
+        lineas.push(`${b.tienda_nombre} es trimestral (${c.trimestre ?? ''}) y el trimestre no pasó de la meta: no hay pool. Solo cobra lo de abajo.`)
+        lineas.push(...trimestreTexto(b, r, tienda?.pool?.trimestre, { comision_pool: 0 }))
+      } else {
+        lineas.push(`${b.tienda_nombre} no llegó a la meta de ${mesEnPalabras(b.mes)} (con ${partePagada(r.meta_req_pagado_pct)}: ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}): no hay pool. Solo cobra lo de abajo.`)
+      }
+      lineas.push(...movimientosTexto(p, b))
     }
     const rest = suma(['restauracion_5', 'restauracion_equipo'])
     if (rest > 0) lineas.push(`Restauraciones: ${pesos(rest)} (${num(r.pct_restauracion)}% de su valor${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}${suma(['restauracion_equipo']) > 0 ? '; las de la tienda se parten entre los que estaban ese día' : ''}).`)
     const ind = suma(['sin_meta_5'])
-    if (ind > 0) lineas.push(`Individual (no va por pool): ${pesos(ind)} = ventas ${cuentaVenta(r, 'pct_individual')}.`)
+    if (ind > 0) {
+      const porque = {
+        no_reparte: `en ${b.tienda_nombre} no se reparte en equipo: cada uno cobra lo suyo`,
+        sin_meta: `${b.tienda_nombre} no tiene meta: cada uno cobra lo suyo`,
+        fuera_del_equipo: `vendió en ${b.tienda_nombre} sin ser de su equipo ese mes: cobra como cualquiera de fuera, sin entrar al pool`,
+      }[b.motivo_individual]
+      lineas.push(`Individual: ${pesos(ind)} = ventas ${cuentaVenta(r, 'pct_individual')}${porque ? ` (${porque})` : ' (no va por pool)'}.`)
+    }
     const rem = suma(['reemplazo_ventas'])
     if (rem > 0) lineas.push(`Lo que vendió cubriendo a alguien: ${pesos(rem)} = ventas ${cuentaVenta(r, 'pct_reemplazo')} (no suma a la meta ni al pool).`)
     const ab = suma(['abono_almacen'])
-    if (ab > 0) lineas.push(`Lo que dejaron ventas de independientes con la tienda: ${pesos(ab)}.`)
+    if (ab > 0) lineas.push(`Lo que dejaron ventas de independientes con la tienda (vendieron con un independiente y le pasaron el cliente): ${pesos(ab)}.`)
+  }
+
+  // Lo que no sabemos explicar no se calla: sale con su nombre y su plata
+  // (si aparece una forma nueva, la prueba ExplicarListasCubreTodoTest avisa).
+  const otras = ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago))
+  if (otras.length) {
+    lineas.push(`Otros renglones (${[...new Set(otras.map(o => o.forma_pago))].join(', ')}): ${pesos(otras.reduce((s, o) => s + n(o.monto_comision), 0))}.`)
+  }
+
+  for (const f of b.ordenes_fuera_del_pool ?? []) {
+    lineas.push(`${f.referencia ?? 'Una orden'} (${pesos(f.valor)}) la sacó un supervisor del pool: no suma a la meta ni paga comisión${f.motivo ? ` (motivo: ${f.motivo})` : ''}.`)
   }
 
   lineas.push(`Listo para pagar de ${mesEnPalabras(b.mes)}: ${pesos(b.lista)}. `
     + (b.atrasada ? `ATRASADA: se debía pagar el ${fecha(b.se_cobra_el)}.` : `Se paga el ${fecha(b.se_cobra_el)}.`))
-  if (n(b.pendientes) > 0) {
-    lineas.push(`${b.pendientes} orden(es) de este mes todavía no entran (el cliente no ha pagado ${laParte(r.req_pagado_pct)}): no están en este pago.`)
-  }
+  lineas.push(...pendientesTexto(b, r))
   if (n(b.se_descuenta) > 0 || n(b.debe_al_corte) > 0) {
     lineas.push(`Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
       + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta comisión ya entregados)` : '')
       + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
+  }
+  return lineas
+}
+
+/**
+ * Las formas de pago que explicacionDelBloque sabe decir. Tienen que ser las
+ * mismas que ComisionController::FORMAS_DE_PAGO: una prueba del backend lee
+ * este archivo y falla si aparece una forma nueva sin su explicación.
+ */
+export const FORMAS_EXPLICADAS = [
+  'pool', 'parte_pool', 'sin_meta_5', 'reemplazo_ventas', 'restauracion_5',
+  'restauracion_equipo', 'abono_almacen', 'fuera_del_pool', 'bolson_restauraciones',
+]
+
+/** Las órdenes del mes que todavía no entran, una por una y con lo que les falta. */
+function pendientesTexto(b, r) {
+  const lista = b.ordenes_pendientes ?? []
+  if (!lista.length) {
+    return n(b.pendientes) > 0
+      ? [`${b.pendientes} orden(es) de este mes todavía no entran (el cliente no ha pagado ${laParte(r.req_pagado_pct)}): no están en este pago.`]
+      : []
+  }
+  const lineas = [`${lista.length} orden(es) de este mes todavía no entran en este pago:`]
+  for (const o of lista) {
+    const quien = `${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}`
+    if (o.cumple_pago) {
+      lineas.push(`   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}; espera ${b.periodicidad === 'trimestral' ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
+    } else {
+      const falta = Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado)))
+      lineas.push(`   ${quien}: ha pagado ${pesos(o.pagado)} de ${pesos(o.valor_total)}; le faltan ${pesos(falta)} para ${laParte(r.req_pagado_pct)}. Cuando los pague entra en el próximo pago.`)
+    }
   }
   return lineas
 }
@@ -102,8 +161,12 @@ function trimestreTexto(b, r, q, c) {
   const deuda = n(q.deuda_en_ventas)
   lineas.push(`Cada mes, lo que cuenta menos la meta: ${q.meses.map(m => `${mesCorto(m.mes)} ${firmado(m.diferencia)}`).join(', ')}`
     + (deuda > 0 ? `, menos ${pesos(deuda)} de deuda del trimestre anterior` : '')
-    + `. El trimestre quedó ${firmado(saldo)}: ${pesos(saldo)} ${cuentaPool(r)} = pool de ${pesos(c.comision_pool)}.`)
-  lineas.push('Ese pool se reparte por los días que estuvo cada uno en los tres meses: a cada mes le toca lo de sus días, aunque ese mes solo no haya llegado.')
+    + (saldo > 0
+      ? `. El trimestre quedó ${firmado(saldo)}: ${pesos(saldo)} ${cuentaPool(r)} = pool de ${pesos(c.comision_pool)}.`
+      : `. El trimestre quedó ${firmado(saldo)}: debajo de la meta, sin pool.`))
+  if (n(c.comision_pool) > 0) {
+    lineas.push('Ese pool se reparte por los días que estuvo cada uno en los tres meses: a cada mes le toca lo de sus días, aunque ese mes solo no haya llegado.')
+  }
   return lineas
 }
 

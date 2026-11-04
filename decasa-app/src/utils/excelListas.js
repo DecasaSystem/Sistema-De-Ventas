@@ -585,16 +585,18 @@ function hojaSinComision(wb, ctx) {
         ['Vendido que todavía no cuenta', n(t.pool?.sin_mitad), 'pesos'],
       ])
     }
-    const vendieron = (d.personas ?? []).flatMap(p => (p.en_tiendas_sin_pago ?? [])
-      .filter(v => v.tienda_id === t.tienda_id && v.mes_de_la_cuenta === t.mes)
-      .map(v => ({ nombre: p.vendedor_nombre, meses: v.meses.map(mesEnPalabras).join(', '), ordenes: v.ordenes, ventas: v.ventas })))
+    // Todos los que vendieron ahí, también los que no cobran en ninguna tienda.
+    const conTarjeta = new Set((d.personas ?? []).map(p => p.vendedor_id))
+    const vendieron = (t.vendieron ?? []).map(v => ({ ...v, meses: v.meses.map(mesEnPalabras).join(', '),
+      otra: conTarjeta.has(v.vendedor_id) ? 'Sí (ver su tarjeta)' : 'No' }))
     if (vendieron.length) {
-      seccion(ws, 'Quién vendió aquí y cobra en otra tienda', 'Quien no cobra en ninguna tienda no tiene tarjeta en Listas y no sale en esta tabla.')
+      seccion(ws, 'Quién vendió aquí', 'A cada uno hay que decirle esto. "Cobra en otra tienda" dice si tiene algo por pagar en este pago.')
       tabla(ws, [
         { titulo: 'Persona', campo: 'nombre', ancho: 36 },
         { titulo: 'Meses', campo: 'meses', ancho: 18 },
         { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 16, total: 'suma' },
         { titulo: 'Vendió', campo: 'ventas', fmt: 'pesos', ancho: 16, total: 'suma' },
+        { titulo: 'Cobra en otra tienda', campo: 'otra', ancho: 18 },
       ], vendieron, { totales: true, filtro: false })
     }
   }

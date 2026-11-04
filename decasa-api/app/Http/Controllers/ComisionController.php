@@ -3009,7 +3009,7 @@ class ComisionController extends Controller
                     // en Circunvalar en julio y agosto antes de pasarse a
                     // Unicentro, y su tarjeta no lo decía.
                     if ($lista <= 0 && (float) $t['total_ventas'] > 0) {
-                        $vendioSinPago[] = ['vendedor_id' => (int) $t['vendedor_id'], 'clave' => $claveTienda, 'mes' => $mes,
+                        $vendioSinPago[] = ['vendedor_id' => (int) $t['vendedor_id'], 'vendedor_nombre' => $t['vendedor_nombre'], 'clave' => $claveTienda, 'mes' => $mes,
                             'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre'],
                             'ordenes' => (int) $t['total_ordenes'], 'ventas' => round((float) $t['total_ventas'])];
                     }
@@ -3030,7 +3030,7 @@ class ComisionController extends Controller
                     'cuenta'        => $t['cuenta'] ?? null,
                     'independiente' => $t['independiente'] ?? null,
                     'comision_mes'  => (float) ($t['comision_total'] ?? 0),
-                ] : []) + [
+                ] + self::porQueDelBloque($t, $mes) : []) + [
                     'mes'              => $mes,
                     'vendedor_id'      => (int) $t['vendedor_id'],
                     'vendedor_nombre'  => $t['vendedor_nombre'],
@@ -3134,6 +3134,16 @@ class ComisionController extends Controller
             $personas = $personas->map(fn ($p) => $p + [
                 'en_tiendas_sin_pago' => self::vendioEnTiendasSinPago($vendioSinPago, $sinPago, (int) $p['vendedor_id']),
             ]);
+            // Y en cada tienda sin pago, todos los que vendieron ahí: también los que
+            // no cobran en ninguna tienda y por eso no tienen tarjeta en Listas.
+            $sinPago = array_map(fn ($sp) => $sp + ['vendieron' => collect($vendioSinPago)
+                ->filter(fn ($v) => $v['tienda_id'] === $sp['tienda_id'] && ($v['mes'] === $sp['mes']
+                    || (($sp['pool']['periodicidad'] ?? '') === self::TRIMESTRAL && self::trimestreDeMes($v['mes']) === self::trimestreDeMes($sp['mes']))))
+                ->groupBy('vendedor_id')
+                ->map(fn ($vs) => ['vendedor_id' => $vs->first()['vendedor_id'], 'nombre' => $vs->first()['vendedor_nombre'],
+                                  'meses' => $vs->pluck('mes')->unique()->sort()->values()->all(),
+                                  'ordenes' => $vs->sum('ordenes'), 'ventas' => $vs->sum('ventas')])
+                ->sortByDesc('ventas')->values()->all()], $sinPago);
         }
 
         return [
@@ -3149,6 +3159,51 @@ class ComisionController extends Controller
             'tiendas'          => array_values($tiendas),
             'tiendas_sin_pago' => $sinPago,
         ] : []);
+    }
+
+    /**
+     * Lo que Listas necesita para decir el porqué de cada mes de una persona y
+     * no solo la cifra (dueño, 2026-11-04: "que no tenga que estarte pidiendo
+     * que metas cosas"): las órdenes que todavía no entran y cuánto les falta,
+     * las que un supervisor sacó del pool y por qué, y por qué cobra
+     * individual si cobra individual.
+     */
+    private static function porQueDelBloque(array $t, string $mes): array
+    {
+        $ordenes = collect($t['ordenes'] ?? []);
+        $ref = fn ($o) => $o['orden_referencia'] ?? (! empty($o['orden_numero']) ? '#' . $o['orden_numero'] : null);
+
+        // Por qué individual: la tienda no reparte, no tiene meta, o la
+        // persona no es del equipo de esa tienda (cobra como cualquiera de fuera).
+        $motivo = null;
+        if (empty($t['es_independiente']) && $ordenes->contains('forma_pago', 'sin_meta_5')) {
+            $tid = (int) $t['tienda_id'];
+            $motivo = ! self::tiendaComparte($tid) ? 'no_reparte'
+                : ((float) (MetaTienda::vigentesEn($mes)[$tid]->meta ?? 0) <= 0 ? 'sin_meta' : 'fuera_del_equipo');
+        }
+
+        $fuera = $ordenes->where('forma_pago', 'fuera_del_pool')->pluck('orden_id')->filter()->unique()->values();
+        $motivos = $fuera->isEmpty() ? collect()
+            : Orden::whereIn('id', $fuera)->get(['id', 'fuera_del_pool_motivo'])->pluck('fuera_del_pool_motivo', 'id');
+
+        return [
+            'motivo_individual'  => $motivo,
+            'ordenes_pendientes' => $ordenes->where('estado', 'pendiente')
+                ->whereNotIn('forma_pago', [self::ORIGEN_PARTE_POOL, 'fuera_del_pool'])
+                ->map(fn ($o) => [
+                    'orden_id'    => $o['orden_id'] ?? null,
+                    'referencia'  => $ref($o),
+                    'cliente'     => $o['cliente_nombre'] ?? null,
+                    'valor_total' => (float) ($o['valor_total_orden'] ?? $o['valor_orden'] ?? 0),
+                    'pagado'      => (float) ($o['pagado'] ?? 0),
+                    'cumple_pago' => (bool) ($o['req_50_pct'] ?? false),
+                    'es_restauracion' => (bool) ($o['es_restauracion'] ?? false),
+                ])->values()->all(),
+            'ordenes_fuera_del_pool' => $ordenes->where('forma_pago', 'fuera_del_pool')
+                ->map(fn ($o) => ['referencia' => $ref($o), 'valor' => (float) $o['valor_orden'],
+                                  'motivo' => $motivos[$o['orden_id'] ?? 0] ?? null])
+                ->values()->all(),
+        ];
     }
 
     /**
@@ -3772,6 +3827,18 @@ class ComisionController extends Controller
      * completo.
      */
     public const ORIGEN_RESTAURACION_EQUIPO = 'restauracion_equipo';
+
+    /**
+     * Todas las formas de pago que puede llevar un renglón (`forma_pago` en
+     * enriquecer). Listas y su Excel explican cada una en palabras
+     * (decasa-app/src/utils/explicarListas.js, FORMAS_EXPLICADAS); una forma
+     * nueva sin su explicación hace fallar ExplicarListasCubreTodoTest, para
+     * que nadie tenga que volver a preguntar "¿y esto por qué?".
+     */
+    public const FORMAS_DE_PAGO = [
+        'pool', self::ORIGEN_PARTE_POOL, 'sin_meta_5', 'reemplazo_ventas', 'restauracion_5',
+        self::ORIGEN_RESTAURACION_EQUIPO, self::ORIGEN_ABONO, 'fuera_del_pool', 'bolson_restauraciones',
+    ];
 
     /** Los orígenes en los que `valor_orden` es un pedazo, no la orden entera. */
     public const ORIGENES_REPARTIDOS = [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_EQUIPO];
@@ -5523,6 +5590,7 @@ class ComisionController extends Controller
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
             'es_restauracion'  => $esRestauracion,
+            // Una forma nueva va también en self::FORMAS_DE_PAGO (y su explicación en Listas).
             'forma_pago'       => $c->origen === ComisionIndependientes::ORIGEN_BOLSON ? 'bolson_restauraciones'
                                   : ($c->estado === 'pagada' && $c->forma_pago_pagada ? $c->forma_pago_pagada
                                   : ($fueraDelPool ? 'fuera_del_pool'

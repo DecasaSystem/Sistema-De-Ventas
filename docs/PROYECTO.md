@@ -553,6 +553,15 @@ entregada"). Solo supervisor.
   (`movimientos`: "estuvo por traslado del 27/08 al 31/08…") y la tienda sin pago, si cerró,
   `cerrada_en`. Solo entran tiendas sin pool del mes que toca (o del trimestre que toca, en
   las trimestrales). El Excel de Listas tiene la hoja **Sin comisión** con lo mismo.
+  También dice (2026-11-04, pedido del dueño de no tener que pedir cada caso): por qué cobra
+  individual (`motivo_individual`: la tienda no reparte, no tiene meta o no es del equipo), cada
+  orden pendiente con cuánto le falta para la mitad (`ordenes_pendientes`), las sacadas del pool
+  con su motivo (`ordenes_fuera_del_pool`), "no tiene ventas propias que cuenten" (parte del
+  equipo), "no hubo pool, solo cobra lo de abajo", y quién vendió en cada tienda sin comisión
+  (`tiendas_sin_pago[].vendieron`, también los que no tienen tarjeta). Cada orden marca
+  "Compartida" y "Tarjeta −$X". **Una forma de pago nueva** va en
+  `ComisionController::FORMAS_DE_PAGO` y en `FORMAS_EXPLICADAS` de `explicarListas.js` con su
+  texto; `ExplicarListasCubreTodoTest` falla si no.
 - **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
   (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
   (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;

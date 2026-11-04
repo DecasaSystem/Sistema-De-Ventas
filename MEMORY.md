@@ -487,6 +487,12 @@ escribiendo precios (Fase 1b).
   dueño si es lo que se le debe aparte. Para repetir la revisión: copiar producción a un SQLite
   (esquema con `scripts/perf/migrar.php`, quitar NOT NULL/CHECK) y llamar
   `loQueHayPorPagar(null, true)`; `resumenDelMes` escribe, así que nunca contra producción.
+  **Regla (dueño, 2026-11-04): Listas y su Excel siempre dicen el porqué, sin que lo pidan.**
+  Todo lo que cambia lo que alguien cobra (días, traslados, cierre, trimestre, meta, 50 %, tarjeta,
+  compartida, fuera del pool, individual) tiene su línea en `utils/explicarListas.js`. Al tocar
+  una regla de comisión, agregar ahí su explicación; `ExplicarListasCubreTodoTest` vigila las
+  formas de pago. Visto con producción: Paola (Norte ago) muestra las 6 órdenes de Jessica y
+  Margarita sacadas del pool con su motivo; R-1133 de Alba Lucía sigue pendiente (pagó $1 M de $6 M).
 - **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
   rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
   (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF
