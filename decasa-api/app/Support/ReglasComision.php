@@ -116,6 +116,24 @@ class ReglasComision
             'nombre' => 'Meses de espera',
             'explica' => 'Cuántos meses después de la venta (o del cierre del trimestre) llega su día de pago.',
         ],
+        // Cada mes o cada trimestre, con fecha (dueño, 2026-11-04, tras pasar
+        // Unicentro a mensual desde julio). Antes solo se podía cambiar en la
+        // tienda y valía para todo lo no pagado, sin fecha. Solo puede empezar
+        // el primer mes de un trimestre (enero, abril, julio, octubre): así un
+        // trimestre nunca queda partido y nada se paga dos veces.
+        'periodicidad' => [
+            'tipo' => 'opcion', 'defecto' => 'de_la_tienda', 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Cada cuánto se liquida el pool',
+            'explica' => 'Cada mes o por trimestre (los tres meses juntos, se paga al cerrar). Empieza siempre el primer mes de un trimestre: enero, abril, julio u octubre.',
+            'opciones' => [
+                'de_la_tienda' => ['nombre' => 'Lo que dice la tienda',
+                    'explica' => 'Lo que está escogido en Comisiones → Metas ("Se liquida").'],
+                'mensual'      => ['nombre' => 'Cada mes',
+                    'explica' => 'Cada mes con su meta y su pool; se paga el día de pago del mes siguiente.'],
+                'trimestral'   => ['nombre' => 'Por trimestre',
+                    'explica' => 'Los tres meses del trimestre suman en un solo pool; se paga al cerrar el trimestre.'],
+            ],
+        ],
 
         // ── Repartos ─────────────────────────────────────────────────────
         'reparto_pool' => [
@@ -270,7 +288,7 @@ class ReglasComision
         'porcentajes'     => ['titulo' => 'Porcentajes',               'claves' => ['pct_pool', 'pct_individual', 'pct_restauracion']],
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
-        'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera']],
+        'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera', 'periodicidad']],
         'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
         'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
@@ -284,7 +302,7 @@ class ReglasComision
      */
     public const SE_VEN_AL_RECALCULAR = [
         'franquicia_pct', 'franquicia_metodos', 'compartida_parte_vendedor', 'almacen_fraccion_meta',
-        'dia_pago', 'meses_espera',
+        'dia_pago', 'meses_espera', 'periodicidad',
         // El reparto de la restauración entre el equipo queda escrito por persona.
         'restauracion_suma_meta', 'reparto_restauracion', 'parte_autor_restauracion',
         // Quien reemplaza deja de entrar al reparto de la restauración y del

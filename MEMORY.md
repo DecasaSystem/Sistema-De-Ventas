@@ -84,6 +84,9 @@ limitar a un vendedor a solo lo suyo.
   $14.154.505 → $13.965.684. Se hace con la migración `2026_11_08_000001_unicentro_mensual_desde_julio`
   (pedido del usuario; probada en la copia: da lo mismo que hacerlo en la app). No hace nada si ya
   hay algo pagado de Unicentro desde julio o si ya es mensual.
+- **Desde el 2026-11-04 se puede hacer en la app:** regla "Cada cuánto se liquida" en Comisiones →
+  Reglas, con fecha, solo desde el primer mes de un trimestre (ver §12 del plan de comisiones
+  personalizables). El "Se liquida" de Metas sigue siendo lo de la tienda cuando no hay regla.
 
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se

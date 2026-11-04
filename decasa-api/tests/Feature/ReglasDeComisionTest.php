@@ -795,6 +795,43 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals(40_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-09')->value('meta'));
     }
 
+    // ── Periodicidad con fecha (regla "periodicidad", 2026-11-04) ───────────
+
+    public function test_la_periodicidad_cambia_con_fecha_y_solo_al_empezar_un_trimestre(): void
+    {
+        Carbon::setTestNow('2026-11-08 10:00:00');
+        $julio = $this->unicentroTrimestral();
+        $octubre = $this->orden(self::PAOLA, 4, 1_000_000, [['efectivo', 1_000_000]], '2026-10');
+        $fecha = fn ($id) => substr((string) DB::table('comisiones')->where('orden_id', $id)->value('fecha_disponible'), 0, 10);
+        $this->assertSame('2027-01-20', $fecha($octubre), 'trimestral: octubre se paga al cerrar el Q4');
+
+        $jefe = $this->actingAs(Usuario::find(self::JEFE));
+        $regla = ['clave' => 'periodicidad', 'alcance' => 'tienda', 'alcance_id' => 4, 'valor' => 'mensual', 'confirmar' => true];
+
+        // A mitad de trimestre no: partiría el trimestre.
+        $jefe->postJson('/api/comisiones/reglas', $regla + ['desde_mes' => '2026-09'])->assertStatus(422);
+        $this->assertSame(0, DB::table('comision_reglas')->count());
+
+        // Desde octubre: el Q3 sigue trimestral y octubre ya va cada mes.
+        $jefe->postJson('/api/comisiones/reglas', $regla + ['desde_mes' => '2026-10'])->assertStatus(201);
+        ReglasComision::olvidarCache();
+        $this->assertTrue(ComisionController::esTiendaTrimestral(4, '2026-07'));
+        $this->assertTrue(ComisionController::esTiendaTrimestral(4, '2026-09'));
+        $this->assertFalse(ComisionController::esTiendaTrimestral(4, '2026-10'));
+        $this->assertSame('2026-10-20', $fecha($julio), 'julio sigue con el trimestre');
+        $this->assertSame('2026-11-20', $fecha($octubre), 'octubre se paga el mes siguiente: se rehízo al guardar');
+        // La tienda sigue diciendo trimestral: la regla manda solo desde su fecha.
+        $this->assertSame('trimestral', DB::table('tiendas')->where('id', 4)->value('comision_periodicidad'));
+    }
+
+    public function test_sin_la_regla_de_periodicidad_manda_la_tienda(): void
+    {
+        $this->unicentroTrimestral();
+        $this->assertTrue(ComisionController::esTiendaTrimestral(4, '2026-07'));
+        $this->assertTrue(ComisionController::esTiendaTrimestral(4));
+        $this->assertFalse(ComisionController::esTiendaTrimestral(self::NORTE, '2026-07'));
+    }
+
     public function test_la_tarjeta_dice_lo_que_vendio_en_una_tienda_sin_comision(): void
     {
         // Caso Génesis (2026-11-04): cobra en una tienda y también vendió en

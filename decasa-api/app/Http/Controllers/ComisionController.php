@@ -251,7 +251,7 @@ class ComisionController extends Controller
 
             self::anotar('deshacer_pago', (int) $c->tienda_id, $c->mes_venta, $antes);
 
-            $aviso = self::esTiendaTrimestral((int) $c->tienda_id)
+            $aviso = self::esTiendaTrimestral((int) $c->tienda_id, $c->mes_venta)
                 ? 'Ojo: el trimestre de esta tienda quedó cerrado con el primer pago y no se reabre solo.'
                 : null;
 
@@ -300,7 +300,7 @@ class ComisionController extends Controller
      */
     private static function corteDeAnticipos(Comision $c): string
     {
-        return self::esTiendaTrimestral((int) $c->tienda_id)
+        return self::esTiendaTrimestral((int) $c->tienda_id, $c->mes_venta)
             ? self::mesesDeTrimestre(self::trimestreDeMes($c->mes_venta))[2]
             : $c->mes_venta;
     }
@@ -435,7 +435,7 @@ class ComisionController extends Controller
                 // Si aquí la comisión es del equipo o de cada quien.
                 'comisiones_compartidas' => (bool) $t->comisiones_compartidas,
                 // Cada cuánto se liquida el pool: guardado en la tienda.
-                'periodicidad'           => self::esTiendaTrimestral((int) $t->id) ? self::TRIMESTRAL : self::MENSUAL,
+                'periodicidad'           => self::esTiendaTrimestral((int) $t->id, $mes) ? self::TRIMESTRAL : self::MENSUAL,
             ] + ($avance === null ? [] : [
                 'vendido' => round($avance[$t->id . '_' . $mes]['vendido'] ?? 0),
                 'cuenta'  => round($avance[$t->id . '_' . $mes]['cuenta'] ?? 0),
@@ -683,7 +683,7 @@ class ComisionController extends Controller
         // trimestre) y cuánto se le descontaría de lo que ya está listo.
         if (AnticiposComision::hayTablas()) {
             AnticiposComision::asegurarHasta(max($mes, self::hoy()->format('Y-m')));
-            $corteDe = fn ($fila) => self::esTiendaTrimestral((int) $fila['tienda_id'])
+            $corteDe = fn ($fila) => self::esTiendaTrimestral((int) $fila['tienda_id'], $mes)
                 ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes;
             // Lo que debe cada uno, en dos consultas para todos (no dos por fila).
             $deudas = AnticiposComision::debeHastaDeVarios(
@@ -786,7 +786,7 @@ class ComisionController extends Controller
             // Lo que se ha llevado de anticipo y todavía no se le descuenta:
             // al pagarle la comisión se le resta (si no alcanza, lo sigue debiendo).
             'anticipos_que_debe' => AnticiposComision::debeHasta($vendedorId,
-                self::esTiendaTrimestral((int) ($primera['tienda_id'] ?? 0))
+                self::esTiendaTrimestral((int) ($primera['tienda_id'] ?? 0), $mes)
                     ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes),
             'meta_de_su_tienda'   => $primera['meta_tienda'] ?? 0,
             // Lo que le cuenta a la meta (con el 50% pagado), no todo lo vendido.
@@ -889,7 +889,7 @@ class ComisionController extends Controller
         $pesos   = $this->pesosDe($mes, $tiendaId);
         $nombres = Usuario::whereIn('id', array_keys($pesos))->pluck('nombre', 'id');
 
-        if (self::esTiendaTrimestral($tiendaId)) {
+        if (self::esTiendaTrimestral($tiendaId, $mes)) {
             // La misma cuenta que la pantalla: el trimestre entero, con lo que
             // tiene la mitad pagada y el déficit que arrastra.
             $pools  = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
@@ -3587,7 +3587,7 @@ class ComisionController extends Controller
         if ((int) substr($mes, 5, 2) % 3 === 0) {
             foreach (array_slice(self::mesesDeTrimestre(self::trimestreDeMes($mes)), 0, 2) as $m) {
                 $tarjetas = $tarjetas->merge($this->resumenDelMes($m)
-                    ->filter(fn ($t) => self::esTiendaTrimestral((int) $t['tienda_id'])));
+                    ->filter(fn ($t) => self::esTiendaTrimestral((int) $t['tienda_id'], $m)));
             }
         }
 
@@ -3604,7 +3604,7 @@ class ComisionController extends Controller
         $atrasados = collect(self::mesesConAlgoListo($mes))
             ->reject(fn ($m) => $m === $mes)
             ->mapWithKeys(fn ($m) => [$m => round($this->resumenDelMes($m)
-                ->reject(fn ($t) => in_array($m, $delTrimestre, true) && self::esTiendaTrimestral((int) $t['tienda_id']))
+                ->reject(fn ($t) => in_array($m, $delTrimestre, true) && self::esTiendaTrimestral((int) $t['tienda_id'], $m))
                 ->sum(fn ($t) => self::loListoDe($t)))])
             ->filter(fn ($v) => $v > 0);
 
@@ -4299,9 +4299,18 @@ class ComisionController extends Controller
      * Lo dice la tienda, guardado. Antes se reconocía por el nombre escrito
      * aquí, y renombrar la tienda la volvía mensual sin que nadie se enterara.
      */
-    public static function esTiendaTrimestral(?int $tiendaId): bool
+    public static function esTiendaTrimestral(?int $tiendaId, ?string $mes = null): bool
     {
         if (! $tiendaId) return false;
+
+        // Con fecha (regla "periodicidad", 2026-11-04): manda la regla vigente
+        // en ese mes; "lo que dice la tienda" cae a la columna de siempre. La
+        // regla solo empieza a inicio de trimestre, así que los tres meses de un
+        // trimestre dicen siempre lo mismo. Sin filas de la regla no se pregunta.
+        if ($mes !== null && ReglasComision::hayFilas('periodicidad')) {
+            $regla = ReglasComision::valor('periodicidad', $mes, $tiendaId);
+            if ($regla === self::MENSUAL || $regla === self::TRIMESTRAL) return $regla === self::TRIMESTRAL;
+        }
 
         if (self::$periodicidades === null) {
             // Sin la columna (una base sin migrar) nada es trimestral: mejor
@@ -4330,11 +4339,28 @@ class ComisionController extends Controller
     /** [tienda_id => 'mensual'|'trimestral']. Ver esTiendaTrimestral(). */
     private static ?array $periodicidades = null;
 
-    /** Ids de las tiendas trimestrales. */
+    /**
+     * Ids de las tiendas que son trimestrales en algún trimestre desde
+     * TRIMESTRE_BASE hasta hoy (con la regla con fecha, una tienda puede serlo
+     * en unos trimestres y en otros no; cargarPoolsTrimestrales salta los que no).
+     */
     private static function tiendasTrimestrales(): array
     {
         self::esTiendaTrimestral(-1); // llena el mapa
-        return array_keys(array_filter(self::$periodicidades, fn ($p) => $p === self::TRIMESTRAL));
+        if (! ReglasComision::hayFilas('periodicidad')) {
+            return array_keys(array_filter(self::$periodicidades, fn ($p) => $p === self::TRIMESTRAL));
+        }
+
+        $actual = self::trimestreDeMes(Carbon::now(StatsController::TZ_NEGOCIO)->format('Y-m'));
+        $ids = [];
+        foreach (array_keys(self::$periodicidades) as $tid) {
+            for ($q = self::TRIMESTRE_BASE; ; $q = self::trimestreSiguiente($q)) {
+                if (self::esTiendaTrimestral((int) $tid, self::mesesDeTrimestre($q)[0])) { $ids[] = (int) $tid; break; }
+                if ($q === $actual) break;
+            }
+        }
+
+        return $ids;
     }
 
     private static function trimestreDeMes(string $mesVenta): string
@@ -4571,6 +4597,15 @@ class ComisionController extends Controller
                 $clave    = $tiendaId . '_' . $trimestre;
                 $guardado = $guardados[$clave] ?? null;
 
+                // Un trimestre en que la tienda va cada mes (regla con fecha):
+                // no hay pool trimestral y la deuda no pasa por encima de él.
+                if (! self::esTiendaTrimestral((int) $tiendaId, self::mesesDeTrimestre($trimestre)[0])) {
+                    if ($trimestre === $trimestreActual) break;
+                    $deficitPrevio = 0.0;
+                    $trimestre     = self::trimestreSiguiente($trimestre);
+                    continue;
+                }
+
                 // Quieto si ya se pagó algo de su pool, o si llegó el 20 sin
                 // alcanzar la meta: esa deuda pasa fija al siguiente y no puede
                 // moverse para siempre. Si alcanzó la meta y nadie ha cobrado,
@@ -4658,7 +4693,7 @@ class ComisionController extends Controller
      */
     private function cerrarTrimestre(Comision $c, array $pools): void
     {
-        if (! self::esTiendaTrimestral((int) $c->tienda_id)) return;
+        if (! self::esTiendaTrimestral((int) $c->tienda_id, $c->mes_venta)) return;
 
         $trimestre = self::trimestreDeMes($c->mes_venta);
         $clave     = $c->tienda_id . '_' . $trimestre;
@@ -4725,7 +4760,7 @@ class ComisionController extends Controller
      */
     private static function calcularFechaDisponible(Carbon $fechaVenta, int $tiendaId): string
     {
-        if (self::esTiendaTrimestral($tiendaId)) {
+        if (self::esTiendaTrimestral($tiendaId, $fechaVenta->format('Y-m'))) {
             $mesCierre = intdiv($fechaVenta->month - 1, 3) * 3 + 3; // 3, 6, 9 o 12
             return self::diaDePagoDe(sprintf('%04d-%02d', $fechaVenta->year, $mesCierre), $tiendaId)->toDateString();
         }
@@ -5331,7 +5366,7 @@ class ComisionController extends Controller
             ? (float) $totalesVendedor[$vendedorKey]->total
             : (float) $c->valor_orden;
 
-        $esTrimestral   = self::esTiendaTrimestral((int) $c->tienda_id);
+        $esTrimestral   = self::esTiendaTrimestral((int) $c->tienda_id, (string) $c->mes_venta);
         $deficitInicial = 0.0;
         $deficitFinal   = 0.0;
 

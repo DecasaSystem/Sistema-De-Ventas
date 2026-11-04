@@ -350,9 +350,17 @@ class ReglaComisionController extends Controller
         // con tramos no se puede volver ventas. Puesta para todos, las
         // trimestrales la ignoran (poolDe no se usa allá).
         if ($data['alcance'] === 'tienda' && in_array($data['clave'], self::SOLO_MENSUALES, true)
-            && ComisionController::esTiendaTrimestral($alcanceId)) {
+            && ComisionController::esTiendaTrimestral($alcanceId, $data['desde_mes'])) {
             return response()->json(['message' => 'Esa tienda liquida por trimestre: «' . $regla['nombre']
                 . '» es solo para tiendas que liquidan cada mes.'], 422);
+        }
+
+        // Cada mes o por trimestre solo cambia al empezar un trimestre: si
+        // empezara a mitad, ese trimestre quedaría partido (dos meses juntos y
+        // uno suelto) y lo vendido se podría contar dos veces (dueño, 2026-11-04:
+        // "que no se pague nada dos veces").
+        if ($data['clave'] === 'periodicidad' && ! in_array((int) substr($data['desde_mes'], 5, 2), [1, 4, 7, 10], true)) {
+            return response()->json(['message' => 'Cada cuánto se liquida solo puede cambiar el primer mes de un trimestre: enero, abril, julio u octubre.'], 422);
         }
 
         // Nulo solo en una excepción: "desde aquí, sin excepción" (rige la de
@@ -472,7 +480,7 @@ class ReglaComisionController extends Controller
         ComisionController::anotar($accion, $alcance === 'tienda' ? $alcanceId : null, $desdeMes, $detalle);
 
         // La fecha en que se puede cobrar está guardada en cada renglón.
-        if (in_array($clave, ['dia_pago', 'meses_espera'], true)) {
+        if (in_array($clave, ['dia_pago', 'meses_espera', 'periodicidad'], true)) {
             ComisionController::rehacerFechasDisponibles(
                 $alcance === 'tienda' ? $alcanceId : null,
                 $alcance === 'usuario' ? $alcanceId : null,

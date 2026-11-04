@@ -500,3 +500,24 @@ venta; una FV2 "sin restar el IVA" se respeta igual que en el 5 % individual; qu
 tampoco entra ese día al reparto de restauraciones ni de lo que deja un independiente (su
 restauración es suya entera). Lo vendido antes o después de las fechas del reemplazo sigue la
 regla de siempre de quien vende en una tienda ajena.
+
+## 12. Cada cuánto se liquida, con fecha (2026-11-04, sin migración)
+
+Pedido del dueño después de pasar Unicentro a mensual desde julio (que se hizo con la
+migración `2026_11_08_000001_unicentro_mensual_desde_julio`): que la próxima vez se pueda
+hacer desde la app. Antes "Se liquida: cada mes / por trimestre" vivía solo en la tienda
+(`tiendas.comision_periodicidad`), sin fecha, y valía para todo lo no pagado.
+
+- Regla `periodicidad` (Comisiones → Reglas, grupo "Cuándo se cobra"), por tienda o general:
+  "Lo que dice la tienda" (por defecto: la columna de siempre), "Cada mes" o "Por trimestre".
+- **Solo empieza el primer mes de un trimestre** (enero, abril, julio, octubre): así un trimestre
+  nunca queda partido y nada se paga dos veces (dueño: "que no se pague nada dos veces"). El
+  servidor rechaza otro mes con 422.
+- `ComisionController::esTiendaTrimestral($tienda, $mes)` pregunta por el mes; todo el cálculo
+  pasa el mes de la comisión. `cargarPoolsTrimestrales` salta los trimestres en que la tienda va
+  cada mes, y ahí se corta la deuda (no pasa por encima de un trimestre mensual).
+- Al guardarla o quitarla se rehacen las fechas de pago guardadas (`rehacerFechasDisponibles`) y
+  se pide el recálculo. Hacia atrás, las mismas condiciones de cualquier regla (sin pagos, con
+  confirmación).
+- Sin filas de la regla no cambia nada: prueba diferencial con la copia de producción idéntica
+  byte a byte. Y "columna trimestral + regla mensual desde julio" da idéntico a "columna mensual".

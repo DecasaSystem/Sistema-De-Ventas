@@ -31,6 +31,7 @@ class ReglasComisionTest extends TestCase
             'meta_req_pagado_pct'       => 0.5,
             'dia_pago'                  => 20,
             'meses_espera'              => 1,
+            'periodicidad'              => 'de_la_tienda',
             'reparto_pool'              => 'dias',
             // Quien reemplaza entra al pool por días (lo de siempre); su % solo
             // rige si una tienda escoge "un porcentaje de lo que vendió".
