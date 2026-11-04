@@ -1,4 +1,8 @@
 <script setup>
+// Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
+import { useReglasComision } from '@/composables/useReglasComision'
+import { num } from '@/utils/reglasComision'
+const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
@@ -4796,7 +4800,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p v-if="numPrevia.items_a_tocar" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-snug">
                 <template v-if="numSerie === 'R'">
                   {{ numPrevia.items_a_tocar }} mueble(s) pasan a ser del cliente: la orden se cobra
-                  como restauración —5% aparte— y deja de sumarle a la meta de la tienda.
+                  como restauración —{{ num(reglasCom.pct_restauracion) }}% aparte— y deja de sumarle a la meta de la tienda.
                 </template>
                 <template v-else>
                   {{ numPrevia.items_a_tocar }} mueble(s) dejan de estar marcados como restauración:

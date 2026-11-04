@@ -441,6 +441,24 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertSame('pedido', $this->jefe()->postJson('/api/comisiones/recalcular')->json('estado'));
     }
 
+    public function test_un_recalculo_que_se_corto_a_mitad_se_vuelve_a_correr_solo(): void
+    {
+        // Se reinició el servidor a mitad: quedó "corriendo" hace una hora.
+        \Illuminate\Support\Facades\Cache::put(ComisionController::CLAVE_RECALCULO,
+            ['estado' => 'corriendo', 'pedido_at' => now()->subHour()->toIso8601String(), 'corriendo_at' => now()->subHour()->toIso8601String(), 'por' => 'migración']);
+
+        $r = app(ComisionController::class)->correrRecalculoPedido();
+        $this->assertNotNull($r, 'lo vuelve a correr sin que nadie toque el botón');
+        $estado = \Illuminate\Support\Facades\Cache::get(ComisionController::CLAVE_RECALCULO);
+        $this->assertSame('listo', $estado['estado']);
+        $this->assertSame(1, $estado['reintento']);
+
+        // Uno que va corriendo hace poco no se toca: puede estar trabajando.
+        \Illuminate\Support\Facades\Cache::put(ComisionController::CLAVE_RECALCULO,
+            ['estado' => 'corriendo', 'corriendo_at' => now()->subMinutes(5)->toIso8601String()]);
+        $this->assertNull(app(ComisionController::class)->correrRecalculoPedido());
+    }
+
     public function test_el_historial_de_anticipos_marca_el_abono(): void
     {
         $this->abonar(100_000)->assertOk();

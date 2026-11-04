@@ -171,6 +171,15 @@ class ReglasComision
             'explica' => 'Solo con "Un porcentaje de lo que vendió": sobre lo que vendió en la tienda los días que cubrió (sin IVA en las ventas). '
                 . 'Espera el mismo pago del cliente y el mismo día de pago que las demás. Por tienda: la tienda que cubrió.',
         ],
+        // Si una restauración se paga aunque la tienda no llegue a la meta.
+        // Hoy sí (es mano de obra, va aparte del pool); el dueño preguntó por
+        // ella el 2026-11-04 al ver agosto de Unicentro, y queda escogible.
+        'restauracion_espera_meta' => [
+            'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Las restauraciones esperan la meta',
+            'explica' => 'Apagado (lo de siempre), una restauración se paga aunque la tienda no llegue a la meta. Encendido, en esa tienda solo se paga '
+                . 'si la tienda llegó a la meta de ese mes (o del trimestre). No cambia su porcentaje ni el bolsón de los independientes.',
+        ],
         'restauracion_suma_meta' => [
             'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Las restauraciones cuentan como ventas',
@@ -289,7 +298,7 @@ class ReglasComision
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera', 'periodicidad']],
-        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
+        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_espera_meta', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
         'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
     ];

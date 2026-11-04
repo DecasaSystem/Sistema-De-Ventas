@@ -436,6 +436,11 @@ class ComisionController extends Controller
                 'comisiones_compartidas' => (bool) $t->comisiones_compartidas,
                 // Cada cuánto se liquida el pool: guardado en la tienda.
                 'periodicidad'           => self::esTiendaTrimestral((int) $t->id, $mes) ? self::TRIMESTRAL : self::MENSUAL,
+                // Si en este mes manda la regla con fecha (Comisiones → Reglas) y
+                // no lo que dice la tienda: la pantalla lo avisa, porque cambiar
+                // "Se liquida" ahí no movería nada.
+                'periodicidad_por_regla' => ReglasComision::hayFilas('periodicidad')
+                    && in_array(ReglasComision::valor('periodicidad', $mes, (int) $t->id), [self::MENSUAL, self::TRIMESTRAL], true),
             ] + ($avance === null ? [] : [
                 'vendido' => round($avance[$t->id . '_' . $mes]['vendido'] ?? 0),
                 'cuenta'  => round($avance[$t->id . '_' . $mes]['cuenta'] ?? 0),
@@ -3447,16 +3452,28 @@ class ComisionController extends Controller
      */
     public function correrRecalculoPedido(): ?array
     {
-        $estado = self::estadoDelRecalculo();
-        if ($estado['estado'] !== 'pedido') return null;
+        $estado = \Illuminate\Support\Facades\Cache::get(self::CLAVE_RECALCULO) ?? ['estado' => 'nada'];
+
+        // Uno que se quedó "corriendo" más de lo que puede tardar se cortó a
+        // mitad (Render se reinició al subir la migración de Unicentro,
+        // 2026-11-04): antes se daba por perdido y nadie lo volvía a correr
+        // hasta las 6:30 o hasta que alguien tocara Recalcular. Se corre otra vez.
+        $colgado = $estado['estado'] === 'corriendo'
+            && Carbon::parse($estado['corriendo_at'] ?? $estado['pedido_at'] ?? '2000-01-01')->lt(now()->subMinutes(self::RECALCULO_VENCE_MIN));
+        if ($estado['estado'] !== 'pedido' && ! $colgado) return null;
 
         $cache = \Illuminate\Support\Facades\Cache::store();
-        $cache->put(self::CLAVE_RECALCULO, array_merge($estado, [
-            'estado' => 'corriendo', 'corriendo_at' => now()->toIso8601String(),
-        ]), now()->addDay());
+        $estado = array_merge($estado, ['estado' => 'corriendo', 'corriendo_at' => now()->toIso8601String()]
+            + ($colgado ? ['reintento' => ($estado['reintento'] ?? 0) + 1] : []));
+        $cache->put(self::CLAVE_RECALCULO, $estado, now()->addDay());
+
+        // En qué va, para que la pantalla diga "120 de 380" y no solo "calculando".
+        $avance = function (int $hechas, int $total) use ($cache, $estado) {
+            $cache->put(self::CLAVE_RECALCULO, array_merge($estado, ['avance' => ['hechas' => $hechas, 'total' => $total]]), now()->addDay());
+        };
 
         try {
-            $resultado = $this->ponerAlDia();
+            $resultado = $this->ponerAlDia($avance);
         } catch (\Throwable $e) {
             $cache->put(self::CLAVE_RECALCULO, array_merge($estado, [
                 'estado' => 'fallo', 'terminado_at' => now()->toIso8601String(),
@@ -3479,7 +3496,7 @@ class ComisionController extends Controller
      *
      * @return array{actualizadas: int, notificadas: int, revaluadas: int}
      */
-    public function ponerAlDia(): array
+    public function ponerAlDia(?callable $avance = null): array
     {
         // El anticipo del mes que empieza queda anotado solo, a quien lo tenga.
         AnticiposComision::asegurarHasta(self::hoy()->format('Y-m'));
@@ -3515,12 +3532,16 @@ class ComisionController extends Controller
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda, true);
         $hoy          = self::hoy();
         $actualizadas = 0;
+        $hechas       = 0;
+        $total        = $avance ? Comision::where('estado', '!=', 'pagada')->count() : 0;
 
         // Ya no se avisa orden por orden: aquí no se paga por orden sino el
         // total de cada persona, y el aviso por cada comisión que quedaba
         // "lista" era ruido. Se avisa una vez, el día de pago (abajo).
         Comision::with('orden.pagos', 'tienda', 'vendedor:id,nombre')->where('estado', '!=', 'pagada')
-            ->chunkById(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas) {
+            ->chunkById(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas, &$hechas, $total, $avance) {
+                if ($avance) $avance($hechas, $total);
+                $hechas += $chunk->count();
                 foreach ($chunk as $c) {
                     $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                     $nuevoEstado = $enriquecida['estado_calculado'];
@@ -5601,6 +5622,11 @@ class ComisionController extends Controller
             // Por libro, la parte del equipo también espera a la meta: sin
             // pool no hay nada que soltarle a nadie.
             if ($req50 && $reqVencio && $metaCumplida) $estadoCalculado = 'lista';
+        } elseif ($esRestauracion && $meta > 0 && ! $metaCumplida
+            && ReglasComision::si('restauracion_espera_meta', $mesC, $tiendaC)) {
+            // Regla "las restauraciones esperan la meta" (apagada por defecto,
+            // 2026-11-04): en esa tienda una restauración solo se paga si la
+            // tienda llegó a la meta de su mes (o de su trimestre).
         } elseif ($req50 && $reqVencio && ($esAbono || $esPartePool || $esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }

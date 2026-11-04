@@ -521,3 +521,23 @@ hacer desde la app. Antes "Se liquida: cada mes / por trimestre" vivía solo en 
   confirmación).
 - Sin filas de la regla no cambia nada: prueba diferencial con la copia de producción idéntica
   byte a byte. Y "columna trimestral + regla mensual desde julio" da idéntico a "columna mensual".
+
+## 13. Decisiones por confirmar con el dueño (al 2026-11-04)
+
+Valores que se dejaron por defecto al programar y que el dueño no ha dicho sí o no. Ninguno
+cambia lo que se paga hoy salvo que se diga lo contrario. Al confirmarlos, borrar de aquí y
+anotar la decisión en `MEMORY.md` §2.
+
+1. **Quien reemplaza y cobra "un % de lo que vendió"** (regla apagada): ¿espera el 50 % pagado y
+   el día de pago como todos? (hoy: sí). ¿Entra ese día al reparto de restauraciones y de lo que
+   deja un almacén? (hoy: no).
+2. **Excel de Comisiones:** ¿los sacan todos los que tienen acceso a Comisiones? (hoy: sí). En
+   "Cómo va el mes", "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta (hoy
+   los dos son la mitad).
+3. **"Cada cuánto se liquida" con fecha** solo puede empezar el primer mes de un trimestre, para
+   que ninguno quede partido. ¿De acuerdo? (la otra opción, partir trimestres, necesita más código
+   y reglas de qué pasa con la deuda).
+4. **Las restauraciones esperan la meta** (regla nueva, apagada): hoy una restauración se paga
+   aunque la tienda no llegue. ¿Así se queda?
+5. **Jessica Rincón** sale con $241.596 como independiente en septiembre: ¿es lo que se le debe
+   aparte, o esas ventas ya se le pagaron por otro lado?

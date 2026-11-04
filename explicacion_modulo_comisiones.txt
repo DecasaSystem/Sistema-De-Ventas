@@ -1,3 +1,9 @@
+NOTA (2026-11-04): ESTE DOCUMENTO ES HISTÓRICO Y TIENE PARTES QUE YA NO SON CIERTAS
+(por ejemplo, el pool ya no se parte en partes iguales sino por días, y se mide
+a nivel de tienda con el 50 % pagado). Lo vigente está en:
+  - docs/comisiones-como-funciona.md   (para negocio)
+  - Comisiones -> Ayuda, en la app     (con las cifras de las reglas de hoy)
+
 MÓDULO DE COMISIONES — EXPLICACIÓN COMPLETA
 =============================================
 (Para revisión: cómo se calculan, cuándo quedan disponibles y cómo se pagan

@@ -31,6 +31,7 @@ export const DEFECTO = Object.freeze({
   meses_espera: 1,
   reparto_pool: 'dias',
   reparto_reemplazo: 'dias',
+  restauracion_espera_meta: false,
   periodicidad: 'de_la_tienda',
   pct_reemplazo: 0.05,
   restauracion_suma_meta: false,

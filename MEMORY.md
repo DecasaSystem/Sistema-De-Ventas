@@ -60,7 +60,9 @@ limitar a un vendedor a solo lo suyo.
 - Se pagan todas de una por persona, no orden por orden.
 - *Historia:* el 2026-09-23 se intentó quitar el requisito del 50 % (ca838c2) y el
   usuario lo rechazó con fuerza (revertido en 177f7f9).
-- Explicación larga para negocio: `explicacion_modulo_comisiones.txt` (raíz).
+- Explicación para negocio al día: `docs/comisiones-como-funciona.md` (2026-11-04). El
+  `explicacion_modulo_comisiones.txt` de la raíz quedó como histórico (tiene partes falsas). Decisiones
+  que el dueño no ha confirmado: §13 de `docs/plan-comisiones-personalizables.md`.
 
 ### Trimestre de Pereira: hasta cuándo cuentan los abonos (dueño, 2026-10-24)
 - El trimestre es de ventas del 1 de julio al 30 de septiembre (octubre ya es el siguiente).

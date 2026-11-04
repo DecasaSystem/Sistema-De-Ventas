@@ -131,6 +131,7 @@ const SECCIONES = [
   { id: 'equipo',        titulo: 'Equipo, reemplazos y traslados',     icono: ArrowsRightLeftIcon },
   { id: 'cuando',        titulo: '¿Cuándo queda lista para pagar?',    icono: CalendarDaysIcon },
   { id: 'pago',          titulo: 'Cómo se paga',                       icono: BanknotesIcon },
+  { id: 'leer',          titulo: 'Cómo leer Listas y los Excel',       icono: DocumentTextIcon },
   { id: 'atrasados',     titulo: 'Si se atrasa el pago',               icono: ClockIcon },
   { id: 'anticipos',     titulo: 'Anticipos de comisión',              icono: ReceiptPercentIcon },
   { id: 'abonos',        titulo: 'Abonos: pagar una parte',            icono: BanknotesIcon },
@@ -359,6 +360,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li v-if="r.req_pagado_restauracion"><b>Espera el pago, igual que una venta:</b> queda lista {{ cuando }} si el cliente ya pagó {{ mitadCobro }} de la restauración. Si todavía no, queda pendiente hasta que lo pague.</li>
             <li v-else><b>No espera el pago del cliente:</b> queda lista {{ cuando }}.</li>
             <li><b>No suma a la meta ni entra al pool.</b></li>
+            <li v-if="!r.restauracion_espera_meta"><b>Se paga aunque la tienda no llegue a la meta:</b> la meta frena el pool, no la restauración.</li>
+            <li v-else><b>Espera la meta:</b> solo se paga si la tienda llegó a la meta de ese mes (o del trimestre).</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
@@ -435,7 +438,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Trimestral ───────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'trimestral'">
-          <p>Algunas tiendas (por ejemplo, Unicentro Pereira) no se miden cada mes sino cada <b>trimestre</b>: ene–mar, abr–jun, jul–sep, oct–dic. Se marca en Metas → "Se liquida".</p>
+          <p>Algunas tiendas no se miden cada mes sino cada <b>trimestre</b>: ene–mar, abr–jun, jul–sep, oct–dic. Se marca en Metas → "Se liquida" o, con fecha, en Reglas → "Cada cuánto se liquida" (solo puede empezar el primer mes de un trimestre, para que ninguno quede partido).</p>
+          <p class="nota">Ejemplo: Unicentro Pereira era trimestral y desde julio de 2026 va cada mes (meta de $50 M en septiembre y $60 M desde octubre). Lo de julio, agosto y septiembre se mide mes por mes: nada se cuenta dos veces.</p>
           <ul>
             <li>La meta es la misma cada mes y hay que cumplir <b>los 3 meses</b>.</li>
             <li>Lo que le sobra a un mes paga lo que le falta a otro del mismo trimestre.</li>
@@ -526,7 +530,27 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li>Un pago marcado por error se puede <b>deshacer</b> desde la comisión pagada (pide motivo). Lo descontado de anticipos vuelve a deberse.</li>
             <li>Todo queda en el <b>historial</b>: quién pagó, quién deshizo, quién cambió metas, equipos o reemplazos.</li>
           </ul>
-          <p class="nota"><b>Recalcular</b> pone todo al día en el momento. El sistema lo hace solo cada mañana a las 6:30.</p>
+          <p class="nota"><b>Recalcular</b> pone al día los montos guardados (tarda unos minutos; el botón dice en qué va). El sistema lo hace solo cada mañana a las 6:30, y si un recálculo se corta a mitad (por ejemplo, porque el servidor se reinició) lo vuelve a correr solo.</p>
+          <p class="nota">Listas no espera al recálculo: calcula al abrirse, así que lo que dice es lo que se paga.</p>
+        </template>
+
+        <!-- ── Leer Listas y los Excel ──────────────────────────────────── -->
+        <template v-else-if="s.id === 'leer'">
+          <p>En <b>Listas</b>, cada mes de cada persona se abre y dice <b>de dónde sale</b> lo que se le paga:</p>
+          <ul>
+            <li>El pool de la tienda con su cuenta, su parte por los días que estuvo, y si es poco, por qué (pocos días, un traslado, un reemplazo).</li>
+            <li>En una tienda trimestral, cada mes del trimestre con lo que pasó o le faltó a la meta, y por qué un mes cobra aunque solo no haya llegado.</li>
+            <li>Por qué cobra individual (la tienda no reparte, no tiene meta o no era de su equipo), restauraciones, lo sacado del pool y su motivo.</li>
+            <li>Cada orden que todavía no entra y cuánto le falta para {{ mitadCobro }}, o si ya pagó pero la tienda no llegó a la meta.</li>
+            <li>Lo que vendió en una tienda donde no hubo comisión, con el porqué; abajo, todas las <b>tiendas sin comisión</b> en ese pago.</li>
+          </ul>
+          <p>El botón <b>Excel</b> deja escoger:</p>
+          <ul>
+            <li><b>Lo que se va a pagar</b>: lo mismo de Listas, con una hoja de <b>Comprobantes</b> (una persona por página, para imprimir, entregar y firmar, con cada anticipo y abono que se le descuenta), <b>Por cobrar</b> (lo que falta cobrar a los clientes para que esas ventas entren) y <b>Sin comisión</b>.</li>
+            <li><b>Un mes completo</b>: cualquier mes, entero, con cada orden y su cuenta.</li>
+            <li><b>Cómo va el mes</b>: el mes en curso, <b>estimado</b> (en ámbar): cuánto le falta a cada tienda y qué hay por cobrar.</li>
+          </ul>
+          <p class="nota">Los textos de Listas y de los Excel salen de las mismas reglas que el cálculo: si se cambia una regla, dicen lo nuevo.</p>
         </template>
 
         <!-- ── Atrasados ────────────────────────────────────────────────── -->

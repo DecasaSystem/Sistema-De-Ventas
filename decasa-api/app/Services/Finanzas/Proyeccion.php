@@ -199,13 +199,16 @@ class Proyeccion
             if ($i !== null && $p['fecha_pago'] >= $hoy->toDateString()) $filas[$i]['nomina'] += $p['neto'] + $p['aportes'];
         }
 
-        // Comisiones ya causadas en su fecha; las de los meses que vienen, el 20 del siguiente.
+        // Comisiones ya causadas en su fecha; las de los meses que vienen, en el
+        // día de pago de la regla (Comisiones → Reglas; hoy el 20 del mes
+        // siguiente). Antes decía "-20" a mano: si cambiaban el día de pago,
+        // Comisiones lo respetaba y Finanzas no.
         foreach (FuenteComisiones::porPagar() as $c) {
             $i = $semanaDe($c['fecha']);
             if ($i !== null) $filas[$i]['comisiones'] += $c['monto'];
         }
         foreach ($ventaMes as $mes => $v) {
-            $pago = Carbon::parse(Periodo::sumarMeses($mes, 1) . '-20', Periodo::TZ);
+            $pago = Carbon::parse(\App\Http\Controllers\ComisionController::diaDePagoDe($mes)->toDateString(), Periodo::TZ);
             $i = $semanaDe($pago->toDateString());
             if ($i !== null && $pago->greaterThan($hoy)) $filas[$i]['comisiones'] += $v * $prop['comisiones'];
         }

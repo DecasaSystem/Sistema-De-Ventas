@@ -514,7 +514,16 @@ entregada"). Solo supervisor.
 ### 6.10 Comisiones
 `ComisionController` (el más complejo), `ComisionIndependientes`,
 `AnticiposComision`, modelos `Comision`, `MetaTienda`, `TiendaAsesor`,
-`TiendaReemplazo`. Explicación de negocio: `explicacion_modulo_comisiones.txt`.
+`TiendaReemplazo`, `Support/ReglasComision` (todas las cifras y opciones, con fecha), `ReglaComisionController`.
+Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones-como-funciona.md) (el
+`explicacion_modulo_comisiones.txt` de la raíz quedó como histórico). Para los usuarios: Comisiones → Ayuda.
+
+**Cómo funciona hoy, en corto:** cada orden confirmada crea su comisión; la tienda con meta reparte un
+pool por días entre su equipo, medido solo con ventas que tienen la mitad pagada; las demás cobran un %
+fijo; las restauraciones van aparte; todo se cobra el día de pago si se cumplen las 3 condiciones.
+Listas junta lo listo por persona y explica cada peso (`utils/explicarListas.js`); todo es personalizable
+en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqué y dónde quedó en el código.
+
 
 - Al confirmar una orden se crean filas en `comisiones` (venta compartida = mitad
   para cada uno).

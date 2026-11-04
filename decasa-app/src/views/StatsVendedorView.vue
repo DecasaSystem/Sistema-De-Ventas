@@ -1,4 +1,8 @@
 ﻿<script setup>
+// Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
+import { useReglasComision } from '@/composables/useReglasComision'
+import { partePagada, laParte } from '@/utils/reglasComision'
+const reglasCom = useReglasComision()
 /**
  * "Mis estadísticas": el Resumen de Reportes, pero de una sola persona y de
  * sus tiendas.
@@ -464,10 +468,10 @@ onBeforeUnmount(() => {
         <!-- Sigue siendo venta, pero no le suma a la meta hasta que el
              cliente pague la mitad (igual que en Comisiones y Reportes). -->
         <p v-if="stats.meta_mes.sin_mitad > 0" class="mt-1.5 text-xs text-amber-700">
-          + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)
+          + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
         </p>
         <p class="mt-1 text-[11px] text-gray-400 leading-snug">
-          Solo cuentan las ventas cuyo cliente ya pagó al menos la mitad.
+          Solo cuentan las ventas cuyo cliente ya pagó al menos {{ laParte(reglasCom.meta_req_pagado_pct) }}.
         </p>
 
         <!-- Mensaje si ya se cumplió -->

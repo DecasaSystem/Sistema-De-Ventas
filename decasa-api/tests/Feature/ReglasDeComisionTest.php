@@ -795,6 +795,26 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals(40_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-09')->value('meta'));
     }
 
+    public function test_la_restauracion_espera_la_meta_solo_si_se_enciende_la_regla(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        // Norte no llega a la meta (10 M de 40 M); una restauración pagada.
+        $this->orden(self::PAOLA, self::NORTE, 10_000_000, [['efectivo', 10_000_000]]);
+        $rest = $this->orden(self::PAOLA, self::NORTE, 1_000_000, [['efectivo', 1_000_000]], self::MES, true);
+
+        // Lo de siempre: se paga aunque no haya meta.
+        $this->assertSame('lista', $this->porOrden()[$rest]['estado']);
+        $this->assertEquals(50_000, $this->porOrden()[$rest]['monto_comision']);
+
+        // Encendida en Norte: espera la meta.
+        $this->regla('restauracion_espera_meta', true, '2026-10', 'tienda', self::NORTE);
+        $this->assertSame('pendiente', $this->porOrden()[$rest]['estado']);
+
+        // Si la tienda llega, se suelta.
+        $this->orden(self::PAOLA, self::NORTE, 35_000_000, [['efectivo', 35_000_000]]);
+        $this->assertSame('lista', $this->porOrden()[$rest]['estado']);
+    }
+
     // ── Periodicidad con fecha (regla "periodicidad", 2026-11-04) ───────────
 
     public function test_la_periodicidad_cambia_con_fecha_y_solo_al_empezar_un_trimestre(): void

@@ -24,7 +24,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
 import { explicacionDelBloque, porQueNoComisiona } from '@/utils/explicarListas'
-import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool } from '@/utils/reglasComision'
+import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool, cuandoSePaga } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
@@ -51,6 +51,8 @@ const pagando      = ref(null)
 const pagandoListas = ref(null) // vendedor_id en proceso
 const mostrarMetas = ref(false)
 const recalculando = ref(false)
+// En qué va el recálculo ({ hechas, total }), para el botón: "Calculando… 120/380".
+const avanceRecalculo = ref(null)
 const guardandoMeta = ref(null)
 const metaEdits    = ref({})
 const metas        = ref([])
@@ -311,9 +313,11 @@ function esperarRecalculo() {
     } catch {
       return esperarRecalculo()   // un tropiezo de red: se vuelve a preguntar
     }
+    avanceRecalculo.value = estado.avance ?? null
     if (estado.estado === 'pedido' || estado.estado === 'corriendo') return esperarRecalculo()
 
     recalculando.value = false
+    avanceRecalculo.value = null
     if (estado.estado === 'listo') {
       const r = estado.resultado || {}
       toast.success(`Recalculado — ${r.actualizadas ?? 0} actualizadas` + (r.notificadas ? ' · aviso del día de pago enviado' : ''))
@@ -1328,7 +1332,7 @@ onMounted(async () => {
           :disabled="recalculando"
           class="text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg px-2.5 py-1.5 hover:bg-blue-100 disabled:opacity-50"
         >
-          {{ recalculando ? 'Calculando…' : 'Recalcular' }}
+          {{ recalculando ? (avanceRecalculo?.total ? `Calculando… ${avanceRecalculo.hechas}/${avanceRecalculo.total}` : 'Calculando…') : 'Recalcular' }}
         </button>
         <button
           @click="router.push({ name: 'comisiones-reglas' })"
@@ -1655,10 +1659,15 @@ onMounted(async () => {
               @change="cambiarPeriodicidad(m, $event.target.value)"
               class="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
             >
-              <option value="mensual">Cada mes (el 20 del mes siguiente)</option>
-              <option value="trimestral">Cada trimestre (el 20 después del cierre)</option>
+              <option value="mensual">Cada mes ({{ cuandoSePaga(reglasDe(m)) }})</option>
+              <option value="trimestral">Cada trimestre (el {{ reglasDe(m).dia_pago }} después del cierre)</option>
             </select>
           </div>
+          <p v-if="m.periodicidad_por_regla" class="-mt-2 mb-3 text-[10px] text-amber-700 leading-snug">
+            En {{ nombreMes(mesActual) }} manda la regla «Cada cuánto se liquida» de
+            <button type="button" @click="router.push({ name: 'comisiones-reglas' })" class="underline font-semibold">Reglas</button>:
+            cambiar esto solo vale para los meses sin regla.
+          </p>
 
           <!-- Asesores asignados -->
           <div>

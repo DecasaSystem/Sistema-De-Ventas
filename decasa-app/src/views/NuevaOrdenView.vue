@@ -1,4 +1,8 @@
 <script setup>
+// Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
+import { useReglasComision } from '@/composables/useReglasComision'
+import { divisor } from '@/utils/reglasComision'
+const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
@@ -5885,7 +5889,7 @@ onBeforeUnmount(() => {
             <span class="min-w-0">
               <span class="text-sm font-semibold text-gray-800">No se resta el IVA</span>
               <span class="block text-xs text-gray-500 mt-0.5">
-                Tu comisión de esta orden se saca sobre el valor completo, sin dividir por 1,19.
+                Tu comisión de esta orden se saca sobre el valor completo, sin dividir por {{ divisor(reglasCom.iva_divisor) }}.
               </span>
             </span>
           </label>

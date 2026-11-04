@@ -1,4 +1,8 @@
 ﻿<script setup>
+// Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
+import { useReglasComision } from '@/composables/useReglasComision'
+import { partePagada, laParte } from '@/utils/reglasComision'
+const reglasCom = useReglasComision()
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Chart } from 'chart.js/auto'
@@ -350,11 +354,11 @@ onBeforeUnmount(() => {
         <!-- Sigue siendo venta, pero no le suma a la meta hasta que el
              cliente pague la mitad (igual que en Comisiones y Reportes). -->
         <p v-if="stats.meta_mes.sin_mitad > 0" class="mt-1.5 text-xs text-amber-700">
-          + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)
+          + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
         </p>
         <p class="mt-1.5 text-[11px] text-gray-400 leading-snug">
-          Es lo del mes calendario que cuenta en Comisiones: solo ventas con el 50% pagado (sin restauraciones ni canceladas),
-          más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+          Es lo del mes calendario que cuenta en Comisiones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
+          más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
         </p>
         <p v-if="stats.meta_mes.cumplida" class="mt-2 text-xs font-semibold text-green-600">
           ✓ ¡Meta alcanzada! La comisión del mes está activa.

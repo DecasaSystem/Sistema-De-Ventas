@@ -1,4 +1,8 @@
 ﻿<script setup>
+// Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
+import { useReglasComision } from '@/composables/useReglasComision'
+import { partePagada, laParte } from '@/utils/reglasComision'
+const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -917,7 +921,7 @@ onBeforeUnmount(() => {
               <!-- Lo vendido sin el 50% pagado sigue siendo venta, pero no le
                    suma a la meta hasta que el cliente pague la mitad. -->
               <p v-if="t.meta_mes.sin_mitad > 0" class="mt-1 text-[11px] text-amber-700">
-                + {{ cop(t.meta_mes.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)
+                + {{ cop(t.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
               </p>
               <!-- No es el "vendido" de arriba: la meta se mide como en
                    Comisiones (mes calendario, con el 50% pagado, sin
@@ -925,8 +929,8 @@ onBeforeUnmount(() => {
                    independientes y sin la comisión del datáfono), y el período
                    de arriba puede ser otro. -->
               <p class="mt-1 text-[10px] text-gray-300 leading-snug">
-                Es lo del mes calendario que cuenta en Comisiones: solo ventas con el 50% pagado (sin restauraciones ni canceladas),
-                más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+                Es lo del mes calendario que cuenta en Comisiones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
+                más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
               </p>
               <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>
               <p v-else class="mt-1 text-[11px] text-gray-400">
