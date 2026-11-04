@@ -740,4 +740,23 @@ class ReglasDeComisionTest extends TestCase
         $this->assertNotEmpty($con['personas']);
         $this->assertNull(collect($con['tiendas_sin_pago'])->firstWhere('tienda_id', self::NORTE));
     }
+
+    public function test_la_tarjeta_dice_lo_que_vendio_en_una_tienda_sin_comision(): void
+    {
+        // Caso Génesis (2026-11-04): cobra en una tienda y también vendió en
+        // otra que no llegó a la meta; su tarjeta tiene que decirlo.
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->orden(self::PAOLA, self::FERIA, 1_190_000, [['efectivo', 1_190_000]]);
+        $this->orden(self::PAOLA, self::NORTE, 5_000_000, [['efectivo', 5_000_000]]);
+
+        $con = $this->actingAs(Usuario::find(self::JEFE))->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json();
+        $laura = collect($con['personas'])->firstWhere('vendedor_id', self::PAOLA);
+        $this->assertEquals(50_000, $laura['lista'], 'cobra lo de la feria; Norte (su equipo) no llegó a la meta');
+        $this->assertCount(1, $laura['en_tiendas_sin_pago']);
+        $this->assertSame(self::NORTE, $laura['en_tiendas_sin_pago'][0]['tienda_id']);
+        $this->assertSame([self::MES], $laura['en_tiendas_sin_pago'][0]['meses']);
+        $this->assertSame(1, $laura['en_tiendas_sin_pago'][0]['ordenes']);
+        $this->assertEquals(5_000_000, $laura['en_tiendas_sin_pago'][0]['ventas']);
+        $this->assertSame(self::MES, $laura['en_tiendas_sin_pago'][0]['mes_de_la_cuenta']);
+    }
 }

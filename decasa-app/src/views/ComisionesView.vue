@@ -449,6 +449,12 @@ function porQueSale(p, b) {
   return explicacionDelBloque(p, b, reglasListasDe(b.mes, b.tienda_id, p.vendedor_id), tiendaDelBloque(b))
 }
 
+/** Por qué no le dio nada lo que vendió en una tienda sin comisión (la misma cuenta de abajo). */
+function motivoSinPago(v) {
+  const t = tiendasSinPago.value.find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
+  return t ? ['Ahí no hubo comisión en este pago:', ...t.lineas] : []
+}
+
 const tiendasSinPago = computed(() => (listasData.value.tiendas_sin_pago ?? [])
   .map(t => ({ ...t, lineas: porQueNoComisiona(t, reglasListasDe(t.mes, t.tienda_id)) })))
 
@@ -2406,6 +2412,26 @@ onMounted(async () => {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <!-- Lo que vendió en otra tienda donde no hubo comisión: también hay que decírselo -->
+              <div
+                v-for="v in p.en_tiendas_sin_pago ?? []"
+                :key="`${v.tienda_id}_${v.mes_de_la_cuenta}`"
+                class="mt-1 mb-2 rounded-lg border border-gray-200 px-3 py-2"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <p class="text-[11px] text-gray-700 leading-snug">
+                    También vendió en <span class="font-semibold">{{ v.tienda_nombre }}</span>
+                    ({{ v.meses.map(nombreMes).join(' y ') }}): {{ v.ordenes }} {{ v.ordenes !== 1 ? 'órdenes' : 'orden' }} por {{ cop(v.ventas) }}.
+                  </p>
+                  <span class="text-sm font-semibold text-gray-400 shrink-0">{{ cop(0) }}</span>
+                </div>
+                <ul class="mt-1 space-y-0.5">
+                  <li v-for="(l, i) in motivoSinPago(v)" :key="i" class="text-[10px] text-gray-500 leading-snug flex gap-1.5">
+                    <span class="text-gray-300 shrink-0">•</span><span>{{ l }}</span>
+                  </li>
+                </ul>
               </div>
 
               <div v-if="p.se_descuenta > 0" class="flex justify-between text-[11px] text-gray-500 border-t border-gray-100 pt-2">

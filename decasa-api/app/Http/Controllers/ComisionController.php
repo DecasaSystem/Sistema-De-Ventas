@@ -2991,6 +2991,7 @@ class ComisionController extends Controller
         // salía nada nadie le decía por qué (dueño, 2026-11-04: "aunque no
         // comisione nada hay que decirle al vendedor por qué").
         $todasLasTiendas = [];
+        $vendioSinPago = [];
         $trimestreQueToca = self::trimestreDeMes($mesQueToca);
         foreach ($meses as $mes) {
             foreach ($this->resumenDelMes($mes, $conDetalle) as $t) {
@@ -3000,6 +3001,14 @@ class ComisionController extends Controller
                     && ($mes === $mesQueToca || self::trimestreDeMes($mes) === $trimestreQueToca)) {
                     $todasLasTiendas[$claveTienda] ??= ['mes' => $mes, 'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre']]
                         + collect($t['resumen_tienda'])->except('detalle')->all();
+                    // Lo que vendió cada uno ahí sin cobrar nada: Génesis vendió
+                    // en Circunvalar en julio y agosto antes de pasarse a
+                    // Unicentro, y su tarjeta no lo decía.
+                    if ($lista <= 0 && (float) $t['total_ventas'] > 0) {
+                        $vendioSinPago[] = ['vendedor_id' => (int) $t['vendedor_id'], 'clave' => $claveTienda, 'mes' => $mes,
+                            'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre'],
+                            'ordenes' => (int) $t['total_ordenes'], 'ventas' => round((float) $t['total_ventas'])];
+                    }
                 }
                 if ($lista <= 0) continue;
 
@@ -3087,6 +3096,13 @@ class ComisionController extends Controller
                 'lista'       => $bs->sum('lista'),
             ])->sortKeys()->values();
 
+        $sinPago = $conDetalle ? self::tiendasSinPago($todasLasTiendas, $bloques) : [];
+        if ($conDetalle) {
+            $personas = $personas->map(fn ($p) => $p + [
+                'en_tiendas_sin_pago' => self::vendioEnTiendasSinPago($vendioSinPago, $sinPago, (int) $p['vendedor_id']),
+            ]);
+        }
+
         return [
             'dia_de_pago'  => $diaDePago->toDateString(),
             'mes_que_toca' => $mesQueToca,
@@ -3098,8 +3114,33 @@ class ComisionController extends Controller
             'entregar'     => $personas->sum('entregar'),
         ] + ($conDetalle ? [
             'tiendas'          => array_values($tiendas),
-            'tiendas_sin_pago' => self::tiendasSinPago($todasLasTiendas, $bloques),
+            'tiendas_sin_pago' => $sinPago,
         ] : []);
+    }
+
+    /**
+     * Lo que una persona vendió en las tiendas sin comisión de este pago, una
+     * fila por tienda (y trimestre) con sus meses, órdenes y ventas: para que
+     * su tarjeta diga "también vendió en Circunvalar y ahí no hubo pool".
+     */
+    private static function vendioEnTiendasSinPago(array $vendio, array $sinPago, int $vendedorId): array
+    {
+        $out = [];
+        foreach ($vendio as $v) {
+            if ($v['vendedor_id'] !== $vendedorId) continue;
+            // Su tienda sin pago: la del mismo mes o, si es trimestral, la de su trimestre.
+            $t = collect($sinPago)->first(fn ($s) => $s['tienda_id'] === $v['tienda_id'] && ($s['mes'] === $v['mes']
+                || (($s['pool']['periodicidad'] ?? '') === 'trimestral' && self::trimestreDeMes($s['mes']) === self::trimestreDeMes($v['mes']))));
+            if (! $t) continue;
+            $k = $t['tienda_id'] . '_' . $t['mes'];
+            $out[$k] ??= ['tienda_id' => $t['tienda_id'], 'tienda_nombre' => $v['tienda_nombre'], 'mes_de_la_cuenta' => $t['mes'], 'meses' => [], 'ordenes' => 0, 'ventas' => 0];
+            $out[$k]['meses'][] = $v['mes'];
+            $out[$k]['ordenes'] += $v['ordenes'];
+            $out[$k]['ventas']  += $v['ventas'];
+        }
+        foreach ($out as &$o) { $o['meses'] = array_values(array_unique($o['meses'])); sort($o['meses']); }
+
+        return array_values($out);
     }
 
     /**
