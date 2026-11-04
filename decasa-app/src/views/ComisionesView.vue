@@ -449,6 +449,31 @@ function porQueSale(p, b) {
   return explicacionDelBloque(p, b, reglasListasDe(b.mes, b.tienda_id, p.vendedor_id), tiendaDelBloque(b))
 }
 
+/**
+ * La línea corta de pendientes bajo cada mes, con el porqué de verdad. Decía
+ * siempre "(el cliente no ha pagado la mitad)", también en agosto de
+ * Unicentro, donde las 8 ya habían pagado la mitad y no comisionaban porque la
+ * tienda no llegó a la meta (2026-11-04).
+ */
+function textoPendientes(p, b) {
+  const lista = b.ordenes_pendientes ?? []
+  const r = reglasListasDe(b.mes, b.tienda_id, p.vendedor_id)
+  const plural = (n, uno, varios) => `${n} ${n !== 1 ? varios : uno}`
+  if (!lista.length) {
+    return b.pendientes > 0 ? [`${plural(b.pendientes, 'todavía pendiente', 'todavía pendientes')} (el cliente no ha pagado ${laParte(r.req_pagado_pct)})`] : []
+  }
+  const sinPago = lista.filter(o => !o.cumple_pago).length
+  const conPago = lista.length - sinPago
+  const out = []
+  if (sinPago) out.push(`${plural(sinPago, 'todavía pendiente', 'todavía pendientes')} (el cliente no ha pagado ${laParte(r.req_pagado_pct)})`)
+  if (conPago) {
+    out.push(b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
+      ? `${plural(conPago, 'no comisiona', 'no comisionan')} (ya pagaron, pero la tienda no llegó a la meta)`
+      : `${plural(conPago, 'espera', 'esperan')} ${b.periodicidad === 'trimestral' ? 'el cierre del trimestre' : 'a que la tienda llegue a la meta'}`)
+  }
+  return out
+}
+
 /** Por qué no le dio nada lo que vendió en una tienda sin comisión (la misma cuenta de abajo). */
 function motivoSinPago(v) {
   const t = tiendasSinPago.value.find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
@@ -2352,9 +2377,7 @@ onMounted(async () => {
                         {{ b.ordenes_listas.length }} {{ b.ordenes_listas.length !== 1 ? 'órdenes' : 'orden' }}
                         <template v-if="b.se_descuenta > 0"> · <span class="text-red-600">{{ textoDescuentoBloque(b) }}</span></template>
                       </p>
-                      <p v-if="b.pendientes > 0" class="text-[10px] text-orange-500 mt-0.5">
-                        {{ b.pendientes }} todavía pendiente{{ b.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado {{ laParte(reglasDe(b).req_pagado_pct) }})
-                      </p>
+                      <p v-for="(t, i) in textoPendientes(p, b)" :key="i" class="text-[10px] text-orange-500 mt-0.5">{{ t }}</p>
                       <p v-if="b.es_independiente && b.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600 mt-0.5">
                         incluye bolsón de restauraciones
                       </p>
