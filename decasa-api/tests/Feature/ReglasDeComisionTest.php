@@ -708,4 +708,36 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals(3_000_000, $fila['pagado_orden']);
         $this->assertEquals(10_000_000, $fila['valor_orden_entera']);
     }
+
+    // ── Listas: por qué una tienda no comisiona (2026-11-04) ────────────────
+
+    public function test_listas_dice_que_tiendas_no_comisionan_en_el_pago(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');   // se paga octubre
+        // Norte no llega: 30 M que cuentan de 40 M de meta (más 10 M sin la mitad).
+        $this->orden(self::PAOLA, self::NORTE, 30_000_000, [['efectivo', 30_000_000]]);
+        $this->orden(self::PAOLA, self::NORTE, 10_000_000, [['efectivo', 1_000_000]]);
+        $jefe = Usuario::find(self::JEFE);
+
+        $sin = $this->actingAs($jefe)->getJson('/api/comisiones/por-pagar')->assertOk()->json();
+        $this->assertArrayNotHasKey('tiendas_sin_pago', $sin, 'solo con ?detalle=1');
+
+        $con = $this->actingAs($jefe)->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json();
+        $this->assertSame([], $con['personas']);
+        $norte = collect($con['tiendas_sin_pago'])->firstWhere('tienda_id', self::NORTE);
+        $this->assertNotNull($norte);
+        $this->assertSame(self::MES, $norte['mes']);
+        $this->assertEquals(40_000_000, $norte['pool']['meta']);
+        $this->assertEquals(30_000_000, $norte['pool']['ventas_cuentan']);
+        $this->assertEquals(10_000_000, $norte['pool']['sin_mitad']);
+        $this->assertFalse($norte['pool']['meta_cumplida']);
+        // La feria no tiene meta ni pool: no hay nada que explicar.
+        $this->assertNull(collect($con['tiendas_sin_pago'])->firstWhere('tienda_id', self::FERIA));
+
+        // Cuando alguien de la tienda cobra, la tienda sale en su tarjeta y no aquí.
+        $this->orden(self::PAOLA, self::NORTE, 20_000_000, [['efectivo', 20_000_000]]);
+        $con = $this->actingAs($jefe)->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json();
+        $this->assertNotEmpty($con['personas']);
+        $this->assertNull(collect($con['tiendas_sin_pago'])->firstWhere('tienda_id', self::NORTE));
+    }
 }

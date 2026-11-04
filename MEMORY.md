@@ -466,6 +466,12 @@ escribiendo precios (Fase 1b).
   Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
   mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
   "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
+- **Listas explica cada pago y por qué una tienda no comisiona** (2026-11-04, **sin subir**,
+  sin migración). Pedido del dueño con el caso de Génesis (Unicentro, agosto $58.991 "por estar
+  unos pocos días"; trimestral): que Listas, no solo el Excel, diga de dónde sale lo que se
+  paga y, "aunque no comisione nada", por qué. Detalle en `docs/PROYECTO.md` (Comisiones). No
+  cambió ninguna cifra. Los textos del Excel de Listas y de la pantalla salen del mismo archivo
+  (`utils/explicarListas.js`): cambiar uno cambia los dos.
 - **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
   rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
   (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF

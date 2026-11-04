@@ -23,11 +23,13 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
+import { explicacionDelBloque, porQueNoComisiona } from '@/utils/explicarListas'
 import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
 import TotalesTienda from '@/components/comisiones/TotalesTienda.vue'
+import CuentaDeLaTienda from '@/components/comisiones/CuentaDeLaTienda.vue'
 import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
@@ -372,10 +374,18 @@ const cargandoListas  = ref(false)
 const expandidosListas = ref(new Set())
 const recibo          = ref(null)   // lo que se acaba de pagar, un recibo por mes
 
+// Con ?detalle=1 (lo mismo que el Excel): cada mes de cada persona dice de
+// dónde sale lo que se le paga, y aparte las tiendas que no comisionan y por
+// qué. Las cifras son las mismas; solo vienen más campos.
+const reglasListas = ref({})   // { 'YYYY-MM': vigentes }
+
 async function cargarListas() {
   cargandoListas.value = true
   try {
-    const { data } = await api.get('/comisiones/por-pagar', { params: mesListas.value ? { mes: mesListas.value } : {} })
+    const { data } = await api.get('/comisiones/por-pagar', { params: { detalle: 1, ...(mesListas.value ? { mes: mesListas.value } : {}) } })
+    const meses = [...new Set([data.mes_que_toca, ...(data.personas ?? []).flatMap(p => p.bloques.map(b => b.mes)),
+      ...(data.tiendas_sin_pago ?? []).map(t => t.mes)].filter(Boolean))]
+    reglasListas.value = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m).catch(() => null)])))
     listasData.value = data
   } catch {
     toast.error('Error cargando las comisiones listas')
@@ -425,6 +435,22 @@ function claveBloque(p, b) {
 function variasTiendas(p) {
   return new Set(p.bloques.map(b => b.tienda_id)).size > 1
 }
+
+/** La cuenta de la tienda de un bloque (meta, pool, trimestre, reparto). */
+function tiendaDelBloque(b) {
+  return (listasData.value.tiendas ?? []).find(t => t.mes === b.mes && t.tienda_id === b.tienda_id) ?? null
+}
+
+const reglasListasDe = (mes, tiendaId = null, usuarioId = null) =>
+  reglasPara(reglasListas.value[mes] ?? null, { tiendaId, usuarioId })
+
+/** De dónde sale lo de ese mes, en palabras (lo mismo que el Excel). */
+function porQueSale(p, b) {
+  return explicacionDelBloque(p, b, reglasListasDe(b.mes, b.tienda_id, p.vendedor_id), tiendaDelBloque(b))
+}
+
+const tiendasSinPago = computed(() => (listasData.value.tiendas_sin_pago ?? [])
+  .map(t => ({ ...t, lineas: porQueNoComisiona(t, reglasListasDe(t.mes, t.tienda_id)) })))
 
 function toggleExpandLista(clave) {
   const s = new Set(expandidosListas.value)
@@ -2336,6 +2362,17 @@ onMounted(async () => {
 
                   <!-- Las órdenes que entran en el pago de ese mes -->
                   <div v-if="expandidosListas.has(claveBloque(p, b))" class="mt-2 space-y-1.5">
+                    <!-- De dónde sale lo de este mes: lo que hay que poder decirle a la persona -->
+                    <div class="rounded-lg bg-gray-50 px-3 py-2 space-y-1.5">
+                      <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">De dónde sale</p>
+                      <ul class="space-y-1">
+                        <li v-for="(l, i) in porQueSale(p, b)" :key="i" class="text-[11px] text-gray-700 leading-snug flex gap-1.5">
+                          <span class="text-gray-300 shrink-0">•</span><span>{{ l }}</span>
+                        </li>
+                      </ul>
+                      <CuentaDeLaTienda v-if="tiendaDelBloque(b)?.pool && !b.es_independiente" :tienda="tiendaDelBloque(b)" :vendedor-id="p.vendedor_id" class="bg-white" />
+                    </div>
+                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide pt-1">Órdenes que entran</p>
                     <div
                       v-for="o in b.ordenes_listas"
                       :key="o.id"
@@ -2412,6 +2449,33 @@ onMounted(async () => {
                 class="mt-2 w-full text-xs font-semibold text-green-700 hover:text-green-800 border border-green-200 rounded-lg py-2"
               >Registrar abono</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Las tiendas donde nadie cobra en este pago, y por qué: también hay que
+             poder decírselo al vendedor (dueño, 2026-11-04) -->
+        <div v-if="!cargandoListas && tiendasSinPago.length" class="mt-4 space-y-2">
+          <p class="text-xs font-semibold text-gray-600">Tiendas sin comisión en este pago</p>
+          <div
+            v-for="t in tiendasSinPago"
+            :key="`${t.tienda_id}_${t.mes}`"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-gray-300 p-4 space-y-2"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="font-semibold text-gray-800 text-sm truncate">{{ t.tienda_nombre }}</p>
+                <p class="text-xs text-gray-400 mt-0.5 capitalize">
+                  {{ t.pool?.periodicidad === 'trimestral' ? `Trimestre ${t.pool?.trimestre?.trimestre ?? ''}` : nombreMes(t.mes) }}
+                </p>
+              </div>
+              <p class="text-lg font-bold text-gray-400 shrink-0">{{ cop(0) }}</p>
+            </div>
+            <ul class="space-y-1">
+              <li v-for="(l, i) in t.lineas" :key="i" class="text-[11px] text-gray-700 leading-snug flex gap-1.5">
+                <span class="text-gray-300 shrink-0">•</span><span>{{ l }}</span>
+              </li>
+            </ul>
+            <CuentaDeLaTienda :tienda="t" />
           </div>
         </div>
 

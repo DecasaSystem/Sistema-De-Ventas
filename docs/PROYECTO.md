@@ -533,6 +533,15 @@ entregada"). Solo supervisor.
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Listas explica cada pago** (2026-11-04, sin migración): Listas pide
+  `por-pagar?detalle=1` (lo mismo que el Excel) y, al abrir un mes de una persona, muestra
+  "De dónde sale" (pool, su parte por días —"es poco porque estuvo pocos días"—,
+  restauraciones, pendientes, anticipos) y la cuenta de la tienda (`CuentaDeLaTienda.vue`:
+  el trimestre mes por mes o la meta y el reparto por días). Abajo, **Tiendas sin comisión
+  en este pago** (`tiendas_sin_pago`: tiendas con pool del mes que toca o de su trimestre
+  donde nadie cobra) con el porqué: no llegó a la meta y por cuánto, lo vendido sin la mitad,
+  trimestre en curso o con deuda. Los textos salen de `utils/explicarListas.js`, que usa
+  también el Excel de Listas.
 - **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
   (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
   (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;

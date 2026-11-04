@@ -20,6 +20,7 @@ import {
   FORMA, CANAL, VERDE_CLARO, GRIS_TEXTO, AMBAR,
   mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar,
 } from './excelComisiones'
+import { explicacionDelBloque } from './explicarListas'
 import { reglasPara, num, divisor, cuentaPool, cuentaVenta, mediosConFranquicia, laParte, partePagada, cuandoSePaga } from './reglasComision'
 
 const MEDIO = {
@@ -194,61 +195,10 @@ function renglonesDe(p, b) {
   return filas
 }
 
-/** De dónde sale lo listo de un bloque, en líneas que se pueden rehacer a mano. */
+/** De dónde sale lo listo de un bloque: lo mismo que dice Listas (utils/explicarListas). */
 function explicacionDe(p, b, tiendaDe) {
   const r = R(b.mes, b.tienda_id, p.vendedor_id)
-  const c = b.cuenta ?? {}
-  const ordenes = b.ordenes_listas ?? []
-  const suma = formas => ordenes.filter(o => formas.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0)
-  const lineas = []
-
-  if (b.es_independiente) {
-    const i = b.independiente ?? {}
-    lineas.push(`• Independiente: cobra el ${num(r.indep_pct_venta)}% fijo de sus ventas${r.iva_en_venta ? ` (÷ ${divisor(r.iva_divisor)})` : ''}, sin meta ni pool.`)
-    lineas.push(`• De sus ventas listas sin pagar: ${pesos(i.por_pagar_ventas)}. Del bolsón de restauraciones: ${pesos(i.por_pagar_bolson)}.`)
-  } else {
-    const delPool = suma(['pool', 'parte_pool'])
-    if (c.por_pool && delPool > 0) {
-      const t = tiendaDe(b.mes, b.tienda_id)
-      if (b.periodicidad === 'trimestral') {
-        lineas.push(`• ${b.tienda_nombre} es trimestral (${c.trimestre ?? ''}): el pool es del trimestre, ya descontada la deuda que traía; ${pesos(c.comision_pool)}. Ver hoja "Por tienda".`)
-        lineas.push(`• Su pedazo de ${mesEnPalabras(b.mes)}: ${c.parte_dias} días de ${c.partes_dias} días de todo el equipo en el trimestre = ${pesos(c.comision_asesor)}.`)
-      } else {
-        lineas.push(`• Pool de ${b.tienda_nombre}: (${pesos(c.total_tienda_mes)} vendido con ${partePagada(r.meta_req_pagado_pct)} − ${pesos(c.meta_tienda)} de meta) ${cuentaPool(r)} = ${pesos(c.comision_pool)}.`)
-        lineas.push(r.reparto_pool === 'iguales'
-          ? `• Su parte: partes iguales entre el equipo = ${pesos(c.comision_asesor)}.`
-          : `• Su parte: ${c.parte_dias} de ${c.partes_dias} días del equipo = ${pesos(c.comision_pool)} × ${c.parte_dias} ÷ ${c.partes_dias} = ${pesos(c.comision_asesor)}.`)
-        if (t?.pool?.sin_mitad > 0) {
-          lineas.push(`• No cuentan todavía ${pesos(t.pool.sin_mitad)} de ventas de la tienda sin ${partePagada(r.meta_req_pagado_pct)}: cuando las paguen, el pool crece y sale la diferencia.`)
-        }
-      }
-      if (n(c.ya_pagado_pool) > 0) {
-        lineas.push(`• Ya se le pagó de este pool ${pesos(c.ya_pagado_pool)}: queda ${pesos(delPool)}.`)
-      } else {
-        lineas.push(`• Del pool se le paga ahora ${pesos(delPool)}.`)
-      }
-    }
-    const rest = suma(['restauracion_5', 'restauracion_equipo'])
-    if (rest > 0) lineas.push(`• Restauraciones: ${pesos(rest)} (${num(r.pct_restauracion)}% de su valor${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}).`)
-    const ind = suma(['sin_meta_5'])
-    if (ind > 0) lineas.push(`• Individual (no va por pool): ${pesos(ind)} = ventas ${cuentaVenta(r, 'pct_individual')}.`)
-    const rem = suma(['reemplazo_ventas'])
-    if (rem > 0) lineas.push(`• Lo que vendió cubriendo a alguien: ${pesos(rem)} = ventas ${cuentaVenta(r, 'pct_reemplazo')} (no suma a la meta ni al pool).`)
-    const ab = suma(['abono_almacen'])
-    if (ab > 0) lineas.push(`• Lo que dejaron ventas de independientes con la tienda: ${pesos(ab)}.`)
-  }
-
-  lineas.push(`• Listo para pagar de ${mesEnPalabras(b.mes)}: ${pesos(b.lista)}. `
-    + (b.atrasada ? `ATRASADA: se debía pagar el ${fecha(b.se_cobra_el)}.` : `Se paga el ${fecha(b.se_cobra_el)}.`))
-  if (n(b.pendientes) > 0) {
-    lineas.push(`• ${b.pendientes} orden(es) de este mes todavía no entran (el cliente no ha pagado ${laParte(r.req_pagado_pct)}): no están en este pago.`)
-  }
-  if (n(b.se_descuenta) > 0 || n(b.debe_al_corte) > 0) {
-    lineas.push(`• Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
-      + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta comisión ya entregados)` : '')
-      + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
-  }
-  return lineas
+  return explicacionDelBloque(p, b, r, tiendaDe(b.mes, b.tienda_id), { excel: true }).map(l => `• ${l}`)
 }
 
 // ── Columnas de la tabla de órdenes ──────────────────────────────────────────

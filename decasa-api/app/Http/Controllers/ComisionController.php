@@ -2986,9 +2986,21 @@ class ComisionController extends Controller
 
         $bloques = collect();
         $tiendas = [];
+        // Las tiendas del mes que toca (y de su trimestre) en las que no hay
+        // nada que pagar. Listas solo mostraba a quien cobra, y a quien no le
+        // salía nada nadie le decía por qué (dueño, 2026-11-04: "aunque no
+        // comisione nada hay que decirle al vendedor por qué").
+        $todasLasTiendas = [];
+        $trimestreQueToca = self::trimestreDeMes($mesQueToca);
         foreach ($meses as $mes) {
             foreach ($this->resumenDelMes($mes, $conDetalle) as $t) {
                 $lista = round(self::loListoDe($t));
+                $claveTienda = $mes . '_' . (int) $t['tienda_id'];
+                if ($conDetalle && empty($t['es_independiente']) && ! empty($t['resumen_tienda']['pool'])
+                    && ($mes === $mesQueToca || self::trimestreDeMes($mes) === $trimestreQueToca)) {
+                    $todasLasTiendas[$claveTienda] ??= ['mes' => $mes, 'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre']]
+                        + collect($t['resumen_tienda'])->except('detalle')->all();
+                }
                 if ($lista <= 0) continue;
 
                 $seCobra = self::calcularFechaDisponible(Carbon::parse($mes . '-01'), (int) $t['tienda_id']);
@@ -2996,7 +3008,6 @@ class ComisionController extends Controller
                 // La cuenta de la tienda, una vez por tienda y mes (todas las
                 // tarjetas de la tienda traen la misma). Sin la lista de todas
                 // sus órdenes: el Excel explica lo que se paga, no el mes entero.
-                $claveTienda = $mes . '_' . (int) $t['tienda_id'];
                 if ($conDetalle && empty($t['es_independiente']) && ! empty($t['resumen_tienda']) && ! isset($tiendas[$claveTienda])) {
                     $tiendas[$claveTienda] = ['mes' => $mes, 'tienda_id' => (int) $t['tienda_id'], 'tienda_nombre' => $t['tienda_nombre']]
                         + collect($t['resumen_tienda'])->except('detalle')->all();
@@ -3085,7 +3096,32 @@ class ComisionController extends Controller
             'lista'        => $personas->sum('lista'),
             'se_descuenta' => $personas->sum('se_descuenta'),
             'entregar'     => $personas->sum('entregar'),
-        ] + ($conDetalle ? ['tiendas' => array_values($tiendas)] : []);
+        ] + ($conDetalle ? [
+            'tiendas'          => array_values($tiendas),
+            'tiendas_sin_pago' => self::tiendasSinPago($todasLasTiendas, $bloques),
+        ] : []);
+    }
+
+    /**
+     * Las tiendas con pool en las que nadie cobra nada en este pago, una vez
+     * cada una (la trimestral, con el último mes de su trimestre: su cuenta
+     * trae los tres). Si en el trimestre de una trimestral alguien cobra algo,
+     * ya sale en su tarjeta y no se repite aquí.
+     */
+    private static function tiendasSinPago(array $todas, \Illuminate\Support\Collection $bloques): array
+    {
+        $out = [];
+        foreach ($todas as $t) {
+            $trimestral = ($t['pool']['periodicidad'] ?? 'mensual') === 'trimestral';
+            $cobra = $bloques->contains(fn ($b) => (int) $b['tienda_id'] === $t['tienda_id']
+                && ($b['mes'] === $t['mes'] || ($trimestral && self::trimestreDeMes($b['mes']) === self::trimestreDeMes($t['mes']))));
+            if ($cobra) continue;
+            $clave = $t['tienda_id'] . '_' . ($trimestral ? self::trimestreDeMes($t['mes']) : $t['mes']);
+            if (! isset($out[$clave]) || $out[$clave]['mes'] < $t['mes']) $out[$clave] = $t;
+        }
+        usort($out, fn ($a, $b) => strcmp($a['tienda_nombre'], $b['tienda_nombre']) ?: strcmp($a['mes'], $b['mes']));
+
+        return $out;
     }
 
     /**
