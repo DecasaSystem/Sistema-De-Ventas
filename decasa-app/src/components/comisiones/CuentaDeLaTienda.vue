@@ -19,6 +19,8 @@ const q = computed(() => pool.value.periodicidad === 'trimestral' ? pool.value.t
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const mesCorto = m => `${MESES[Number(String(m).slice(5, 7)) - 1]} ${String(m).slice(0, 4)}`
+/** '2026-08-27' → '27/08/2026', como en el resto de Listas. */
+const dia = f => { const [y, m, d] = String(f ?? '').slice(0, 10).split('-'); return d ? `${d}/${m}/${y}` : (f ?? '') }
 const cop = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v) || 0)
 </script>
 
@@ -81,7 +83,7 @@ const cop = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: '
           <span class="shrink-0 ml-2">{{ cop(x.parte) }}</span>
         </div>
         <p v-for="(x, i) in pool.reemplazos ?? []" :key="i" class="text-[10px] text-gray-500 mt-0.5">
-          {{ x.reemplaza ? `${x.quien} cubrió a ${x.reemplaza} del ${x.desde}${x.hasta ? ' al ' + x.hasta : ''}` : `${x.quien} llegó el ${x.desde} (${x.tipo === 'traslado' ? 'traslado' : 'reemplazo'})` }}
+          {{ x.reemplaza ? `${x.quien} cubrió a ${x.reemplaza} del ${dia(x.desde)}${x.hasta ? ' al ' + dia(x.hasta) : ''}` : `${x.quien} llegó el ${dia(x.desde)} (${x.tipo === 'traslado' ? 'traslado' : 'reemplazo'})` }}
         </p>
       </div>
     </template>

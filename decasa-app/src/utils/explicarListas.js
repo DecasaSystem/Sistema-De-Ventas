@@ -126,7 +126,11 @@ function pendientesTexto(b, r) {
       ? [`${b.pendientes} orden(es) de este mes todavía no entran (el cliente no ha pagado ${laParte(r.req_pagado_pct)}): no están en este pago.`]
       : []
   }
-  const lineas = [`${lista.length} orden(es) de este mes todavía no entran en este pago:`]
+  // "Todavía" solo si pueden entrar después: las de un mes que no llegó a la meta ya no.
+  const sinMetaMes = b.cuenta?.por_pool && b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
+  const lineas = [sinMetaMes && lista.every(o => o.cumple_pago)
+    ? `${lista.length} orden(es) de este mes no comisionan:`
+    : `${lista.length} orden(es) de este mes no entran en este pago:`]
   for (const o of lista) {
     const quien = `${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}`
     if (o.cumple_pago) {
