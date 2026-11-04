@@ -187,6 +187,17 @@ class ReglasComision
                 . '(sin IVA, como toda venta del pool) y ya no se paga aparte con su porcentaje ni se reparte por días. '
                 . 'Al bolsón de los independientes entra igual que siempre.',
         ],
+        // Decisión del dueño, 2026-11-04: "si las restauraciones ayudan a llegar
+        // a la meta, se cobra todo, el IVA se le cobra a todo; si las ventas
+        // llegan solas, las restauraciones son aparte y no se les quita el IVA".
+        'restauracion_ayuda_meta' => [
+            'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Las restauraciones ayudan a llegar a la meta',
+            'explica' => 'Solo tiendas mensuales con meta. Si las ventas solas llegan a la meta, todo como siempre: pool de las ventas y '
+                . 'las restauraciones aparte, sin quitarles el IVA. Si las ventas no llegan pero con las restauraciones sí, ese mes '
+                . 'las restauraciones cuentan como ventas: entran al pool (con el IVA quitado) y no se pagan aparte. Si ni con ellas '
+                . 'llega, no se paga nada, tampoco las restauraciones.',
+        ],
         'arrastra_deuda_trimestre' => [
             'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
             'nombre' => 'La deuda del trimestre pasa al siguiente',
@@ -298,7 +309,7 @@ class ReglasComision
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera', 'periodicidad']],
-        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_espera_meta', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
+        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_espera_meta', 'restauracion_ayuda_meta', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
         'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
     ];
@@ -313,7 +324,7 @@ class ReglasComision
         'franquicia_pct', 'franquicia_metodos', 'compartida_parte_vendedor', 'almacen_fraccion_meta',
         'dia_pago', 'meses_espera', 'periodicidad',
         // El reparto de la restauración entre el equipo queda escrito por persona.
-        'restauracion_suma_meta', 'reparto_restauracion', 'parte_autor_restauracion',
+        'restauracion_suma_meta', 'restauracion_ayuda_meta', 'reparto_restauracion', 'parte_autor_restauracion',
         // Quien reemplaza deja de entrar al reparto de la restauración y del
         // almacén de esos días, y eso también queda escrito por persona.
         'reparto_reemplazo',

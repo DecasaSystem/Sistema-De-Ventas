@@ -537,7 +537,7 @@ anotar la decisión en `MEMORY.md` §2.
 3. **"Cada cuánto se liquida" con fecha** solo puede empezar el primer mes de un trimestre, para
    que ninguno quede partido. ¿De acuerdo? (la otra opción, partir trimestres, necesita más código
    y reglas de qué pasa con la deuda).
-4. **Las restauraciones esperan la meta** (regla nueva, apagada): hoy una restauración se paga
-   aunque la tienda no llegue. ¿Así se queda?
+4. ~~Las restauraciones esperan la meta~~ **Decidido (2026-11-04):** "las restauraciones ayudan a llegar a la meta",
+   encendida para todas desde siempre (ver MEMORY.md §2). La regla "esperan la meta" queda apagada.
 5. **Jessica Rincón** sale con $241.596 como independiente en septiembre: ¿es lo que se le debe
    aparte, o esas ventas ya se le pagaron por otro lado?

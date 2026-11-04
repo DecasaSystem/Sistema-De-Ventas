@@ -23,7 +23,7 @@ Todas las cifras de abajo son **las de hoy** y se pueden cambiar en **Comisiones
 |---|---|
 | Tienda con meta y equipo (pool) | El equipo se reparte el pool: (lo que cuenta − meta) ÷ 1,19 × 5 %, por los días que estuvo cada uno. Sin meta cumplida, $0 de pool. |
 | Tienda sin meta, que no reparte, o alguien de fuera del equipo | 5 % de lo suyo (÷ 1,19). |
-| Restauración | 5 % de su valor, sin quitar el IVA. En una tienda que reparte se parte entre los que estaban ese día. Se paga aunque la tienda no llegue a la meta (regla "Las restauraciones esperan la meta", apagada). |
+| Restauración | 5 % de su valor, sin quitar el IVA, repartido entre los que estaban ese día, **si las ventas solas llegan a la meta**. Si las ventas no llegan pero con las restauraciones sí, ese mes cuentan como ventas (entran al pool con el IVA quitado, no se pagan aparte). Si ni con ellas se llega, no se paga nada (regla "Las restauraciones ayudan a llegar a la meta", encendida para todas desde siempre). En tiendas sin meta, su 5 % como siempre. |
 | Independiente | 5 % de sus ventas (÷ 1,19) + el 5 % del bolsón de restauraciones de todos. Sin meta. |
 | Venta de un independiente con un almacén | Al almacén le suma la mitad a la meta y cobra su propio 5 %. |
 | Quien reemplaza | Entra al pool por los días que cubrió (o, si la tienda lo escoge, un % de lo que vendió). |

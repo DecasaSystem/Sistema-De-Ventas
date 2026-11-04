@@ -4525,18 +4525,83 @@ class ComisionController extends Controller
             ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
 
         $comoVenta = ReglasComision::sql('restauracion_suma_meta', 'c.tienda_id', 'c.mes_venta');
-        if ($comoVenta === '0') {
+        $ayudan = self::$restauracionesQueAyudan;
+        if ($comoVenta === '0' && ! $ayudan) {
             return $q->whereNotIn('c.orden_id', $sub);
         }
 
-        return $q->where(fn ($w) => $w->whereNotIn('c.orden_id', $sub)->orWhereRaw("{$comoVenta} = 1"));
+        return $q->where(function ($w) use ($sub, $comoVenta, $ayudan) {
+            $w->whereNotIn('c.orden_id', $sub);
+            if ($comoVenta !== '0') $w->orWhereRaw("{$comoVenta} = 1");
+            // Los meses donde las restauraciones ayudaron a llegar a la meta.
+            foreach (array_keys($ayudan) as $clave) {
+                [$tid, $mes] = explode('_', $clave, 2);
+                $w->orWhere(fn ($x) => $x->where('c.tienda_id', (int) $tid)->where('c.mes_venta', $mes));
+            }
+        });
     }
 
     /** ¿En esa tienda y mes las restauraciones cuentan como ventas? Ver sinRestauraciones(). */
     private static function restauracionComoVenta(int $tiendaId, string $mes): bool
     {
-        return ReglasComision::si('restauracion_suma_meta', $mes, $tiendaId);
+        return ReglasComision::si('restauracion_suma_meta', $mes, $tiendaId)
+            || isset(self::$restauracionesQueAyudan[$tiendaId . '_' . $mes]);
     }
+
+    /**
+     * ['tienda_mes' => true] donde las restauraciones ayudaron a llegar a la
+     * meta (regla restauracion_ayuda_meta, dueño 2026-11-04): las ventas solas
+     * no llegaban y con las restauraciones sí. Ese mes cuentan como ventas
+     * (entran al pool con el IVA quitado y no se pagan aparte). Si las ventas
+     * llegan solas, o si ni con ellas se llega, no entra aquí: van aparte, y en
+     * el segundo caso esperan la meta (enriquecer).
+     *
+     * Lo que cuenta es lo de siempre: con la mitad pagada, sin canceladas ni
+     * fuera del pool. Solo tiendas mensuales con meta.
+     */
+    private function restauracionesQueAyudan(array $metas): array
+    {
+        self::$restauracionesQueAyudan = [];
+        if (! ReglasComision::hayFilas('restauracion_ayuda_meta')) return [];
+
+        // Las ventas solas (sin restauraciones: el conjunto todavía está vacío).
+        $ventas = $this->totalesQueCuentan();
+        $this->totalesQueCuentan = null;
+
+        $sub = fn ($s) => $s->from('orden_items')->select('orden_id')
+            ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
+        $restauraciones = DB::table('comisiones as c')
+            ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
+            ->where('u.independiente', false)
+            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
+            ->whereIn('c.orden_id', $sub)
+            ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
+            ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
+            ->groupBy('c.tienda_id', 'c.mes_venta')
+            ->get();
+
+        $out = [];
+        foreach ($restauraciones as $f) {
+            $tid = (int) $f->tienda_id;
+            $mes = (string) $f->mes_venta;
+            $clave = $tid . '_' . $mes;
+            if (! ReglasComision::si('restauracion_ayuda_meta', $mes, $tid)) continue;
+            if (ReglasComision::si('restauracion_suma_meta', $mes, $tid)) continue; // ya cuentan siempre
+            if (self::esTiendaTrimestral($tid, $mes)) continue;
+            $meta = isset($metas[$clave]) ? (float) $metas[$clave]->meta : 0.0;
+            if ($meta <= 0) continue;
+            $v = (float) ($ventas[$clave] ?? 0);
+            if ($v < $meta && $v + (float) $f->total >= $meta) $out[$clave] = true;
+        }
+
+        return $out;
+    }
+
+    /** Ver restauracionesQueAyudan(). Se rehace en cada cargarTotales(). */
+    private static array $restauracionesQueAyudan = [];
 
     /**
      * cuentaParaMeta() dentro de una consulta que suma muchas órdenes: lo que
@@ -5310,6 +5375,11 @@ class ComisionController extends Controller
         $meses = array_values(array_unique($meses));
         $metas = MetaTienda::mapaVigente($meses);
 
+        // Las tiendas y meses donde las restauraciones ayudaron a llegar a la
+        // meta (regla restauracion_ayuda_meta): ahí cuentan como ventas. Va
+        // antes de cualquier suma, porque todas las sumas dependen de esto.
+        self::$restauracionesQueAyudan = $this->restauracionesQueAyudan($metas);
+
         // Las ventas de un independiente NO alimentan la meta de ninguna
         // tienda por esta via: ellos cobran por su porcentaje fijo, no del pool.
         // Lo unico que le llega a una tienda es la mitad que le abonen, que se
@@ -5623,7 +5693,9 @@ class ComisionController extends Controller
             // pool no hay nada que soltarle a nadie.
             if ($req50 && $reqVencio && $metaCumplida) $estadoCalculado = 'lista';
         } elseif ($esRestauracion && $meta > 0 && ! $metaCumplida
-            && ReglasComision::si('restauracion_espera_meta', $mesC, $tiendaC)) {
+            && (ReglasComision::si('restauracion_espera_meta', $mesC, $tiendaC)
+                // Con "ayudan a llegar": si ni con ellas se llegó, no se paga nada.
+                || (ReglasComision::si('restauracion_ayuda_meta', $mesC, $tiendaC) && ! $esTrimestral))) {
             // Regla "las restauraciones esperan la meta" (apagada por defecto,
             // 2026-11-04): en esa tienda una restauración solo se paga si la
             // tienda llegó a la meta de su mes (o de su trimestre).

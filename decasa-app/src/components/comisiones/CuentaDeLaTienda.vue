@@ -72,7 +72,8 @@ const cop = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: '
       </div>
       <div v-if="pool.reparto?.length" class="border-t border-gray-100 px-2.5 py-1.5">
         <p class="text-[10px] text-gray-400 mb-0.5">
-          {{ pool.reparto_modo === 'iguales' ? 'Se reparte en partes iguales' : `Se reparte por días (${pool.dias_total} días de todo el equipo)` }}
+          {{ pool.reparto_modo === 'iguales' ? 'El pool se reparte en partes iguales' : `El pool se reparte por días (${pool.dias_total} días de todo el equipo)` }}
+          · <span class="text-gray-500">solo el pool: lo que se paga es el total del mes</span>
         </p>
         <div
           v-for="x in pool.reparto"

@@ -23,7 +23,7 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
-import { explicacionDelBloque, porQueNoComisiona } from '@/utils/explicarListas'
+import { explicacionDelBloque, porQueNoComisiona, desgloseDelBloque } from '@/utils/explicarListas'
 import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool, cuandoSePaga } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
@@ -2385,6 +2385,11 @@ onMounted(async () => {
                         <template v-if="variasTiendas(p)">{{ b.tienda_nombre }} · </template>
                         {{ b.ordenes_listas.length }} {{ b.ordenes_listas.length !== 1 ? 'órdenes' : 'orden' }}
                         <template v-if="b.se_descuenta > 0"> · <span class="text-red-600">{{ textoDescuentoBloque(b) }}</span></template>
+                      </p>
+                      <!-- De qué está hecho lo que se paga ese mes, sin abrirlo: la cifra de la
+                           derecha es el total; el pool solo es una parte (Manuela, sep 2026). -->
+                      <p v-if="desgloseDelBloque(b).length > 1" class="text-[10px] text-gray-500 mt-0.5">
+                        {{ desgloseDelBloque(b).map(x => `${x.nombre} ${cop(x.monto)}`).join(' + ') }}
                       </p>
                       <p v-for="(t, i) in textoPendientes(p, b)" :key="i" class="text-[10px] text-orange-500 mt-0.5">{{ t }}</p>
                       <p v-if="b.es_independiente && b.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600 mt-0.5">

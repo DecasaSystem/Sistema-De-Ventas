@@ -41,7 +41,7 @@ class ReglaComisionController extends Controller
     ];
 
     /** Reglas del pool que solo se calculan en tiendas mensuales (ver poolDe). */
-    private const SOLO_MENSUALES = ['formula_pool', 'tramos_pool', 'bono_meta'];
+    private const SOLO_MENSUALES = ['formula_pool', 'tramos_pool', 'bono_meta', 'restauracion_ayuda_meta'];
 
     // GET /api/comisiones/reglas
     public function index(Request $request)

@@ -815,6 +815,57 @@ class ReglasDeComisionTest extends TestCase
         $this->assertSame('lista', $this->porOrden()[$rest]['estado']);
     }
 
+    // ── Las restauraciones ayudan a llegar a la meta (dueño, 2026-11-04) ─────
+    // Norte, meta 40 M, Paola sola en el equipo.
+
+    private function ayudanAMeta(float $ventas, float $restauracion): array
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->regla('restauracion_ayuda_meta', true, '2026-01');
+        $this->orden(self::PAOLA, self::NORTE, $ventas, [['efectivo', $ventas]]);
+        $rest = $this->orden(self::PAOLA, self::NORTE, $restauracion, [['efectivo', $restauracion]], self::MES, true);
+        $filas = $this->porOrden();
+
+        return [$filas, $rest, collect($filas)->sum('monto_comision')];
+    }
+
+    public function test_si_las_ventas_llegan_solas_la_restauracion_va_aparte_sin_quitarle_el_iva(): void
+    {
+        [$filas, $rest, $total] = $this->ayudanAMeta(45_000_000, 1_000_000);
+        $this->assertSame('lista', $filas[$rest]['estado']);
+        $this->assertEquals(50_000, $filas[$rest]['monto_comision'], '5 % del valor completo');
+        // Pool solo de las ventas: 5 M ÷ 1,19 × 5 % = 210.084.
+        $this->assertEquals(210_084 + 50_000, round($total));
+    }
+
+    public function test_si_la_restauracion_ayuda_a_llegar_todo_cuenta_como_venta(): void
+    {
+        [$filas, $rest, $total] = $this->ayudanAMeta(38_000_000, 3_000_000);
+        // (38 M + 3 M − 40 M) ÷ 1,19 × 5 % = 42.017, todo junto; la restauración no se paga aparte.
+        $this->assertEquals(42_017, round($total));
+        $this->assertNotSame('restauracion_5', $filas[$rest]['forma_pago']);
+    }
+
+    public function test_si_ni_con_la_restauracion_llega_no_se_paga_nada(): void
+    {
+        [$filas, $rest, $total] = $this->ayudanAMeta(34_000_000, 1_000_000);
+        $this->assertSame('pendiente', $filas[$rest]['estado']);
+        $this->assertEquals(0, collect($filas)->where('estado', 'lista')->sum('monto_comision'));
+    }
+
+    public function test_la_migracion_enciende_la_regla_desde_el_primer_mes_y_una_sola_vez(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->orden(self::PAOLA, self::NORTE, 1_000_000, [['efectivo', 1_000_000]], '2026-08');
+        $m = require base_path('database/migrations/2026_11_08_000002_restauraciones_ayudan_a_la_meta.php');
+        ob_start(); $m->up(); $m->up(); $salida = ob_get_clean();
+
+        $this->assertSame(1, DB::table('comision_reglas')->where('clave', 'restauracion_ayuda_meta')->count());
+        $this->assertSame('2026-08', DB::table('comision_reglas')->where('clave', 'restauracion_ayuda_meta')->value('desde_mes'));
+        $this->assertTrue(ReglasComision::si('restauracion_ayuda_meta', '2026-10', self::NORTE));
+        $this->assertStringContainsString('ya estaba puesta', $salida);
+    }
+
     // ── Periodicidad con fecha (regla "periodicidad", 2026-11-04) ───────────
 
     public function test_la_periodicidad_cambia_con_fecha_y_solo_al_empezar_un_trimestre(): void

@@ -38,6 +38,7 @@ class ReglasComisionTest extends TestCase
             'reparto_reemplazo'         => 'dias',
             'pct_reemplazo'             => 0.05,
             'restauracion_espera_meta'  => false,
+            'restauracion_ayuda_meta'   => false,
             'restauracion_suma_meta'    => false,
             'arrastra_deuda_trimestre'  => true,
             // Pieza 8: el pool de siempre (un % sobre lo que pasa de la meta), sin bono.

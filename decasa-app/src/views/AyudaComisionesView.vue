@@ -359,9 +359,14 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li v-else><b>{{ pct('pct_restauracion') }} del valor, sin quitar el IVA</b> (es mano de obra).</li>
             <li v-if="r.req_pagado_restauracion"><b>Espera el pago, igual que una venta:</b> queda lista {{ cuando }} si el cliente ya pagó {{ mitadCobro }} de la restauración. Si todavía no, queda pendiente hasta que lo pague.</li>
             <li v-else><b>No espera el pago del cliente:</b> queda lista {{ cuando }}.</li>
-            <li><b>No suma a la meta ni entra al pool.</b></li>
-            <li v-if="!r.restauracion_espera_meta"><b>Se paga aunque la tienda no llegue a la meta:</b> la meta frena el pool, no la restauración.</li>
-            <li v-else><b>Espera la meta:</b> solo se paga si la tienda llegó a la meta de ese mes (o del trimestre).</li>
+            <template v-if="r.restauracion_ayuda_meta">
+              <li><b>Si las ventas solas llegan a la meta:</b> la restauración va aparte, con su {{ pct('pct_restauracion') }} sin quitarle el IVA, y el pool sale solo de las ventas.</li>
+              <li><b>Si las ventas no llegan pero con las restauraciones sí:</b> ese mes las restauraciones cuentan como ventas: entran al pool con el IVA quitado y no se pagan aparte.</li>
+              <li><b>Si ni con ellas se llega:</b> no se paga nada, tampoco las restauraciones.</li>
+            </template>
+            <li v-else><b>No suma a la meta ni entra al pool.</b></li>
+            <li v-if="!r.restauracion_espera_meta && !r.restauracion_ayuda_meta"><b>Se paga aunque la tienda no llegue a la meta:</b> la meta frena el pool, no la restauración.</li>
+            <li v-else-if="r.restauracion_espera_meta"><b>Espera la meta:</b> solo se paga si la tienda llegó a la meta de ese mes (o del trimestre).</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>

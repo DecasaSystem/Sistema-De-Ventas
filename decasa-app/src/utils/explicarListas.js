@@ -29,12 +29,26 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
   const verHoja = excel ? ' Ver hoja "Por tienda".' : ''
   const lineas = []
 
+  // Lo primero, la suma: Manuela en septiembre veía "su parte del pool
+  // $674.261" y se pensaba que era eso lo que se pagaba, cuando el total de
+  // $892.262 era pool + restauración + lo de los independientes (2026-11-04).
+  const partes = desgloseDelBloque(b)
+  if (partes.length > 1) {
+    lineas.push(`Se le paga ${pesos(b.lista)} = ${partes.map(x => `${x.nombre.toLowerCase()} ${pesos(x.monto)}`).join(' + ')}.`)
+  }
+
   if (b.es_independiente) {
     const i = b.independiente ?? {}
     lineas.push(`Independiente: cobra el ${num(r.indep_pct_venta)}% fijo de sus ventas${r.iva_en_venta ? ` (÷ ${divisor(r.iva_divisor)})` : ''}, sin meta ni pool.`)
     lineas.push(`De sus ventas listas sin pagar: ${pesos(i.por_pagar_ventas)}. Del bolsón de restauraciones: ${pesos(i.por_pagar_bolson)}.`)
   } else {
     const delPool = suma(['pool', 'parte_pool'])
+    // Restauraciones que ayudaron a llegar a la meta (regla restauracion_ayuda_meta):
+    // ese mes van dentro del pool como ventas, no aparte.
+    const restEnPool = ordenes.filter(o => o.forma_pago === 'pool' && (o.tipo_orden === 'restauracion' || String(o.orden_referencia ?? '').startsWith('R-')))
+    if (restEnPool.length && r.restauracion_ayuda_meta && !r.restauracion_suma_meta) {
+      lineas.push(`${restEnPool.map(o => o.orden_referencia).join(', ')}: las ventas solas no llegaban a la meta y con las restauraciones sí, así que este mes cuentan como ventas: entran al pool con el IVA quitado y no se pagan aparte.`)
+    }
     if (c.por_pool && delPool > 0) {
       if (b.periodicidad === 'trimestral') {
         lineas.push(`${b.tienda_nombre} es trimestral (${c.trimestre ?? ''}): los tres meses se juntan en un solo pool: ${pesos(c.comision_pool)}.${verHoja}`)
@@ -57,8 +71,8 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
         lineas.push('No tiene ventas propias que ya cuenten este mes, pero es del equipo: su parte del pool se le paga entera, en un renglón sin orden.')
       }
       lineas.push(n(c.ya_pagado_pool) > 0
-        ? `Ya se le pagó de este pool ${pesos(c.ya_pagado_pool)}: queda ${pesos(delPool)}.`
-        : `Del pool se le paga ahora ${pesos(delPool)}.`)
+        ? `Ya se le pagó de este pool ${pesos(c.ya_pagado_pool)}: queda ${pesos(delPool)} del pool.`
+        : `Del pool le tocan ${pesos(delPool)} (es solo una parte; lo demás va abajo).`)
     } else if (c.por_pool) {
       // Es de un equipo con pool, pero este mes no hubo pool: solo cobra lo de abajo.
       if (b.periodicidad === 'trimestral') {
@@ -83,7 +97,14 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
     const rem = suma(['reemplazo_ventas'])
     if (rem > 0) lineas.push(`Lo que vendió cubriendo a alguien: ${pesos(rem)} = ventas ${cuentaVenta(r, 'pct_reemplazo')} (no suma a la meta ni al pool).`)
     const ab = suma(['abono_almacen'])
-    if (ab > 0) lineas.push(`Lo que dejaron ventas de independientes con la tienda (vendieron con un independiente y le pasaron el cliente): ${pesos(ab)}.`)
+    if (ab > 0) {
+      // Cuánto es por cada una: la R-1103 de Henry ($1.000.000) con Norte daba
+      // $16.667 a cada uno y nadie entendía de dónde (2026-11-04).
+      const delInd = ordenes.filter(o => o.forma_pago === 'abono_almacen')
+      lineas.push(`Lo que compartieron independientes con la tienda: ${pesos(ab)}. Por cada una, la tienda cobra un solo ${num(r.almacen_pct)}% `
+        + `y se parte entre los que estaban ese día (aquí ${delInd.length} ${delInd.length !== 1 ? 'órdenes' : 'orden'}); `
+        + `el independiente cobra su ${num(r.indep_pct_bolson)}% aparte, en su bolsón.`)
+    }
   }
 
   // Lo que no sabemos explicar no se calla: sale con su nombre y su plata
@@ -106,6 +127,33 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
       + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
   }
   return lineas
+}
+
+/**
+ * De qué está hecho lo listo de un mes: [{ nombre, monto }] en el orden en que
+ * se explica (pool, restauraciones, lo de independientes, individual…). Suma
+ * lo listo del bloque; la pantalla lo pone debajo del mes sin abrirlo.
+ */
+export function desgloseDelBloque(b) {
+  const ordenes = b.ordenes_listas ?? []
+  const suma = formas => ordenes.filter(o => formas.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0)
+  let partes
+  if (b.es_independiente && b.independiente) {
+    partes = [
+      { nombre: 'Sus ventas', monto: n(b.independiente.por_pagar_ventas) },
+      { nombre: 'Bolsón de restauraciones', monto: n(b.independiente.por_pagar_bolson) },
+    ]
+  } else {
+    partes = [
+      { nombre: 'Pool', monto: suma(['pool', 'parte_pool']) },
+      { nombre: 'Restauraciones', monto: suma(['restauracion_5', 'restauracion_equipo']) },
+      { nombre: 'De independientes', monto: suma(['abono_almacen']) },
+      { nombre: 'Individual', monto: suma(['sin_meta_5']) },
+      { nombre: 'Cubriendo a alguien', monto: suma(['reemplazo_ventas']) },
+      { nombre: 'Otros', monto: ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0) },
+    ]
+  }
+  return partes.filter(x => Math.round(x.monto) > 0)
 }
 
 /**

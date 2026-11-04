@@ -90,6 +90,16 @@ limitar a un vendedor a solo lo suyo.
   Reglas, con fecha, solo desde el primer mes de un trimestre (ver §12 del plan de comisiones
   personalizables). El "Se liquida" de Metas sigue siendo lo de la tienda cuando no hay regla.
 
+### Las restauraciones ayudan a llegar a la meta (dueño, 2026-11-04, todas las tiendas, desde siempre)
+- Si las **ventas solas** llegan a la meta: pool de las ventas y las restauraciones **aparte**, 5 % sin quitarles el IVA.
+- Si las ventas no llegan pero **con las restauraciones sí**: ese mes las restauraciones cuentan como ventas (entran al
+  pool con el IVA quitado y **no se pagan aparte**: nada se paga dos veces).
+- Si **ni con ellas** se llega: **no se paga nada**, tampoco las restauraciones.
+- Regla `restauracion_ayuda_meta` (solo mensuales), encendida con la migración
+  `2026_11_08_000002_restauraciones_ayudan_a_la_meta` desde el primer mes con comisiones. Lo pagado no se mueve.
+  Simulado en la copia de producción: solo cambió Unicentro agosto (R-1100: .750 a Juan Esteban y a Génesis → /usr/bin/bash).
+- Las restauraciones de independientes siguen en su bolsón como siempre.
+
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
   pagaban con solo llegar el 20; se cambió en `enriquecer` y `ComisionIndependientes::delMes`.
