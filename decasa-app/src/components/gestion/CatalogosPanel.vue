@@ -227,6 +227,8 @@ const copiarLink = (slug) => copiarTexto(linkDe(slug))
 // Abre el catálogo directo en esa hoja (el mismo enlace que manda Elena).
 const copiarLinkHoja = (pagina) => copiarTexto(`${linkDe(editor.value.slug)}?hoja=${pagina.id}`)
 
+// Las miniaturas van enteras (object-contain): recortadas no se veía si una
+// hoja venía con márgenes o mal encuadrada antes de mandar el link.
 const thumb = (url) => cloudinaryOpt(url, 400)
 </script>
 
@@ -271,7 +273,7 @@ const thumb = (url) => cloudinaryOpt(url, 400)
           cat.activo ? 'border-gray-100' : 'border-dashed border-gray-300 opacity-70']"
       >
         <div class="w-20 sm:w-24 bg-gray-100 shrink-0 flex items-center justify-center">
-          <img v-if="cat.portada_url" :src="thumb(cat.portada_url)" alt="" class="w-full h-full object-cover" />
+          <img v-if="cat.portada_url" :src="thumb(cat.portada_url)" alt="" class="w-full h-full object-contain" />
           <PhotoIcon v-else class="w-6 h-6 text-gray-300" />
         </div>
 
@@ -408,7 +410,7 @@ const thumb = (url) => cloudinaryOpt(url, 400)
               class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col"
             >
               <div class="relative bg-gray-100 aspect-[3/4]">
-                <img :src="thumb(p.imagen_url)" alt="" class="w-full h-full object-cover" />
+                <img :src="thumb(p.imagen_url)" alt="" class="w-full h-full object-contain" />
                 <span class="absolute top-1 left-1 text-[10px] font-bold text-white bg-black/50 rounded px-1.5 py-0.5">
                   {{ idx + 1 }}
                 </span>

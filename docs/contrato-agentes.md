@@ -25,6 +25,12 @@ si faltan, la herramienta no transfiere y le pide que los pregunte en un mensaje
 cliente no quiere darlos, transfiere igual con `no_quiso_dar_datos`. Los agentes **no leen**
 `clientes_redes`.
 
+**Tarjetas programadas (2026-11-03):** cuando el cliente pide que lo contacten más tarde
+("mañana a las 11"), el agente no manda el aviso de una vez: lo deja en su propia cola de
+avisos y lo envía 10 minutos antes de esa hora (solo en horario de atención). La tarjeta llega
+como cualquier otra (`asesor` o `personalizacion`) y su `resumen` empieza con
+`⏰ CONTACTAR EL <día> A LAS <hora>`. El sistema de ventas no tiene que cambiar nada.
+
 ### `POST /api/agentes/clientes-redes` (sin tarjeta)
 
 `ClienteRedController::desdeAgente`, middleware `agente`. Elena pide nombre y celular

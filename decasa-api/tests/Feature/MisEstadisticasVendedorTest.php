@@ -173,6 +173,24 @@ class MisEstadisticasVendedorTest extends TestCase
         $this->assertEquals(100.0,     $r['comparativa']['variacion_pct']);
     }
 
+    public function test_un_mes_completo_se_compara_contra_el_mes_anterior_completo(): void
+    {
+        // Octubre tiene 31 días: con "los mismos días hacia atrás" se comparaba
+        // contra 31 ago–30 sep y lo del 31 de agosto se colaba (visto 2026-11-03).
+        $dia = fn (string $f) => Carbon::parse($f . ' 12:00', 'America/Bogota')->setTimezone('UTC');
+        $this->orden($dia('2026-08-31'), 9_000_000);
+        $this->orden($dia('2026-09-15'), 4_000_000);
+        $this->orden($dia('2026-10-15'), 5_000_000);
+
+        $r = $this->actingAs($this->yo())->getJson('/api/stats/vendedores/me?desde=2026-10-01&hasta=2026-10-31')->assertOk()->json();
+        $this->assertEquals(4_000_000, $r['comparativa']['vendido_anterior']);
+        $this->assertEquals(25.0,      $r['comparativa']['variacion_pct']);
+
+        // Varios meses completos: sep–oct contra jul–ago.
+        $r = $this->actingAs($this->yo())->getJson('/api/stats/vendedores/me?desde=2026-09-01&hasta=2026-10-31')->assertOk()->json();
+        $this->assertEquals(9_000_000, $r['comparativa']['vendido_anterior']);
+    }
+
     public function test_mis_tiendas_trae_solo_las_suyas_con_su_parte(): void
     {
         $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');

@@ -39,6 +39,21 @@ class AjustesSistema
      */
     public const DECLARACION_PERSONALIZADOS = 'declaracion_personalizados';
 
+    /**
+     * Con cuántos días de anticipación avisa AlertarRetrasoProduccion que una
+     * pieza del taller se vence ("Entrega próxima"). Antes eran 3, 2 y 1 día
+     * fijos; el dueño (2026-11-03): "solo notifique cuando la entrega sea en 1
+     * día porque se llena mucho… en 3 días o en 2 no las veo tan necesarias;
+     * que se pueda personalizar". Se guarda como '1,2' (vacío = ninguno). El
+     * aviso del mismo día ("Entrega hoy") no depende de esto.
+     */
+    public const DIAS_AVISO_ENTREGA = 'avisar_entrega_dias_antes';
+
+    /** Los días que se pueden escoger en la pantalla. */
+    public const DIAS_AVISO_POSIBLES = [1, 2, 3];
+
+    private const DIAS_AVISO_FABRICA = [1];
+
     /** clave => valor de fábrica */
     private const DEFINICION = [
         self::CALIFICAR_TALLER           => true,
@@ -48,9 +63,47 @@ class AjustesSistema
 
     public static function activo(string $clave): bool
     {
-        $valor = Configuracion::valor($clave, array_keys(self::DEFINICION));
+        $valor = Configuracion::valor($clave, self::clavesJuntas());
 
         return $valor === null ? self::DEFINICION[$clave] : $valor === '1';
+    }
+
+    /** @return int[] ordenados de menor a mayor */
+    public static function diasAvisoEntrega(): array
+    {
+        // Las pruebas del taller montan el esquema a mano y a veces sin `configuracion`.
+        if (! Esquema::tabla('configuracion')) return self::DIAS_AVISO_FABRICA;
+
+        $valor = Configuracion::valor(self::DIAS_AVISO_ENTREGA, self::clavesJuntas());
+        if ($valor === null) return self::DIAS_AVISO_FABRICA;
+
+        return self::limpiarDias(explode(',', $valor));
+    }
+
+    public static function definirDiasAvisoEntrega(array $dias): void
+    {
+        DB::table('configuracion')->updateOrInsert(
+            ['clave' => self::DIAS_AVISO_ENTREGA],
+            ['valor' => implode(',', self::limpiarDias($dias))],
+        );
+        Configuracion::olvidar();
+    }
+
+    /** Solo los días permitidos, sin repetir; un valor raro en la tabla no rompe la tarea. */
+    private static function limpiarDias(array $dias): array
+    {
+        $dias = array_values(array_unique(array_filter(
+            array_map(fn ($d) => (int) trim((string) $d), $dias),
+            fn ($d) => in_array($d, self::DIAS_AVISO_POSIBLES, true),
+        )));
+        sort($dias);
+
+        return $dias;
+    }
+
+    private static function clavesJuntas(): array
+    {
+        return [...array_keys(self::DEFINICION), self::DIAS_AVISO_ENTREGA];
     }
 
     public static function definir(string $clave, bool $activo): void
@@ -69,6 +122,7 @@ class AjustesSistema
             'calificar_trabajadores_taller' => self::activo(self::CALIFICAR_TALLER),
             'declaracion_disenos_especiales' => self::activo(self::DECLARACION_ESPECIALES),
             'declaracion_personalizados'     => self::activo(self::DECLARACION_PERSONALIZADOS),
+            'avisar_entrega_dias_antes'      => self::diasAvisoEntrega(),
         ];
     }
 

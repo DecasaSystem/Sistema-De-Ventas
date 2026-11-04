@@ -17,11 +17,16 @@ export const eliminarPagina   = (id, pid)      => api.delete(`/catalogos-visuale
 // Sube un archivo de imagen a Cloudinary y devuelve su URL segura.
 //
 // Las páginas de un catálogo suelen venir de diseño, pesadas, y el servidor
-// no recibe más de 10 MB. Se comprimen antes, con más resolución y calidad
-// que una foto de factura: es lo que ve el cliente, y tiene que verse nítido
-// al hacer zoom en el celular.
+// no recibe más de 10 MB. Es lo que ve el cliente: se sube el original tal cual
+// siempre que quepa. Antes toda hoja de más de 1 MB se pasaba a JPEG al 88 % y
+// a 2.400 px, y Cloudinary la volvía a comprimir al mostrarla: dos pérdidas, y
+// la letra pequeña y los bordes quedaban sucios. Solo si pesa más de lo que
+// recibe el servidor se comprime, alta, y sin agrandarla al leerla (eso la
+// suavizaba en las hojas verticales).
 export async function subirImagenCatalogo(file) {
-  const liviana = await comprimirImagen(file, { maxDim: 2400, quality: 0.88 })
+  const liviana = await comprimirImagen(file, {
+    maxDim: 3200, quality: 0.92, skipBytes: 9_500_000, reducirAlLeer: false,
+  })
   const fd = new FormData()
   fd.append('foto', liviana, liviana === file ? file.name : 'pagina.jpg')
   fd.append('folder', 'catalogos')

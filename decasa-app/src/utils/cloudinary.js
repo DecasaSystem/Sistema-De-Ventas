@@ -15,13 +15,17 @@ export function esUrlDePdf(url) {
  *
  * @param {string} url   - URL original de Cloudinary
  * @param {number} width - Ancho máximo en píxeles (0 = sin redimensionar)
+ * @param {object} [opts]
+ * @param {string} [opts.calidad] - 'best' para lo que el cliente mira de cerca
+ *   (las hojas del catálogo, con letra pequeña): q_auto a secas comprime tanto
+ *   que el texto y los bordes de los muebles se ven borrosos.
  */
-export function cloudinaryOpt(url, width = 0) {
+export function cloudinaryOpt(url, width = 0, { calidad } = {}) {
   if (!url || !url.includes('res.cloudinary.com')) return url
   // Un PDF (subido como "raw") no admite transformaciones: el enlace tal cual.
   if (esUrlDePdf(url)) return url
 
-  const transforms = ['f_auto', 'q_auto']
+  const transforms = ['f_auto', calidad ? `q_auto:${calidad}` : 'q_auto']
   if (width > 0) transforms.push(`w_${width}`, 'c_limit')
 
   return url.replace('/upload/', `/upload/${transforms.join(',')}/`)

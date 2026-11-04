@@ -593,6 +593,35 @@ escribiendo precios (Fase 1b).
   Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
   también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
   pantalla advierte en ámbar. Lo cambia solo un supervisor.
+- **Botón Copiar en la tarjeta de Inventario** (2026-11-03, **sin subir**, sin migración, solo
+  front). Pedido del dueño: un atajo para cuando un cliente pregunta por un producto. Copia
+  un texto listo para WhatsApp (`utils/textoProducto.js`): nombre, precio ("desde" si las
+  versiones valen distinto), juego/pieza suelta, medidas, material, descripción (lo mismo que
+  ya muestra el catálogo público), cada opción con su precio, tallas, telas **con stock** y la
+  promoción tachada con "hasta el …". Nada de costos ni cantidades. **Confirmado por el
+  dueño (2026-11-03):** la promoción es la de la **tienda que se está mirando** (la misma de
+  la pastilla 🏷️) y en "Todas las tiendas" no se copia ninguna. Por defecto mío: el nombre de
+  la promoción no se copia (es interno). La promoción se busca con `promoParaItem`
+  (la misma regla de Nueva orden). Con dos tipos de opción (medida + baúl) cada opción sale
+  con su precio por separado, no combinadas.
+- **#4423 (Lina María Otálvaro, El Edén) pasa al 31 de octubre** (2026-11-03, **subido a
+  `main`** ese día, rama `claude/creation-date-october-fix-715b48`, trae **migración** de datos
+  `2026_11_07_000001_orden_4423_es_de_octubre`). Se les olvidó subirla y se subió en noviembre.
+  Cambia `created_at` a mediodía en Bogotá, deja el número y los pagos, queda en el historial y
+  mueve su comisión a octubre. Busca la orden por número, cliente y fecha de noviembre; si no la
+  encuentra así, no hace nada. **Trampa:** `sincronizarValorOrden` NO mueve el mes de la comisión
+  de una venta normal (`crearParaOrden` es `firstOrCreate`; solo las restauraciones se rehacen):
+  al cambiar la fecha de una venta, actualizar `mes_venta`/`fecha_venta`/`fecha_disponible` en su
+  sitio. No borrarlas para recrearlas: `comision_anticipos.comision_id` borra en cascada.
+- **Aviso de entrega próxima solo el día antes** (2026-11-03, **subido a `main`** ese día, sin migración).
+  Pedido del dueño: "solo notifique cuando la entrega sea en 1 día… en 3 días o en 2 no las
+  veo tan necesarias; que se pueda personalizar". Los avisos `por_vencer` ("Entrega próxima")
+  salían a 3, 2 y 1 día fijos de cada pieza `en_proceso` (`AlertarRetrasoProduccion`, 7:00 a. m.).
+  Ahora los días se escogen en **Gestión → Ajustes** (casillas 1/2/3, clave
+  `avisar_entrega_dias_antes` en `configuracion`, `AjustesSistema::diasAvisoEntrega`); de
+  fábrica, solo 1. Es **para todo el sistema** (supervisores y vendedor de la orden); por
+  persona ya se apaga el grupo "Próximos a entregar" en Trabajadores. "Entrega hoy" no cambia.
+  Tests en `AvisoEntregaProximaTest`.
 - **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
   `claude/special-warranty-client-signature-ed7f21`, trae **migración**
   `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel
@@ -905,7 +934,7 @@ Decisiones del dueño del 2026-10-08:
   repara los respaldos viejos al restaurar (`sinNulos`). Para guardar JSON "tal cual" que
   manda el front, recordar estos dos middleware.
 
-- **"El aviso del día de pago llegó el 26"** (2026-10-26, **sin subir**, sin migración). En
+- **"El aviso del día de pago llegó el 26"** (2026-10-26, **subido a `main`** ese día, commit ea01cf8, sin migración). En
   producción el aviso se creó el 20 a las 6:36 a. m.: el sistema avisó a tiempo. El push
   salía sin vencimiento (el servidor de Google/Apple lo guarda hasta 4 semanas y lo entrega
   cuando el celular o el navegador vuelve) y el título decía "Hoy se pagan…". Ahora el push
@@ -913,6 +942,12 @@ Decisiones del dueño del 2026-10-08:
   guarda igual) y el título lleva la fecha ("Día de pago (20 de octubre): …"). Antes de
   culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
   no tiene celular registrado para push.
+
+- **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
+  `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con
+  cotización por vencer/vencida (dueño, 2026-11-04: "es solo para las personas que las
+  crearon"); ahora `AvisarCotizacionesPorVencer` salta las que no tienen vendedor (**subido
+  a `main`** el 2026-11-04, sin migración; test `CotizacionPorVencerSoloAQuienLaHizoTest`).
 
 - **Orden trabada en `devuelto` (#1231, 2026-10-21, subido a `main` ese día)**. En la entrega los 2
   tomacorrientes volvieron en el camión; la orden quedó en `devuelto` (a propósito no se
@@ -966,6 +1001,30 @@ Decisiones del dueño del 2026-10-08:
   Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
   avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
 
+- **"Fecha de entrega 10 jul · Prometida 10 nov"** (2026-10-31, subido a `main` ese día, sin
+  migración). Los ítems nacen con la fecha prometida, pero corregir la prometida en Editar orden
+  no los movía (el vendedor se equivocó de mes y lo arregló solo arriba). Ahora
+  `OrdenController::update` mueve los ítems que seguían con la vieja (o sin fecha) y el
+  `fecha_compromiso` del taller; los que un supervisor puso en otra fecha se quedan. Las órdenes
+  que ya estaban así se corrigen a mano ("usar fecha sugerida" en Detalle).
+- **Catálogo visual borroso y recortado** (2026-11-03, **subido a `main`** ese día, commit 0857a88, sin migración, solo front,
+  rama `claude/catalogo-imagen-calidad-e355ef`). Queja: en el link `/c/<slug>` las hojas se veían
+  "con zoom", recortadas y en mala calidad. Causas: (1) el visor pedía la imagen por el tamaño de
+  la ventana suponiendo hoja vertical y densidad máx. 2 (hoja horizontal en PC: llegaba a 1.000 px
+  para 1.250 en pantalla; celular de densidad 3: 800 para 1.160) → el navegador la estiraba;
+  ahora se pide por el ancho real de la hoja × densidad (hasta 3) con `q_auto:best`.
+  (2) La subida pasaba a JPEG 88 % a 2.400 px toda hoja de más de 1 MB y Cloudinary la
+  recomprimía; ahora se sube el original si cabe en 10 MB. (3) Portada pública, miniaturas del
+  visor y de Gestión con `object-cover` (+ zoom al pasar el mouse en la portada): ahora enteras.
+  Las hojas ya subidas mejoran por (1); las que se comprimieron al subir solo mejoran si se
+  vuelven a subir. **Mismo día, el link de las categorías de Inventario** (`/catalogo/:seccion`,
+  `CatalogoPublicoView`, **sin subir**): fotos cuadradas o verticales en cajas 4:5 con
+  `object-cover` (al reloj Angel le cortaba el aro, al Romano casi un tercio). Ahora enteras
+  (`contain`) sobre caja **blanca**; se probó `mix-blend-multiply` sobre el marfil y teñía de
+  beige lo blanco del mueble: no usarlo. Una foto que en el inventario es chica (Reloj Togo,
+  205 px) se ve borrosa igual: hay que subirla mejor.
+  Trampa de entorno: ese día `vite build` del worktree se caía con "Illegal instruction" (exit
+  132), también con el código de `main`; para revisar un .vue sirve `@vue/compiler-sfc`.
 - **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
   Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
   antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los

@@ -27,7 +27,14 @@ class AjustesSistemaController extends Controller
             'calificar_trabajadores_taller'  => 'sometimes|boolean',
             'declaracion_disenos_especiales' => 'sometimes|boolean',
             'declaracion_personalizados'     => 'sometimes|boolean',
+            // Vacío vale: no avisar con anticipación (el "Entrega hoy" sigue).
+            'avisar_entrega_dias_antes'      => 'sometimes|array',
+            'avisar_entrega_dias_antes.*'    => 'integer|in:' . implode(',', AjustesSistema::DIAS_AVISO_POSIBLES),
         ]);
+
+        if (array_key_exists('avisar_entrega_dias_antes', $data)) {
+            AjustesSistema::definirDiasAvisoEntrega($data['avisar_entrega_dias_antes'] ?? []);
+        }
 
         $claves = [
             'calificar_trabajadores_taller'  => AjustesSistema::CALIFICAR_TALLER,

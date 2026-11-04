@@ -26,7 +26,8 @@ onMounted(async () => {
   }
 })
 
-const portada = (url) => cloudinaryOpt(url, 700)
+// Una tarjeta mide ~180 px en el celular (densidad 3) y ~280 en el computador
+const portada = (url) => cloudinaryOpt(url, 700, { calidad: 'best' })
 </script>
 
 <template>
@@ -59,19 +60,23 @@ const portada = (url) => cloudinaryOpt(url, 700)
           :to="{ name: 'catalogo-visor', params: { slug: c.slug } }"
           class="group block bg-white rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/5 transition-transform duration-200 active:scale-[0.98] hover:-translate-y-0.5 hover:shadow-md"
         >
-          <div class="aspect-[3/4] bg-gray-100 overflow-hidden relative">
+          <!-- La portada entera, sin recortar ni agrandar: es una hoja de
+               diseño (A4 u horizontal), no una foto para rellenar. Antes iba
+               con object-cover + zoom al pasar el mouse, y el nombre encima
+               tapaba la parte de abajo. -->
+          <div class="aspect-[3/4] bg-gray-100 overflow-hidden flex items-center justify-center p-2">
             <img
               v-if="c.portada_url"
-              :src="portada(c.portada_url)" :alt="c.nombre" loading="lazy"
-              class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              :src="portada(c.portada_url)" :alt="c.nombre" loading="lazy" decoding="async"
+              class="max-w-full max-h-full object-contain rounded shadow-sm"
             />
             <div v-else class="w-full h-full flex items-center justify-center text-gray-300 text-xs">Sin portada</div>
-            <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-              <p class="text-white font-semibold text-sm leading-tight drop-shadow">{{ c.nombre }}</p>
-              <p class="text-white/70 text-[11px]">{{ c.paginas }} página{{ c.paginas === 1 ? '' : 's' }}</p>
-            </div>
           </div>
-          <p v-if="c.descripcion" class="text-[11px] text-gray-500 px-3 py-2 line-clamp-2">{{ c.descripcion }}</p>
+          <div class="px-3 py-2">
+            <p class="text-gray-800 font-semibold text-sm leading-tight truncate">{{ c.nombre }}</p>
+            <p class="text-gray-400 text-[11px]">{{ c.paginas }} página{{ c.paginas === 1 ? '' : 's' }}</p>
+            <p v-if="c.descripcion" class="text-[11px] text-gray-500 mt-1 line-clamp-2">{{ c.descripcion }}</p>
+          </div>
         </RouterLink>
       </div>
 

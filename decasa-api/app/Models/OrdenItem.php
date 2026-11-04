@@ -365,6 +365,10 @@ class OrdenItem extends Model
         'tela'    => 'Cambio de tela',
         'color'   => 'Cambio de color',
         'arreglo' => 'Arreglo',
+        // Agregarle o cambiarle algo que no está roto: el comedor de la tienda
+        // con cubierta de madera en vez de vidrio. Antes se metía como
+        // "arreglo" y el taller lo leía como una reparación.
+        'modificacion' => 'Modificación',
     ];
 
     /** El trabajo de las specs. Lo que se marcó antes de que hubiera tipos era cambio de tela. */
@@ -391,7 +395,7 @@ class OrdenItem extends Model
         }
 
         return trim((string) ($specs['notas'] ?? '')) === ''
-            ? "Di qué hay que hacerle a \"{$nombre}\" en la fábrica (color, arreglo…)."
+            ? "Di qué hay que hacerle a \"{$nombre}\" en la fábrica (color, arreglo, qué se le cambia…)."
             : null;
     }
 

@@ -26,7 +26,9 @@ import {
   ArrowsUpDownIcon,
   TagIcon,
   RectangleStackIcon,
+  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
+import { textoDelProducto } from '@/utils/textoProducto'
 import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
 import CategoriasModal from '@/components/inventario/CategoriasModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
@@ -210,6 +212,45 @@ async function copiarLinkSeccion() {
     setTimeout(() => { copiado.value = false }, 2000)
   } else {
     toast.error('No se pudo copiar solo. Selecciona el link que sale debajo y cópialo.')
+  }
+}
+
+/**
+ * Copiar de la tarjeta: el producto listo para pegarle al cliente por
+ * WhatsApp cuando pregunta por él (utils/textoProducto.js dice qué lleva).
+ * La promoción es la de la tienda que se está mirando, la misma que marca la
+ * pastilla 🏷️; en "Todas las tiendas" no se copia ninguna, porque cada tienda
+ * tiene las suyas y el cliente compraría en una sola.
+ */
+const productoCopiado = ref(null)
+async function copiarProducto(item) {
+  const pid = item.producto_id
+  // Lo normal es que la tarjeta ya tenga sus medidas y telas; si todavía no
+  // llegaron, se esperan para no copiar el producto a medias.
+  if (vcConfigsCard.value[pid] === undefined) await cargarVCConfigsCard(item)
+  if ((esTapizado(item) || esTalla(item)) && variantesData.value[pid] === undefined) await cargarVariantes(item)
+
+  const texto = textoDelProducto({
+    producto:  { ...item.producto, id: pid },
+    grupos:    vcConfigsCard.value[pid] ?? [],
+    variantes: (esTapizado(item) || esTalla(item)) ? (variantesData.value[pid] ?? []) : [],
+    esTalla:   esTalla(item),
+    promos:    promosTienda.value,
+  })
+
+  let ok = false
+  try {
+    await navigator.clipboard.writeText(texto)
+    ok = true
+  } catch {
+    ok = copiarALaAntigua(texto)
+  }
+  if (ok) {
+    productoCopiado.value = pid
+    toast.success('Copiado: pégalo en el chat del cliente')
+    setTimeout(() => { if (productoCopiado.value === pid) productoCopiado.value = null }, 2000)
+  } else {
+    toast.error('No se pudo copiar. Intenta otra vez.')
   }
 }
 const categoriasDisponibles = ref([])
@@ -2943,16 +2984,31 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Precio y badge bajo stock -->
-          <div class="flex justify-between items-center">
+          <!-- Precio, badge bajo stock y Copiar (el producto para el cliente) -->
+          <div class="flex justify-between items-center gap-2">
             <MoneyDisplay :amount="parseFloat(item.producto?.precio_base ?? 0)" bold />
-            <span
-              v-if="item.bajo_stock"
-              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"
-            >
-              <ExclamationTriangleIcon class="w-3.5 h-3.5" />
-              Bajo stock
-            </span>
+            <div class="flex items-center gap-1.5">
+              <span
+                v-if="item.bajo_stock"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"
+              >
+                <ExclamationTriangleIcon class="w-3.5 h-3.5" />
+                Bajo stock
+              </span>
+              <button
+                type="button"
+                @click="copiarProducto(item)"
+                :class="['inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors',
+                  productoCopiado === item.producto_id
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
+                title="Copiar nombre, precio, medidas, versiones y promoción para mandárselo al cliente"
+              >
+                <CheckIcon v-if="productoCopiado === item.producto_id" class="w-3.5 h-3.5" />
+                <DocumentDuplicateIcon v-else class="w-3.5 h-3.5" />
+                {{ productoCopiado === item.producto_id ? 'Copiado' : 'Copiar' }}
+              </button>
+            </div>
           </div>
 
           <!-- Variantes personalizadas en tarjeta -->

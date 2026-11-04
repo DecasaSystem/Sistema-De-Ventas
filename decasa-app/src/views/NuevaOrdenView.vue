@@ -1652,8 +1652,14 @@ function toggleRetapizar(item) {
  */
 const TRABAJOS_FABRICA = [
   { k: 'tela',    label: 'Cambio de tela',  icono: '🧵' },
-  { k: 'color',   label: 'Cambio de color', icono: '🎨' },
-  { k: 'arreglo', label: 'Arreglo',         icono: '🔧' },
+  { k: 'color',   label: 'Cambio de color', icono: '🎨',
+    pregunta: '¿Qué color lleva?', ejemplo: 'Ej: lacar en nogal oscuro, patas en negro mate…' },
+  { k: 'arreglo', label: 'Arreglo',         icono: '🔧',
+    pregunta: '¿Qué hay que arreglarle?', ejemplo: 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…' },
+  // Agregarle o cambiarle algo que no está roto: el comedor de la tienda con
+  // cubierta de madera en vez de vidrio.
+  { k: 'modificacion', label: 'Modificación', icono: '🪚',
+    pregunta: '¿Qué se le agrega o se le cambia?', ejemplo: 'Ej: cubierta de madera en vez de vidrio, agregarle un cajón, otras patas…' },
 ]
 function trabajoDe(item) { return item._trabajoFabrica || 'tela' }
 function trabajoInfo(item) { return TRABAJOS_FABRICA.find(t => t.k === trabajoDe(item)) }
@@ -5119,11 +5125,11 @@ onBeforeUnmount(() => {
             <span class="text-gray-400">— arreglo o cambio; se aparta y entra a producción</span>
           </label>
 
-          <div v-if="item._retapizar" class="flex gap-1.5">
+          <div v-if="item._retapizar" class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             <button
               v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
               @click="elegirTrabajo(item, t.k)"
-              :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+              :class="['rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
                 trabajoDe(item) === t.k
                   ? 'bg-orange-600 border-orange-600 text-white'
                   : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
@@ -5206,7 +5212,7 @@ onBeforeUnmount(() => {
           <div v-if="item._retapizar && !esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
             <div>
               <p class="text-xs font-semibold text-orange-800">
-                {{ trabajoDe(item) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                {{ trabajoInfo(item).pregunta }}
                 <span class="text-red-500">*</span>
               </p>
               <p class="text-xs text-gray-500 mt-0.5">
@@ -5217,9 +5223,7 @@ onBeforeUnmount(() => {
             </div>
             <textarea
               v-model="item.specs_notas"
-              :placeholder="trabajoDe(item) === 'color'
-                ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
-                : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…'"
+              :placeholder="trabajoInfo(item).ejemplo"
               rows="2"
               class="input text-sm resize-none"
             />

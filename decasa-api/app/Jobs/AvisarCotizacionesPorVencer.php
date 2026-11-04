@@ -18,6 +18,11 @@ use Illuminate\Queue\SerializesModels;
  * No marca nada en base de datos: "vencida" se calcula comparando la fecha, así
  * que la cotización ya se muestra vencida aunque este job no llegue a correr.
  * Esto es solo el recordatorio para que el vendedor haga seguimiento.
+ *
+ * Solo le llega a quien hizo la cotización (`vendedor_id`). Sin vendedor no se
+ * avisa: NotificacionService::crear sin usuario se lo manda a TODOS los
+ * supervisores, y así les llegaban recordatorios de cotizaciones ajenas
+ * (dueño, 2026-11-04: "es solo para las personas que las crearon").
  */
 class AvisarCotizacionesPorVencer implements ShouldQueue, ShouldBeUnique
 {
@@ -36,6 +41,7 @@ class AvisarCotizacionesPorVencer implements ShouldQueue, ShouldBeUnique
         // ── 1. Por vencer en los próximos días ───────────────────────────────
         $porVencer = Orden::cotizaciones()
             ->whereIn('cotizacion_estado', ['abierta', 'enviada'])
+            ->whereNotNull('vendedor_id')
             ->whereNotNull('cotizacion_valida_hasta')
             ->whereDate('cotizacion_valida_hasta', '>=', $hoy->toDateString())
             ->whereDate('cotizacion_valida_hasta', '<=', $techo)
@@ -58,6 +64,7 @@ class AvisarCotizacionesPorVencer implements ShouldQueue, ShouldBeUnique
         // ── 2. Vencidas ayer: un solo aviso, no todos los días ───────────────
         $vencidas = Orden::cotizaciones()
             ->whereIn('cotizacion_estado', ['abierta', 'enviada'])
+            ->whereNotNull('vendedor_id')
             ->whereDate('cotizacion_valida_hasta', '=', $hoy->copy()->subDay()->toDateString())
             ->with('cliente:id,nombre')
             ->get();
