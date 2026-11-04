@@ -741,6 +741,60 @@ class ReglasDeComisionTest extends TestCase
         $this->assertNull(collect($con['tiendas_sin_pago'])->firstWhere('tienda_id', self::NORTE));
     }
 
+    // ── Unicentro mensual desde julio (migración 2026_11_08, dueño 2026-11-04) ──
+
+    private function unicentroTrimestral(): int
+    {
+        Schema::table('tiendas', fn (Blueprint $t) => $t->string('comision_periodicidad')->default('mensual'));
+        DB::table('tiendas')->insert(['id' => 4, 'nombre' => 'Decasa Unicentro Pereira', 'activa' => true,
+            'comisiones_compartidas' => true, 'comision_periodicidad' => 'trimestral']);
+        DB::table('metas_tienda')->insert(['tienda_id' => 4, 'mes' => '2026-07', 'meta' => 40_000_000,
+            'divisor_asesores' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('metas_tienda')->insert(['tienda_id' => 4, 'mes' => '2026-09', 'meta' => 40_000_000,
+            'divisor_asesores' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        ComisionController::olvidarPeriodicidades();
+
+        return $this->orden(self::PAOLA, 4, 1_000_000, [['efectivo', 1_000_000]], '2026-07');
+    }
+
+    public function test_la_migracion_pasa_unicentro_a_mensual_desde_julio(): void
+    {
+        Carbon::setTestNow('2026-11-08 10:00:00');
+        $id = $this->unicentroTrimestral();
+        $this->assertSame('2026-10-20', substr((string) DB::table('comisiones')->where('orden_id', $id)->value('fecha_disponible'), 0, 10),
+            'trimestral: julio se paga al cerrar el trimestre');
+
+        $m = require base_path('database/migrations/2026_11_08_000001_unicentro_mensual_desde_julio.php');
+        ob_start(); $m->up(); ob_end_clean();
+
+        $this->assertSame('mensual', DB::table('tiendas')->where('id', 4)->value('comision_periodicidad'));
+        $this->assertEquals(50_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-09')->value('meta'));
+        $this->assertEquals(60_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-10')->value('meta'));
+        $this->assertEquals(40_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-07')->value('meta'));
+        $this->assertSame('2026-08-20', substr((string) DB::table('comisiones')->where('orden_id', $id)->value('fecha_disponible'), 0, 10),
+            'mensual: julio se paga el 20 de agosto');
+        $this->assertFalse(ComisionController::esTiendaTrimestral(4));
+
+        // Dos veces no hace nada.
+        ob_start(); $m->up(); $salida = ob_get_clean();
+        $this->assertStringContainsString('Ya es mensual', $salida);
+        $this->assertSame(2, DB::table('metas_tienda')->where('tienda_id', 4)->whereIn('mes', ['2026-09', '2026-10'])->count());
+    }
+
+    public function test_la_migracion_no_cambia_nada_si_ya_se_pago_algo_desde_julio(): void
+    {
+        Carbon::setTestNow('2026-11-08 10:00:00');
+        $id = $this->unicentroTrimestral();
+        DB::table('comisiones')->where('orden_id', $id)->update(['estado' => 'pagada', 'fecha_pago' => now()]);
+
+        $m = require base_path('database/migrations/2026_11_08_000001_unicentro_mensual_desde_julio.php');
+        ob_start(); $m->up(); $salida = ob_get_clean();
+
+        $this->assertStringContainsString('pagadas desde julio', $salida);
+        $this->assertSame('trimestral', DB::table('tiendas')->where('id', 4)->value('comision_periodicidad'));
+        $this->assertEquals(40_000_000, DB::table('metas_tienda')->where('tienda_id', 4)->where('mes', '2026-09')->value('meta'));
+    }
+
     public function test_la_tarjeta_dice_lo_que_vendio_en_una_tienda_sin_comision(): void
     {
         // Caso Génesis (2026-11-04): cobra en una tienda y también vendió en

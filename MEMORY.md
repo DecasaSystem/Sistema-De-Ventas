@@ -81,7 +81,9 @@ limitar a un vendedor a solo lo suyo.
   "Cada mes" en Comisiones → Metas y cargar las metas. Simulado en una copia de producción: solo
   cambia Unicentro. Juan Esteban $1.113.687 → $719.705 (jul $30.606, ago $3.750 de restauración,
   sep $685.349); Génesis $483.938 → $689.099 (ago $3.750, sep $685.349). Total del pago
-  $14.154.505 → $13.965.684. Lo hace un supervisor en la app (no se tocó producción).
+  $14.154.505 → $13.965.684. Se hace con la migración `2026_11_08_000001_unicentro_mensual_desde_julio`
+  (pedido del usuario; probada en la copia: da lo mismo que hacerlo en la app). No hace nada si ya
+  hay algo pagado de Unicentro desde julio o si ya es mensual.
 
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
