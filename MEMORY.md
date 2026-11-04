@@ -707,7 +707,7 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
-- **"El aviso del día de pago llegó el 26"** (2026-10-26, **sin subir**, sin migración). En
+- **"El aviso del día de pago llegó el 26"** (2026-10-26, **subido a `main`** ese día, commit ea01cf8, sin migración). En
   producción el aviso se creó el 20 a las 6:36 a. m.: el sistema avisó a tiempo. El push
   salía sin vencimiento (el servidor de Google/Apple lo guarda hasta 4 semanas y lo entrega
   cuando el celular o el navegador vuelve) y el título decía "Hoy se pagan…". Ahora el push
@@ -715,6 +715,12 @@ Decisiones del dueño del 2026-10-08:
   guarda igual) y el título lleva la fecha ("Día de pago (20 de octubre): …"). Antes de
   culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
   no tiene celular registrado para push.
+
+- **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
+  `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con
+  cotización por vencer/vencida (dueño, 2026-11-04: "es solo para las personas que las
+  crearon"); ahora `AvisarCotizacionesPorVencer` salta las que no tienen vendedor (**subido
+  a `main`** el 2026-11-04, sin migración; test `CotizacionPorVencerSoloAQuienLaHizoTest`).
 
 - **Orden trabada en `devuelto` (#1231, 2026-10-21, subido a `main` ese día)**. En la entrega los 2
   tomacorrientes volvieron en el camión; la orden quedó en `devuelto` (a propósito no se
