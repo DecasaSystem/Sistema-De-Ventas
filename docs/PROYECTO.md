@@ -562,6 +562,13 @@ entregada"). Solo supervisor.
   "Compartida" y "Tarjeta −$X". **Una forma de pago nueva** va en
   `ComisionController::FORMAS_DE_PAGO` y en `FORMAS_EXPLICADAS` de `explicarListas.js` con su
   texto; `ExplicarListasCubreTodoTest` falla si no.
+- **Excel de Listas para el día de pago** (2026-11-04, sin migración): hoja **Comprobantes** (una
+  persona por página, vertical: lo que se le paga por mes, de dónde sale, cada anticipo y abono que
+  se le descuenta —`personas[].anticipos_detalle`, `AnticiposComision::pendientesDeDescontar`, del
+  más viejo al más nuevo— y espacio para firmar), hoja **Por cobrar** (las órdenes de todas las
+  personas que no entran porque el cliente no ha pagado lo necesario, con lo que falta) y los tres
+  libros listos para imprimir (`paraImprimir`: ajustados al ancho, títulos repetidos, pie con
+  libro, página y fecha).
 - **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
   (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
   (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;

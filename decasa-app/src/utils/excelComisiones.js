@@ -185,6 +185,26 @@ function alturaPara(row, columnas) {
   return Math.min(15 * lineas, 200)
 }
 
+/**
+ * La hoja lista para imprimir (2026-11-04: salían cortadas o en letra
+ * diminuta): ajustada al ancho de la página, horizontal salvo que se pida
+ * vertical, los títulos de su tabla repetidos en cada página si se da la fila,
+ * y en el pie el nombre del libro, la página y la fecha.
+ */
+export function paraImprimir(ws, { libro, generadoEl, vertical = false, filaTitulos = null } = {}) {
+  // Sin decirla, la fila congelada (el encabezado de su tabla principal).
+  filaTitulos ??= ws.views?.[0]?.state === 'frozen' && ws.views[0].ySplit ? ws.views[0].ySplit : null
+  ws.pageSetup = {
+    ...ws.pageSetup,
+    paperSize: 1, // carta
+    orientation: vertical ? 'portrait' : 'landscape',
+    fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.6, header: 0.2, footer: 0.3 },
+    ...(filaTitulos ? { printTitlesRow: `${filaTitulos}:${filaTitulos}` } : {}),
+  }
+  ws.headerFooter = { oddFooter: `&L&8${libro ?? ''} · ${ws.name}&C&8Página &P de &N&R&8${generadoEl ?? ''}` }
+}
+
 /** Pares "Etiqueta: valor" en dos columnas, para las cabeceras. */
 export function fichas(ws, pares) {
   for (const [k, v, fmt] of pares) {
@@ -1034,5 +1054,6 @@ export async function armarLibro(datos) {
   hojaReemplazos(wb, ctx)
   hojaComoSeCalcula(wb)
 
+  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: `Comisiones ${mesEnPalabras(ctx.mes)}`, generadoEl: ctx.generadoEl }))
   return wb
 }

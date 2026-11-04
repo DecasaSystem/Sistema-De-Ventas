@@ -3133,6 +3133,9 @@ class ComisionController extends Controller
         if ($conDetalle) {
             $personas = $personas->map(fn ($p) => $p + [
                 'en_tiendas_sin_pago' => self::vendioEnTiendasSinPago($vendioSinPago, $sinPago, (int) $p['vendedor_id']),
+                // Cuáles anticipos y abonos se le descuentan, para el comprobante.
+                'anticipos_detalle'   => AnticiposComision::pendientesDeDescontar(
+                    (int) $p['vendedor_id'], (string) collect($p['bloques'])->max('mes')),
             ]);
             // Y en cada tienda sin pago, todos los que vendieron ahí: también los que
             // no cobran en ninguna tienda y por eso no tienen tarjeta en Listas.

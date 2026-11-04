@@ -250,6 +250,40 @@ class AnticiposComision
         return $out;
     }
 
+    /**
+     * Cuáles anticipos y abonos debe todavía hasta ese corte, uno por uno: lo
+     * ya descontado se va restando de los más viejos primero. Suma lo mismo
+     * que debeHasta(). Es para el Excel de Listas: "se descuentan $250.000"
+     * no dice de qué; la persona pregunta "¿cuáles?" (2026-11-04).
+     *
+     * @return array<int, array{mes: string, monto: float, es_abono: bool, nota: ?string, fecha: ?string}>
+     */
+    public static function pendientesDeDescontar(int $vendedorId, string $corte): array
+    {
+        if (! self::hayTablas()) return [];
+        self::anotarLoQueFalteHasta($corte);
+
+        $sinDescontar = self::descontado($vendedorId);
+        $out = [];
+        foreach (DB::table('comision_anticipos')->where('vendedor_id', $vendedorId)->where('tipo', self::ANTICIPO)
+                     ->where('mes', '<=', $corte)->orderBy('mes')->orderBy('id')
+                     ->get(['mes', 'monto', 'clave', 'nota', 'created_at']) as $f) {
+            $monto = (float) $f->monto;
+            $usado = min($monto, $sinDescontar);
+            $sinDescontar -= $usado;
+            if ($monto - $usado < 1) continue;
+            $out[] = [
+                'mes'      => $f->mes,
+                'monto'    => round($monto - $usado),
+                'es_abono' => self::esAbono($f->clave),
+                'nota'     => $f->nota,
+                'fecha'    => $f->created_at ? substr((string) $f->created_at, 0, 10) : null,
+            ];
+        }
+
+        return $out;
+    }
+
     /** Lo que ya se le descontó de comisiones. */
     public static function descontado(int $vendedorId): float
     {

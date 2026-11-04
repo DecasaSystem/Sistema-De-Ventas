@@ -18,7 +18,7 @@
 
 import {
   FORMA, CANAL, VERDE_CLARO, GRIS_TEXTO, AMBAR,
-  mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar,
+  mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar, paraImprimir,
 } from './excelComisiones'
 import { explicacionDelBloque, porQueNoComisiona } from './explicarListas'
 import { reglasPara, num, divisor, cuentaPool, cuentaVenta, mediosConFranquicia, laParte, partePagada, cuandoSePaga } from './reglasComision'
@@ -298,7 +298,9 @@ function hojaResumen(wb, ctx) {
 
   seccion(ws, 'Qué hay en cada hoja')
   fichas(ws, [
+    ['Comprobantes', 'Una página por persona para imprimir y entregar: lo que se le paga, lo que se le descuenta y dónde firmar.'],
     ['Por persona', 'Cada persona, mes por mes: de dónde sale lo que cobra y las órdenes que entran.'],
+    ['Por cobrar', 'Las órdenes que no entran porque el cliente no ha pagado lo necesario, con cuánto les falta: para salir a cobrar.'],
     ['Por tienda', 'Cada tienda: meta, lo que cuenta, el pool y cómo se reparte entre el equipo.'],
     ['Sin comisión', 'Las tiendas donde nadie cobra en este pago y por qué (meta, trimestre, cierre), con quién vendió ahí.'],
     ['Todas las órdenes', 'Una fila por orden, con filtro, para buscar o sumar a gusto.'],
@@ -331,6 +333,9 @@ function hojaPorPersona(wb, ctx) {
         ...(t ? porQueNoComisiona(t, R(t.mes, t.tienda_id), ctx.datos.mes_que_toca).map(l => `• ${l}`) : []),
         '• Ver hoja "Sin comisión".',
       ])
+    }
+    if ((p.anticipos_detalle ?? []).length) {
+      explicar(ws, ['• Anticipos y abonos que debe a este pago:', ...anticiposTexto(p).map(l => `   ${l}`)])
     }
     if (n(p.sigue_debiendo) > 0) {
       explicar(ws, [`• Después de este pago sigue debiendo ${pesos(p.sigue_debiendo)} de anticipos: se descuenta en el próximo.`])
@@ -677,12 +682,130 @@ export async function armarLibroListas({ porPagar, reglas = {}, generadoPor }) {
   }
 
   hojaResumen(wb, ctx)
+  hojaComprobantes(wb, ctx)
   hojaPorPersona(wb, ctx)
   hojaPorTienda(wb, ctx)
+  hojaPorCobrar(wb, ctx)
   hojaSinComision(wb, ctx)
   hojaTodas(wb, ctx)
   hojaComoSeCalcula(wb, ctx)
+  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: 'Comisiones por pagar', generadoEl: ctx.generadoEl, vertical: ws.name === 'Comprobantes' }))
   return wb
+}
+
+/** Cada anticipo o abono que se le descuenta, en una línea: "agosto 2026 · abono del 18/10/2026: $50.000 (nota)". */
+function anticiposTexto(p) {
+  return (p.anticipos_detalle ?? []).map(a => `${mesEnPalabras(a.mes)} · ${a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`)
+}
+
+// ── Comprobantes ──────────────────────────────────────────────────────────────
+//
+// El día de pago se le entrega a cada persona su hoja: lo que se le paga mes
+// por mes, lo que se le descuenta y por qué, lo que recibe y dónde firmar
+// (dueño, 2026-11-04). Una persona por página, en vertical.
+
+function hojaComprobantes(wb, ctx) {
+  const ws = wb.addWorksheet('Comprobantes')
+  ws.getColumn(1).width = 30
+  ws.getColumn(2).width = 22
+  ws.getColumn(3).width = 16
+  ws.getColumn(4).width = 16
+  ws.getColumn(5).width = 16
+
+  ctx.datos.personas.forEach((p, i) => {
+    const r1 = ws.addRow(['Comprobante de pago de comisiones'])
+    r1.font = { size: 15, bold: true, color: { argb: 'FF166534' } }
+    const r2 = ws.addRow([`Generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`])
+    r2.font = { size: 9, color: { argb: GRIS_TEXTO } }
+    ws.addRow([])
+    fichas(ws, [
+      ['Persona', p.vendedor_nombre],
+      ['Tienda(s)', [...new Set(p.bloques.map(b => b.tienda_nombre))].join(', ')],
+    ])
+
+    seccion(ws, 'Lo que se le paga')
+    tabla(ws, [
+      { titulo: 'Mes de las ventas', campo: b => mesEnPalabras(b.mes), ancho: 30 },
+      { titulo: 'Tienda', campo: 'tienda_nombre', ancho: 22 },
+      { titulo: 'Comisión', campo: b => n(b.lista), fmt: 'pesos', ancho: 16, total: 'suma' },
+      { titulo: 'Se descuenta', campo: b => n(b.se_descuenta), fmt: 'pesos', ancho: 16, total: 'suma' },
+      { titulo: 'Se entrega', campo: b => n(b.entregar), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+    ], p.bloques, { totales: true, filtro: false })
+
+    seccion(ws, 'De dónde sale')
+    for (const b of p.bloques) {
+      // Sin la lista de órdenes (va en "Por cobrar"): el encabezado se cierra solo.
+      const lineas = explicacionDe(p, b, ctx.tiendaDe).filter(l => !l.startsWith('•    '))
+        .map(l => l.endsWith('no entran en este pago:') ? l.replace(/:$/, ' (ver la hoja "Por cobrar").')
+          : l.endsWith('no comisionan:') ? l.replace(/:$/, ': ya pagaron, pero la tienda no llegó a la meta.') : l)
+      explicar(ws, [`${mesEnPalabras(b.mes)} · ${b.tienda_nombre}`, ...lineas])
+    }
+    for (const v of p.en_tiendas_sin_pago ?? []) {
+      explicar(ws, [`• También vendió en ${v.tienda_nombre} (${v.meses.map(mesEnPalabras).join(' y ')}): ${pesos(v.ventas)}. Ahí no hubo comisión en este pago.`])
+    }
+
+    if ((p.anticipos_detalle ?? []).length || n(p.se_descuenta) > 0) {
+      seccion(ws, 'Lo que se le descuenta', 'Anticipos y abonos que ya se le dieron; se descuentan del más viejo al más nuevo.')
+      explicar(ws, anticiposTexto(p).map(l => `• ${l}`))
+      if (n(p.sigue_debiendo) > 0) explicar(ws, [`• Después de este pago sigue debiendo ${pesos(p.sigue_debiendo)}: se descuenta en el próximo.`])
+    }
+
+    ws.addRow([])
+    const total = ws.addRow(['SE LE ENTREGA', '', '', '', n(p.entregar)])
+    total.font = { bold: true, size: 13 }
+    total.getCell(5).numFmt = '"$"#,##0'
+    total.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VERDE_CLARO } }
+    ws.addRow([])
+    ws.addRow([])
+    ws.addRow(['Recibí conforme:', '______________________________', '', 'Fecha:', '______________'])
+    ws.addRow(['', p.vendedor_nombre])
+    const fin = ws.addRow([])
+    if (i < ctx.datos.personas.length - 1) fin.addPageBreak()
+  })
+}
+
+/**
+ * Las órdenes que no entran en este pago porque el cliente no ha pagado la
+ * mitad, de todas las personas, con cuánto les falta: para salir a cobrar.
+ * Una por orden (una restauración repartida sale una vez).
+ */
+function hojaPorCobrar(wb, ctx) {
+  const ws = wb.addWorksheet('Por cobrar')
+  titulo(ws, 'Por cobrar', 'Ventas de los meses que se pagan que todavía no entran: el cliente no ha pagado lo necesario. Ordenadas por tienda y, adentro, de la que menos le falta a la que más.')
+  const porOrden = new Map()
+  for (const p of ctx.datos.personas) {
+    for (const b of p.bloques) {
+      const r = R(b.mes, b.tienda_id, p.vendedor_id)
+      for (const o of b.ordenes_pendientes ?? []) {
+        if (o.cumple_pago) continue
+        const k = o.orden_id ?? `${o.referencia}`
+        if (!porOrden.has(k)) {
+          porOrden.set(k, { referencia: o.referencia, cliente: o.cliente ?? '', tienda: b.tienda_nombre, mes: mesEnPalabras(b.mes),
+            tipo: o.es_restauracion ? 'Restauración' : 'Venta', valor: n(o.valor_total), pagado: n(o.pagado),
+            falta: Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado))), personas: new Set() })
+        }
+        porOrden.get(k).personas.add(p.vendedor_nombre)
+      }
+    }
+  }
+  const filas = [...porOrden.values()].map(o => ({ ...o, personas: [...o.personas].join(', ') }))
+    .sort((a, b) => String(a.tienda).localeCompare(String(b.tienda)) || a.falta - b.falta)
+  if (!filas.length) {
+    ws.addRow(['Todas las ventas de estos meses ya tienen lo necesario pagado.'])
+    return
+  }
+  const header = tabla(ws, [
+    { titulo: 'Orden', campo: 'referencia', ancho: 11 },
+    { titulo: 'Cliente', campo: 'cliente', ancho: 28 },
+    { titulo: 'Tienda', campo: 'tienda', ancho: 22 },
+    { titulo: 'Mes', campo: 'mes', ancho: 18 },
+    { titulo: 'Tipo', campo: 'tipo', ancho: 12 },
+    { titulo: 'Quién la espera', campo: 'personas', ancho: 26 },
+    { titulo: 'Valor', campo: 'valor', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Ya pagó', campo: 'pagado', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'FALTA COBRAR', campo: 'falta', fmt: 'pesos', ancho: 15, total: 'suma', color: () => AMBAR },
+  ], filas, { totales: true, etiquetaTotal: `TOTAL (${filas.length})` })
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: header.number }]
 }
 
 /** Arma y descarga el libro de Listas. */

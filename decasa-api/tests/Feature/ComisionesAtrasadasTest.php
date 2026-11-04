@@ -340,6 +340,27 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertEquals(0, $oct['abonos']);
     }
 
+    public function test_el_comprobante_dice_cuales_anticipos_y_abonos_se_descuentan(): void
+    {
+        // Anticipo fijo de 200.000 en septiembre y octubre + abono de 100.000 en septiembre.
+        $this->abonar(100_000)->assertOk();
+        $con = $this->jefe()->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json('personas.0');
+
+        $detalle = collect($con['anticipos_detalle']);
+        $this->assertEquals(500_000, $detalle->sum('monto'), 'lo mismo que debe hasta octubre');
+        $this->assertSame(1, $detalle->where('es_abono', true)->count());
+        $this->assertSame('Abono del 18 de octubre', $detalle->firstWhere('es_abono', true)['nota']);
+        $this->assertSame(['2026-09', '2026-09', '2026-10'], $detalle->pluck('mes')->all());
+
+        // Pagado septiembre, lo descontado sale de los más viejos: queda solo octubre.
+        $this->jefe()->postJson('/api/comisiones/pagar-listas', [
+            'vendedor_id' => self::JUAN, 'mes' => '2026-09', 'tienda_id' => self::EDEN,
+        ])->assertOk();
+        $despues = collect($this->jefe()->getJson('/api/comisiones/por-pagar?detalle=1')->json('personas.0.anticipos_detalle'));
+        $this->assertSame(['2026-10'], $despues->pluck('mes')->all());
+        $this->assertEquals(200_000, $despues->sum('monto'));
+    }
+
     public function test_el_abono_no_puede_pasar_de_lo_que_falta_ni_ser_de_un_mes_sin_nada_listo(): void
     {
         $this->abonar(220_169)->assertStatus(422);

@@ -18,7 +18,7 @@
  * confunda con lo que se paga.
  */
 
-import { titulo, seccion, tabla, fichas, mesEnPalabras, fecha, pesos, n, FORMA, VERDE_CLARO, AMBAR, ROJO_CLARO, GRIS_TEXTO } from './excelComisiones'
+import { titulo, seccion, tabla, fichas, paraImprimir, mesEnPalabras, fecha, pesos, n, FORMA, VERDE_CLARO, AMBAR, ROJO_CLARO, GRIS_TEXTO } from './excelComisiones'
 import { reglasPara, laParte, partePagada, cuandoSePaga, cuentaPool, num } from './reglasComision'
 
 let VIGENTES = null
@@ -333,6 +333,7 @@ export async function armarLibroComoVa(datos) {
   hojaPorCobrar(wb, ctx, porCobrar)
   hojaPersonas(wb, ctx, personas)
   hojaComoLeerlo(wb, ctx)
+  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: `Cómo va ${mesEnPalabras(ctx.mes)}`, generadoEl: ctx.generadoEl }))
   return wb
 }
 
