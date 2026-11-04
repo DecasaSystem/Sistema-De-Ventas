@@ -167,3 +167,15 @@ export function laParte(fraccion, { espacio = false } = {}) {
 export function partePagada(fraccion, opciones = {}) {
   return Number(fraccion) === 0.5 ? 'la mitad pagada' : `${laParte(fraccion, opciones)} pagado`
 }
+
+/**
+ * Qué pasa con las restauraciones y la meta, en una frase, según las reglas
+ * (Excel y textos). Antes cada Excel decía "sin pool ni meta" a mano, y con la
+ * regla "las restauraciones ayudan a llegar a la meta" (2026-11-04) ya no era cierto.
+ */
+export function restauracionYMeta(r) {
+  if (r.restauracion_suma_meta) return 'cuentan como ventas: suman a la meta y entran al pool'
+  if (r.restauracion_ayuda_meta) return 'van aparte si las ventas solas llegan a la meta; si las ventas no llegan pero con ellas sí, ese mes entran al pool como ventas; si ni con ellas se llega, no se pagan'
+  if (r.restauracion_espera_meta) return 'van aparte, sin pool, y solo se pagan si la tienda llegó a la meta'
+  return 'van aparte: no suman a la meta ni entran al pool'
+}

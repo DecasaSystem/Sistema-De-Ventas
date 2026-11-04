@@ -17,7 +17,7 @@
  * carga al pulsar el botón, no con la app: pesa y solo lo usa esta pantalla.
  */
 
-import { reglasPara, num, divisor, cuentaVenta, cuentaPool as cuentaDelPool, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
+import { restauracionYMeta, reglasPara, num, divisor, cuentaVenta, cuentaPool as cuentaDelPool, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -274,7 +274,7 @@ function comoSeCalculo(c) {
         ? `Vendida cubriendo a alguien, FV2 sin restar el IVA: ${pesos(valor)} × ${num(r.pct_reemplazo)}% = ${pesos(monto)}. No suma a la meta ni al pool.`
         : `Vendida cubriendo a alguien: ${pesos(valor)} ${cuentaVenta(r, 'pct_reemplazo')} = ${pesos(monto)}. No suma a la meta ni al pool.`
     case 'restauracion_5':
-      return `Restauración: ${pesos(valor)}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${pesos(monto)}. ${r.iva_en_restauracion ? 'Sin' : 'Sin quitarle el IVA,'} pool ni meta.`
+      return `Restauración: ${pesos(valor)}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${pesos(monto)}${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}. Las restauraciones ${restauracionYMeta(r)}.`
     case 'restauracion_equipo':
       return r.reparto_restauracion === 'autor_primero'
         ? `Su pedazo de una restauración de la tienda: ${pesos(valor)} → ${pesos(monto)}. Del ${num(r.pct_restauracion)}%, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% y el resto se partió entre los demás que estaban ese día.`
@@ -297,6 +297,12 @@ function porQueEsteEstado(c) {
   if (!c.req_mes_vencido) faltan.push(`se paga desde el ${fecha(c.fecha_disponible)}`)
   if (['pool', 'parte_pool'].includes(c.forma_pago) && !c.meta_cumplida && c.periodicidad !== 'trimestral') {
     faltan.push('la tienda no ha llegado a la meta')
+  }
+  // Con "las restauraciones ayudan a llegar a la meta" (o "esperan la meta"),
+  // una restauración de un mes que no llegó tampoco se paga (2026-11-04).
+  const rc = R(c)
+  if (c.es_restauracion && !c.meta_cumplida && n(c.meta_tienda) > 0 && (rc.restauracion_ayuda_meta || rc.restauracion_espera_meta)) {
+    faltan.push(rc.restauracion_ayuda_meta ? 'la tienda no llegó a la meta, ni sumando las restauraciones' : 'la tienda no llegó a la meta')
   }
   if (e === 'lista') {
     return c.atrasada
@@ -549,7 +555,7 @@ function hojaPorTienda(wb, ctx) {
     { titulo: 'Pool a repartir', campo: 'pool', fmt: 'pesos', ancho: 15 },
     { titulo: 'Equipo y reparto por días', campo: 'equipo', ancho: 34 },
     { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 9, total: 'suma' },
-    { titulo: 'En restauraciones (no suman a la meta)', campo: 'restauraciones', fmt: 'pesos', ancho: 17, total: 'suma' },
+    { titulo: 'En restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 17, total: 'suma' },
     { titulo: 'COMISIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Pendientes', campo: 'pendientes', fmt: 'entero', ancho: 10, total: 'suma' },
     { titulo: 'Listas', campo: 'listas', fmt: 'entero', ancho: 8, total: 'suma' },
@@ -937,7 +943,7 @@ function hojaComoSeCalcula(wb) {
       : `• Los independientes además juntan todas sus restauraciones en un bolsón y cada uno cobra el ${num(r.indep_pct_bolson)}% de ese total.`,
     '',
     '5. Restauraciones',
-    `• Valor${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}%, ${r.iva_en_restauracion ? 'sin' : 'sin quitar IVA, sin'} pool, sin meta. No le suman a la meta de la tienda.`,
+    `• Valor${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}%${r.iva_en_restauracion ? '' : ', sin quitar IVA'}. Las restauraciones ${restauracionYMeta(r)}.`,
     r.reparto_restauracion === 'autor_primero'
       ? `• En una tienda que reparte, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% de esa comisión y el resto se parte entre los demás que estaban ese día.`
       : `• En una tienda que reparte, ese ${num(r.pct_restauracion)}% se parte entre los que estaban en la tienda ese día.`,
@@ -950,7 +956,7 @@ function hojaComoSeCalcula(wb) {
     '',
     '7. Columnas que confunden',
     '• "Valor (base comisionable)": el valor de la orden menos el costo del datáfono, y solo la parte de cada uno si es compartida. No es lo que pagó el cliente.',
-    '• "Vendido para la meta": suma de las ventas de la tienda que cuentan contra la meta (sin restauraciones, sin canceladas, sin independientes, más lo que un independiente le abonó).',
+    `• "Vendido para la meta": suma de las ventas de la tienda que cuentan contra la meta (sin canceladas, sin independientes, más lo que un independiente le abonó). Las restauraciones ${restauracionYMeta(r)}.`,
     '• "Su parte del pool": días suyos sobre días de todo el equipo. En trimestrales, los días del trimestre entero.',
     ...(VIGENTES?.excepciones?.length
       ? ['', '8. Excepciones de este mes',

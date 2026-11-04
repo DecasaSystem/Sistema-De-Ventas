@@ -19,7 +19,7 @@
  */
 
 import { titulo, seccion, tabla, fichas, paraImprimir, mesEnPalabras, fecha, pesos, n, FORMA, VERDE_CLARO, AMBAR, ROJO_CLARO, GRIS_TEXTO } from './excelComisiones'
-import { reglasPara, laParte, partePagada, cuandoSePaga, cuentaPool, num } from './reglasComision'
+import { restauracionYMeta, reglasPara, laParte, partePagada, cuandoSePaga, cuentaPool, num } from './reglasComision'
 
 let VIGENTES = null
 const R = (tiendaId = null, usuarioId = null) => reglasPara(VIGENTES, { tiendaId, usuarioId })
@@ -282,7 +282,7 @@ function hojaComoLeerlo(wb, ctx) {
   titulo(ws, 'Cómo leerlo', `Las reglas que rigen en ${mesEnPalabras(ctx.mes)}.`)
   fichas(ws, [
     ['ESTIMADO', 'Lo que daría si el mes cerrara hoy. Cambia con cada venta y cada abono. Lo que de verdad se paga sale en Comisiones → Listas, el día de pago.'],
-    ['Vendido', 'Todo lo que se vendió en el mes, haya pagado o no el cliente. No cuenta lo cancelado ni las restauraciones.'],
+    ['Vendido', `Todo lo que se vendió en el mes, haya pagado o no el cliente. No cuenta lo cancelado. Las restauraciones ${restauracionYMeta(r)}.`],
     ['Ya cuenta para la meta', `Lo vendido cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}. Es lo único que mide la meta y arma el pool.`],
     ['Falta para la meta', 'Meta menos lo que ya cuenta.'],
     ['Hay que sumar por día', 'Lo que falta para la meta repartido en los días que quedan (contando hoy).'],

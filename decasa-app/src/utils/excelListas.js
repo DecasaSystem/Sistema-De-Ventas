@@ -21,7 +21,7 @@ import {
   mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar, paraImprimir,
 } from './excelComisiones'
 import { explicacionDelBloque, porQueNoComisiona } from './explicarListas'
-import { reglasPara, num, divisor, cuentaPool, cuentaVenta, mediosConFranquicia, laParte, partePagada, cuandoSePaga } from './reglasComision'
+import { restauracionYMeta, reglasPara, num, divisor, cuentaPool, cuentaVenta, mediosConFranquicia, laParte, partePagada, cuandoSePaga } from './reglasComision'
 
 const MEDIO = {
   efectivo: 'efectivo', transferencia: 'transferencia', tarjeta: 'tarjeta', addi: 'Addi',
@@ -118,7 +118,7 @@ function comoSale(o, b, r) {
         : `${v} ${cuentaVenta(r, 'pct_reemplazo')} = ${m} (la vendió cubriendo a alguien). No suma a la meta ni al pool.`
     case 'restauracion_5':
       if (b.es_independiente) return 'Va al bolsón de restauraciones: se paga en el renglón del bolsón, no aquí.'
-      return `${v}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${m}. Sin pool ni meta.`
+      return `${v}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${m}. Las restauraciones ${restauracionYMeta(r)}.`
     case 'restauracion_equipo':
       return `Su pedazo de una restauración de la tienda (el ${num(r.pct_restauracion)}% se parte entre los que estaban) → ${m}.`
     case 'abono_almacen':
@@ -641,7 +641,7 @@ function hojaComoSeCalcula(wb, ctx) {
     '',
     '5. Sin pool',
     `• Individual (tienda sin meta o quien no es del equipo): ventas ${cuentaVenta(r, 'pct_individual')}.`,
-    `• Restauraciones: ${num(r.pct_restauracion)}% del valor, sin pool ni meta.`,
+    `• Restauraciones: ${num(r.pct_restauracion)}% del valor; ${restauracionYMeta(r)}.`,
     `• Independientes: ${num(r.indep_pct_venta)}% de sus ventas y su parte del bolsón de restauraciones.`,
     '',
     '6. Anticipos y abonos',
