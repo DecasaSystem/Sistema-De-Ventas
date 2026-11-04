@@ -25,8 +25,12 @@ import {
   ArrowDownTrayIcon,
   ArrowsUpDownIcon,
   TagIcon,
+  RectangleStackIcon,
+  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
+import { textoDelProducto } from '@/utils/textoProducto'
 import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
+import CategoriasModal from '@/components/inventario/CategoriasModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
@@ -208,6 +212,45 @@ async function copiarLinkSeccion() {
     setTimeout(() => { copiado.value = false }, 2000)
   } else {
     toast.error('No se pudo copiar solo. Selecciona el link que sale debajo y cópialo.')
+  }
+}
+
+/**
+ * Copiar de la tarjeta: el producto listo para pegarle al cliente por
+ * WhatsApp cuando pregunta por él (utils/textoProducto.js dice qué lleva).
+ * La promoción es la de la tienda que se está mirando, la misma que marca la
+ * pastilla 🏷️; en "Todas las tiendas" no se copia ninguna, porque cada tienda
+ * tiene las suyas y el cliente compraría en una sola.
+ */
+const productoCopiado = ref(null)
+async function copiarProducto(item) {
+  const pid = item.producto_id
+  // Lo normal es que la tarjeta ya tenga sus medidas y telas; si todavía no
+  // llegaron, se esperan para no copiar el producto a medias.
+  if (vcConfigsCard.value[pid] === undefined) await cargarVCConfigsCard(item)
+  if ((esTapizado(item) || esTalla(item)) && variantesData.value[pid] === undefined) await cargarVariantes(item)
+
+  const texto = textoDelProducto({
+    producto:  { ...item.producto, id: pid },
+    grupos:    vcConfigsCard.value[pid] ?? [],
+    variantes: (esTapizado(item) || esTalla(item)) ? (variantesData.value[pid] ?? []) : [],
+    esTalla:   esTalla(item),
+    promos:    promosTienda.value,
+  })
+
+  let ok = false
+  try {
+    await navigator.clipboard.writeText(texto)
+    ok = true
+  } catch {
+    ok = copiarALaAntigua(texto)
+  }
+  if (ok) {
+    productoCopiado.value = pid
+    toast.success('Copiado: pégalo en el chat del cliente')
+    setTimeout(() => { if (productoCopiado.value === pid) productoCopiado.value = null }, 2000)
+  } else {
+    toast.error('No se pudo copiar. Intenta otra vez.')
   }
 }
 const categoriasDisponibles = ref([])
@@ -487,6 +530,24 @@ async function guardarFoto2Producto() {
     await cargarInventario(true)
   } catch (e) {
     gestionFoto2Error.value = e.response?.data?.message ?? 'Error al subir la foto.'
+  } finally {
+    gestionFoto2Loading.value = false
+  }
+}
+
+// Antes la segunda foto solo se podía cambiar, no quitar: si era de otro
+// producto, Elena la seguía mandando al cliente.
+async function borrarFoto2Producto() {
+  if (!confirm('¿Quitar la foto adicional? Elena dejará de mandarla.')) return
+  gestionFoto2Error.value = ''
+  gestionFoto2Loading.value = true
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url_2: null })
+    if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url_2 = null
+    toast.success('Foto adicional quitada.')
+    await cargarInventario(true)
+  } catch (e) {
+    gestionFoto2Error.value = e.response?.data?.message ?? 'No se pudo quitar la foto.'
   } finally {
     gestionFoto2Loading.value = false
   }
@@ -791,6 +852,7 @@ async function abrirHistorial(item) {
 const mostrarAgregarProducto = ref(false)
 const mostrarVariantes = ref(false)
 const mostrarPromociones = ref(false)
+const mostrarCategorias = ref(false)
 const creandoProducto = ref(false)
 const subiendoFoto = ref(false)
 const errCrearProducto = ref('')
@@ -951,7 +1013,25 @@ async function cargarCategorias() {
   try {
     const { data } = await api.get('/productos/categorias')
     categoriasDisponibles.value = data.filter(c => c)
+    // El filtro se recuerda en cada aparato: si esa categoría se renombró
+    // desde otro, la pantalla quedaba vacía con una pastilla que ya no existe.
+    if (categoriaFiltro.value && !categoriasDisponibles.value.includes(categoriaFiltro.value)) {
+      categoriaFiltro.value = ''
+      resumenCategoria.value = null
+    }
   } catch {}
+}
+
+// Se renombró o se juntó una categoría (Inventario → Categorías): la que se
+// estaba mirando sigue escogida con su nombre nuevo.
+async function categoriaRenombrada({ de, a, juntadaCon }) {
+  if (categoriaFiltro.value && (categoriaFiltro.value === de || categoriaFiltro.value === juntadaCon)) {
+    categoriaFiltro.value = a
+  }
+  await cargarCategorias()
+  if (!tiendaId.value) return
+  cargarInventario(true)
+  if (categoriaFiltro.value) cargarResumenCategoria()
 }
 
 function seleccionarCategoria(cat) {
@@ -2359,6 +2439,15 @@ onMounted(async () => {
       </button>
       <button
         v-if="auth.isSupervisor"
+        @click="mostrarCategorias = true"
+        title="Renombrar o juntar categorías"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+      >
+        <RectangleStackIcon class="w-4 h-4 flex-shrink-0" />
+        Categorías
+      </button>
+      <button
+        v-if="auth.isSupervisor"
         @click="abrirDescuadres"
         title="Productos donde &quot;Apartado&quot; no coincide con lo real"
         class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
@@ -2810,7 +2899,7 @@ onMounted(async () => {
                   {{ item.tiendas_count }} {{ item.tiendas_count === 1 ? 'tienda' : 'tiendas' }}
                 </span>
                 <span
-                  v-for="pr in promosDelProducto(promosTienda, item.producto_id)" :key="pr.id"
+                  v-for="pr in promosDelProducto(promosTienda, item.producto_id)" :key="pr.clave ?? pr.id"
                   class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 whitespace-nowrap"
                 >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
               </div>
@@ -2895,16 +2984,31 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Precio y badge bajo stock -->
-          <div class="flex justify-between items-center">
+          <!-- Precio, badge bajo stock y Copiar (el producto para el cliente) -->
+          <div class="flex justify-between items-center gap-2">
             <MoneyDisplay :amount="parseFloat(item.producto?.precio_base ?? 0)" bold />
-            <span
-              v-if="item.bajo_stock"
-              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"
-            >
-              <ExclamationTriangleIcon class="w-3.5 h-3.5" />
-              Bajo stock
-            </span>
+            <div class="flex items-center gap-1.5">
+              <span
+                v-if="item.bajo_stock"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"
+              >
+                <ExclamationTriangleIcon class="w-3.5 h-3.5" />
+                Bajo stock
+              </span>
+              <button
+                type="button"
+                @click="copiarProducto(item)"
+                :class="['inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors',
+                  productoCopiado === item.producto_id
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
+                title="Copiar nombre, precio, medidas, versiones y promoción para mandárselo al cliente"
+              >
+                <CheckIcon v-if="productoCopiado === item.producto_id" class="w-3.5 h-3.5" />
+                <DocumentDuplicateIcon v-else class="w-3.5 h-3.5" />
+                {{ productoCopiado === item.producto_id ? 'Copiado' : 'Copiar' }}
+              </button>
+            </div>
           </div>
 
           <!-- Variantes personalizadas en tarjeta -->
@@ -3044,6 +3148,7 @@ onMounted(async () => {
     <!-- Modal Catálogo Tela -->
     <ModalVariantes v-if="mostrarVariantes" @close="mostrarVariantes = false" />
     <PromocionesModal :show="mostrarPromociones" :tiendas="tiendas" @close="mostrarPromociones = false" @cambio="cargarPromosTienda" />
+    <CategoriasModal :show="mostrarCategorias" :etiquetas="CATEGORY_LABELS" @close="mostrarCategorias = false" @cambio="categoriaRenombrada" />
 
     <!-- Modal Agregar Producto -->
     <Transition name="fade">
@@ -3422,6 +3527,16 @@ onMounted(async () => {
                   <p class="text-xs text-gray-400">JPG, PNG, WEBP · ángulo diferente del producto</p>
                 </div>
               </button>
+              <div v-if="!gestionFoto2PreviewUrl && itemGestionar?.producto?.foto_url_2" class="flex items-start justify-between gap-2 mt-1.5">
+                <p class="text-[11px] text-gray-500 leading-snug">
+                  Elena manda las dos fotos cuando el cliente pide la del producto y reconoce el mueble con cualquiera de las dos.
+                </p>
+                <button
+                  type="button" @click="borrarFoto2Producto" :disabled="gestionFoto2Loading"
+                  class="text-xs text-red-500 font-medium flex-shrink-0 disabled:opacity-50"
+                >Quitar</button>
+              </div>
+              <p v-if="!gestionFoto2PreviewUrl && gestionFoto2Error" class="text-xs text-red-600 mt-1">{{ gestionFoto2Error }}</p>
             </div>
 
             <div class="border-t border-gray-100" />

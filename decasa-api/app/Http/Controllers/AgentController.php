@@ -20,6 +20,14 @@ class AgentController extends Controller
         ]);
 
         $usuario  = $request->user();
+
+        // La app solo le muestra el chat a supervisores y vendedores; la API
+        // decía lo mismo solo en la pantalla, y un conductor con su token
+        // podía preguntarle lo que quisiera.
+        if (! \App\Services\Asistente\PermisosAsistente::puedeUsarChat($usuario)) {
+            return response()->json(['message' => 'El asistente no está disponible para tu perfil.'], 403);
+        }
+
         $respuesta = $this->agent->chat($data['messages'], $usuario);
 
         return response()->json(['respuesta' => $respuesta]);

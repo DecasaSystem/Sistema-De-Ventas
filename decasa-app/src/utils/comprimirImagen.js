@@ -17,13 +17,18 @@
  * @param {number}    opts.maxDim   px máximos por lado (default 1920)
  * @param {number}    opts.quality  calidad JPEG 0-1 (default 0.82)
  * @param {number}    opts.skipBytes tamaño en bytes por debajo del cual no comprime (default 1 MB)
+ * @param {boolean}   opts.reducirAlLeer false = leerla a su tamaño real (gasta más
+ *   memoria, pero una vertical no se agranda y se vuelve a achicar: más nítida).
+ *   Para hojas de catálogo, que se suben desde el computador.
  * @returns {Promise<Blob>}
  */
-export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, skipBytes = 1_048_576 } = {}) {
+export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, skipBytes = 1_048_576, reducirAlLeer = true } = {}) {
   if (!archivo || archivo.size <= skipBytes) return archivo
+  // Un PDF (comprobante del banco, anexo escaneado) no es una imagen: va tal cual.
+  if (esPdf(archivo)) return archivo
 
   try {
-    const fuente = await decodificar(archivo, maxDim)
+    const fuente = await decodificar(archivo, reducirAlLeer ? maxDim : 0)
     let { width, height } = fuente
     if (!width || !height) throw new Error('Imagen sin dimensiones')
 
@@ -66,10 +71,12 @@ export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, 
  */
 async function decodificar(archivo, maxDim = 1920) {
   if (typeof createImageBitmap === 'function') {
-    try {
-      return await createImageBitmap(archivo, { resizeWidth: maxDim, resizeQuality: 'high', imageOrientation: 'from-image' })
-    } catch {
-      // Navegador sin redimensionar al decodificar: los intentos de siempre.
+    if (maxDim) {
+      try {
+        return await createImageBitmap(archivo, { resizeWidth: maxDim, resizeQuality: 'high', imageOrientation: 'from-image' })
+      } catch {
+        // Navegador sin redimensionar al decodificar: los intentos de siempre.
+      }
     }
     try {
       return await createImageBitmap(archivo, { imageOrientation: 'from-image' })
@@ -122,6 +129,23 @@ export async function fotoSigueAhi(archivo) {
 }
 
 /**
+ * ¿Es un PDF? El comprobante de pago y el anexo de Nueva orden también se
+ * pueden adjuntar en PDF (pedido del usuario, 2026-10-28): muchos bancos dan
+ * el comprobante de la transferencia así.
+ *
+ * @param {File|Blob} archivo
+ */
+export function esPdf(archivo) {
+  if (!archivo) return false
+  return archivo.type === 'application/pdf' || /\.pdf$/i.test(archivo.name || '')
+}
+
+/** Nombre con que se sube: "factura.jpg", o "factura.pdf" si es un PDF. */
+export function nombreParaSubir(archivo, base) {
+  return `${base}.${esPdf(archivo) ? 'pdf' : 'jpg'}`
+}
+
+/**
  * Error para cuando una foto ya no está en el teléfono: la pantalla muestra
  * el mensaje tal cual (no es un problema de conexión).
  */
@@ -143,8 +167,10 @@ export async function comprimirAlTomar(archivo) {
   // sirve nunca. Se copia a memoria ahora, que el archivo todavía está.
   if (blob === archivo) {
     try {
-      return new File([await archivo.arrayBuffer()], archivo.name || 'foto.jpg', {
-        type: archivo.type || 'image/jpeg', lastModified: archivo.lastModified || Date.now(),
+      // Un PDF también se copia (mismo problema), sin cambiarle el tipo.
+      const pdf = esPdf(archivo)
+      return new File([await archivo.arrayBuffer()], archivo.name || (pdf ? 'documento.pdf' : 'foto.jpg'), {
+        type: archivo.type || (pdf ? 'application/pdf' : 'image/jpeg'), lastModified: archivo.lastModified || Date.now(),
       })
     } catch {
       return archivo

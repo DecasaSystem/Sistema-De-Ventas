@@ -2003,6 +2003,29 @@ class OrdenController extends Controller
                 if ($nuevaSug !== $actualSug) {
                     $cambios[] = ['campo' => 'fecha_sugerida_vendedor', 'label' => 'Fecha prometida al cliente', 'antes' => $actualSug, 'despues' => $nuevaSug];
                     $updateOrden['fecha_sugerida_vendedor'] = $nuevaSug;
+
+                    // Los ítems nacen con la fecha prometida (ver store). Si
+                    // después se corrige la promesa, los que seguían con la
+                    // vieja la siguen: antes se quedaban atrás y la orden
+                    // decía "Fecha de entrega 10 jul · Prometida 10 nov" (el
+                    // vendedor se equivocó de mes y lo corrigió solo arriba).
+                    // El que un supervisor ya movió a otra fecha no se toca.
+                    if ($nuevaSug) {
+                        foreach ($orden->items as $item) {
+                            if ($item->devuelto_en) continue;
+                            $fechaItem = $item->fecha_entrega_prom ? substr((string) $item->fecha_entrega_prom, 0, 10) : null;
+                            if ($fechaItem !== null && $fechaItem !== $actualSug) continue;
+
+                            $nombreProd = $item->producto?->nombre ?? $item->nombre_custom ?? "Ítem #{$item->id}";
+                            $cambios[] = ['campo' => "item_{$item->id}_fecha", 'label' => "{$nombreProd} — fecha entrega", 'antes' => $fechaItem, 'despues' => $nuevaSug];
+                            OrdenItem::where('id', $item->id)->update(['fecha_entrega_prom' => $nuevaSug]);
+                            Produccion::where('orden_item_id', $item->id)->update(['fecha_compromiso' => $nuevaSug]);
+                            // Y en memoria: el bloque de ítems de abajo compara
+                            // contra esto y no debe anotar el cambio dos veces.
+                            $item->fecha_entrega_prom = $nuevaSug;
+                            $item->syncOriginalAttribute('fecha_entrega_prom');
+                        }
+                    }
                 }
             }
             // Fotos de la orden. Se guarda que cambiaron, no la URL entera: en
@@ -2951,7 +2974,7 @@ class OrdenController extends Controller
         if (! Esquema::columna('orden_items', 'promocion_id')) return null;
         $ids = collect($items)->pluck('promocion_id')->filter()->map(fn ($id) => (int) $id)->unique();
         if ($ids->isEmpty()) return collect();
-        return \App\Models\Promocion::whereIn('id', $ids)->enTienda($tiendaId)->get()->keyBy('id');
+        return \App\Models\Promocion::whereIn('id', $ids)->enTienda($tiendaId)->with('objetivos')->get()->keyBy('id');
     }
 
     /**
@@ -4465,7 +4488,7 @@ class OrdenController extends Controller
             // La foto de cómo estaba, antes de tocar nada.
             $foto = $orden->fresh(['items.producto:id,nombre', 'pagos', 'cliente:id,nombre',
                                    'vendedor:id,nombre', 'tienda:id,nombre'])?->toArray() ?? [];
-            $foto['comisiones'] = Comision::where('orden_id', $orden->id)->get()->toArray();
+            $foto['comisiones'] = Comision::where('orden_id', $orden->id)->get()->makeVisible('reglas_usadas')->toArray();
 
             foreach ($orden->items as $item) {
                 if ($item->devuelto_en || ! $item->producto_id) continue;

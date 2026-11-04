@@ -673,6 +673,18 @@ Meta de rendimiento: **≤ 12 consultas** para `/resumen` y `/estado-resultados`
 de 12 meses. Se mide con `scripts/perf/medir.sh` antes de dar la fase por
 hecha.
 
+Estado real (2026-10-28, medido en un proceso nuevo, con nómina sembrada): resumen
+44, flujo de caja 36, calendario 36, estado de resultados 25, por tienda 31. La
+nómina sola son ~15 (pagos, trabajadores, sus ausencias/ajustes/préstamos/
+producciones, conceptos del empleador). Los vencimientos de prestaciones reciben lo
+sin pagar ya cargado (`FuenteNomina::sinPagar`): no volver a llamar
+`Prestaciones::resumen` por periodo sin pasárselo.
+
+Como cada consulta a Aiven cuesta ~200 ms, las pantallas pesadas se pintan con la
+**última foto** guardada en el servidor (`UltimaFoto`, `?foto=1`, 2 consultas) mientras
+llega lo recién calculado, con la hora de la foto a la vista. Lo que tiene botón Pagar
+(próximos pagos del resumen, Gastos) nunca sale de una foto.
+
 ---
 
 ## 7. Indicadores, gráficas y proyecciones (la matemática)

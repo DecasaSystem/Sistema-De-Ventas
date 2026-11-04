@@ -26,6 +26,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class DespachoController extends Controller
 {
@@ -1243,11 +1244,12 @@ class DespachoController extends Controller
             'fotos_producto.*'   => 'array|max:3',
             'fotos_producto.*.*' => 'image|max:10240',
             // Una o varias fotos del comprobante: `foto_pago` (una) o
-            // `fotos_pago[]` (lista). Obligatoria si hay pago.
-            'foto_pago'     => 'nullable|image|max:10240',
+            // `fotos_pago[]` (lista). Obligatoria si hay pago. El comprobante
+            // y el anexo también pueden ser PDF (pedido del usuario, 2026-10-28).
+            'foto_pago'     => 'nullable|file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
             'fotos_pago'    => 'nullable|array|max:6',
-            'fotos_pago.*'  => 'image|max:10240',
-            'foto_anexo'    => 'nullable|image|max:10240',
+            'fotos_pago.*'  => 'file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
+            'foto_anexo'    => 'nullable|file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
 
             // ── Acta de satisfacción ─────────────────────────────────────────
             // La firma es obligatoria salvo que se explique por qué no se pudo
@@ -2076,17 +2078,24 @@ class DespachoController extends Controller
         $timestamp = time();
         $folder    = 'decasa/entregas';
 
-        $signature = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
+        // El comprobante y el anexo pueden llegar en PDF: va como "raw" y con
+        // ".pdf" en el nombre, igual que en UploadController (la app sabe por
+        // el enlace que es un PDF).
+        $params = ['folder' => $folder, 'timestamp' => $timestamp];
+        $esPdf  = strtolower((string) $file->guessExtension()) === 'pdf';
+        if ($esPdf) {
+            $params['public_id'] = Str::lower(Str::random(20)) . '.pdf';
+        }
+        ksort($params);
+        $signature = sha1(collect($params)->map(fn ($v, $k) => "{$k}={$v}")->implode('&') . $apiSecret);
 
         $response = Http::attach(
             'file',
             file_get_contents($file->getRealPath()),
             $file->getClientOriginalName()
-        )->post("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload", [
+        )->post("https://api.cloudinary.com/v1_1/{$cloudName}/" . ($esPdf ? 'raw' : 'image') . '/upload', $params + [
             'api_key'   => $apiKey,
-            'timestamp' => $timestamp,
             'signature' => $signature,
-            'folder'    => $folder,
         ]);
 
         if (! $response->ok()) {

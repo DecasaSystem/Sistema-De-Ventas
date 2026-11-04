@@ -29,6 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // Por fuera de todo lo de la API (límite, sesión, controlador), para
         // que lo que mide sea la petición entera. Ver MedirPeticion.
         $middleware->prependToGroup('api', MedirPeticion::class);
+
+        // La orden a medio hacer se guarda tal cual estaba en la pantalla. Con
+        // '' convertido en null (y los textos recortados), al seguirla en otro
+        // aparato Nueva orden hacía .trim() sobre null y quedaba en blanco
+        // (2026-10-27). Ver BorradorEnCursoController.
+        $tal = fn (\Illuminate\Http\Request $r) => $r->is('api/borradores-en-curso/*');
+        $middleware->convertEmptyStringsToNull(except: [$tal]);
+        $middleware->trimStrings(except: [$tal]);
         $middleware->alias([
             'role'    => CheckRole::class,
             'permiso' => CheckPermiso::class,

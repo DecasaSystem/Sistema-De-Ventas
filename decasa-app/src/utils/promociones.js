@@ -47,9 +47,11 @@ export function rebajaDePromo(promo, item) {
 }
 
 /**
- * La promoción de la línea entre las que corren en la tienda de la venta. La
- * de una medida o tela gana sobre la del producto entero; entre dos del mismo
- * nivel, la que más rebaja.
+ * La promoción de la línea entre las que corren en la tienda de la venta
+ * (llegan una fila por producto o versión: una promoción de varios productos
+ * sale varias veces con el mismo `id`). La de una medida o tela, o la "sin
+ * opciones" cuando la línea no lleva ninguna, gana sobre la del producto
+ * entero; entre dos del mismo nivel, la que más rebaja.
  */
 export function promoParaItem(promos, item) {
   if (!promos?.length || !puedeLlevarPromo(item)) return null
@@ -57,11 +59,13 @@ export function promoParaItem(promos, item) {
   if (!delProducto.length) return null
 
   const opciones = opcionesDe(item)
+  const sinVersion = !opciones.size && !item.variante_id
   const concretas = delProducto.filter(p =>
     (p.config_id && opciones.has(Number(p.config_id))) ||
-    (p.variante_id && Number(p.variante_id) === Number(item.variante_id))
+    (p.variante_id && Number(p.variante_id) === Number(item.variante_id)) ||
+    (p.sin_versiones && sinVersion)
   )
-  const generales = delProducto.filter(p => !p.config_id && !p.variante_id)
+  const generales = delProducto.filter(p => !p.config_id && !p.variante_id && !p.sin_versiones)
   const candidatas = concretas.length ? concretas : generales
   if (!candidatas.length) return null
   return candidatas.reduce((mejor, p) => rebajaDePromo(p, item) > rebajaDePromo(mejor, item) ? p : mejor)

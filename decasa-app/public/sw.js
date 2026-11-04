@@ -1,6 +1,6 @@
 // Subir este número en cada cambio del service worker: al activarse borra los
 // caches con otro nombre, y así no queda nada de la versión anterior.
-const CACHE_NAME = 'decasa-v18'
+const CACHE_NAME = 'decasa-v19'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -101,6 +101,9 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return
   if (url.pathname.startsWith('/api')) return
+  // Dice qué versión está publicada: servida del cache, la app nunca se
+  // enteraría de que hay una nueva (AvisoVersionNueva.vue).
+  if (url.pathname === '/version.json') return
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {

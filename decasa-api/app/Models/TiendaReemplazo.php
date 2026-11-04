@@ -85,8 +85,12 @@ class TiendaReemplazo extends Model
             $quien = (int) $r->usuario_id;
 
             if ((int) $r->tienda_id === $tiendaId) {
-                // Vino a esta tienda: suma los días que estuvo.
-                $pesos[$quien] = min($delMes, ($pesos[$quien] ?? 0) + $dias);
+                // Vino a esta tienda: suma los días que estuvo. Salvo un
+                // reemplazo en una tienda donde quien cubre cobra por lo que
+                // vendió (regla reparto_reemplazo): ahí no entra al pool.
+                if (! self::cobraPorSusVentas($r, $tiendaId, $mes)) {
+                    $pesos[$quien] = min($delMes, ($pesos[$quien] ?? 0) + $dias);
+                }
             } elseif (isset($delEquipo[$quien])) {
                 // Se fue a cubrir a otra parte: esos días no los estuvo aquí.
                 // Solo se le resta a quien es del equipo fijo (tiene el mes
@@ -145,7 +149,12 @@ class TiendaReemplazo extends Model
             $quien = (int) $r->usuario_id;
 
             if ((int) $r->tienda_id === $tiendaId) {
-                $equipo[$quien] = $quien;
+                // Quien cubre y cobra por lo que vendió no reparte con el
+                // equipo: su restauración es suya entera, y no se lleva parte
+                // de las de los demás ni de lo que deja un independiente.
+                if (! self::cobraPorSusVentas($r, $tiendaId, $mes->format('Y-m'))) {
+                    $equipo[$quien] = $quien;
+                }
 
                 // Al que vino a cubrir le pertenece el puesto ese día, así que
                 // el cubierto no cuenta: si contaran los dos, el 5% se partiría
@@ -160,6 +169,40 @@ class TiendaReemplazo extends Model
         }
 
         return array_values($equipo);
+    }
+
+    /**
+     * ¿Este movimiento es un reemplazo en una tienda donde quien cubre cobra
+     * un porcentaje de lo que vendió, en vez de entrar al pool por días?
+     * (regla `reparto_reemplazo`, dueño 2026-10-29). Un traslado nunca: se
+     * cambió de tienda y es del equipo.
+     */
+    public static function cobraPorSusVentas($r, int $tiendaId, string $mes): bool
+    {
+        return \App\Support\ReglasComision::hayFilas('reparto_reemplazo')
+            && ($r->tipo ?? self::REEMPLAZO) === self::REEMPLAZO
+            && (int) $r->reemplaza_a_id
+            && \App\Support\ReglasComision::valor('reparto_reemplazo', $mes, $tiendaId) === 'sus_ventas';
+    }
+
+    /**
+     * Los reemplazos de quienes cobran por lo que vendieron: [ [usuario_id,
+     * tienda_id, desde, hasta|null], … ]. Vacío si ninguna tienda tiene esa
+     * regla, sin preguntar nada a la base.
+     *
+     * @return array<int, array{0:int, 1:int, 2:string, 3:?string}>
+     */
+    public static function reemplazosPorSusVentas(): array
+    {
+        if (! \App\Support\ReglasComision::hayFilas('reparto_reemplazo')) return [];
+
+        self::$todos ??= static::query()->get();
+
+        return self::$todos
+            ->filter(fn ($r) => ($r->tipo ?? self::REEMPLAZO) === self::REEMPLAZO && (int) $r->reemplaza_a_id)
+            ->map(fn ($r) => [(int) $r->usuario_id, (int) $r->tienda_id,
+                Carbon::parse($r->desde)->toDateString(), $r->hasta ? Carbon::parse($r->hasta)->toDateString() : null])
+            ->values()->all();
     }
 
     /** Si este movimiento estaba vigente ese día. Sin `hasta`, sigue abierto. */

@@ -70,6 +70,13 @@ function fechaCorta(f) {
   const [a, m, d] = String(f).slice(0, 10).split('-').map(Number)
   return `${d} ${MESES[m - 1]}${a !== new Date().getFullYear() ? ' ' + a : ''}`
 }
+/** "CAMA BALI", o "CAMA BALI, COMEDOR ROMA y 3 más" si lleva varios. */
+function tituloDe(p) {
+  const nombres = (p.productos ?? []).map(x => x.producto?.nombre).filter(Boolean)
+  if (nombres.length <= 1) return p.producto?.nombre ?? 'Producto'
+  if (nombres.length === 2) return `${nombres[0]} y ${nombres[1]}`
+  return `${nombres[0]}, ${nombres[1]} y ${nombres.length - 2} más`
+}
 function nombreCorto(nombre) {
   return (nombre ?? '').replace(/^Decasa\s+/i, '').trim() || nombre
 }
@@ -111,17 +118,26 @@ function hoy() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-const formulario = ref(null)   // { id?, producto, version, tipo, valor, fecha_inicio, fecha_fin, tiendas, nombre }
+// Una promoción lleva uno o varios productos con las mismas reglas. Lo normal
+// es uno; "Agregar otro producto" es para no programar la misma rebaja cinco
+// veces. Por cada producto con versiones se pregunta a cuáles aplica.
+//   entrada = { producto, versiones, cargando, alcance: 'todas'|'algunas'|'sin_versiones', marcadas: [clave] }
+const formulario = ref(null)   // { id?, entradas, buscandoOtro, tipo, valor, fecha_inicio, fecha_fin, tiendas, nombre }
 const guardando  = ref(false)
 const errorForm  = ref('')
+
+const ALCANCES = [
+  { v: 'todas',         l: 'Todas',        d: 'Todas sus medidas, telas y opciones, cada una sobre su propio precio' },
+  { v: 'algunas',       l: 'Solo algunas', d: 'Escoge cuáles' },
+  { v: 'sin_versiones', l: 'Ninguna',      d: 'Solo cuando se vende sin escoger medida, tela ni opción' },
+]
 
 function nueva() {
   errorForm.value = ''
   busqueda.value = ''
   resultados.value = []
-  versiones.value = []
   formulario.value = {
-    id: null, producto: null, version: null,
+    id: null, entradas: [], buscandoOtro: false,
     tipo: 'porcentaje', valor: null,
     fecha_inicio: hoy(), fecha_fin: '',
     tiendas: [], nombre: '',
@@ -130,18 +146,25 @@ function nueva() {
 
 async function editar(p) {
   errorForm.value = ''
+  busqueda.value = ''
+  resultados.value = []
+  const productos = p.productos?.length
+    ? p.productos
+    : [{ producto_id: p.producto_id, producto: p.producto, alcance: 'todas', config_ids: [], variante_ids: [] }]
   formulario.value = {
     id: p.id,
-    producto: { ...p.producto, precio_base: null },
-    version: null,
+    entradas: productos.map(x => ({
+      producto: { ...x.producto, id: x.producto_id },
+      versiones: [], cargando: true,
+      alcance: x.alcance ?? 'todas',
+      marcadas: [...(x.config_ids ?? []).map(id => `c${id}`), ...(x.variante_ids ?? []).map(id => `v${id}`)],
+    })),
+    buscandoOtro: false,
     tipo: p.tipo, valor: p.valor,
     fecha_inicio: p.fecha_inicio, fecha_fin: p.fecha_fin,
     tiendas: p.tiendas.map(t => t.id), nombre: p.nombre ?? '',
   }
-  await cargarVersiones(p.producto_id)
-  formulario.value.version = versiones.value.find(v =>
-    (p.config_id && v.config_id === p.config_id) || (p.variante_id && v.variante_id === p.variante_id)
-  ) ?? versiones.value[0] ?? null
+  await Promise.all(formulario.value.entradas.map(cargarVersiones))
 }
 
 // Buscar el producto
@@ -165,22 +188,27 @@ async function buscar() {
     buscando.value = false
   }
 }
+// Lo que ya está en la promoción no se ofrece otra vez.
+const resultadosLibres = computed(() => {
+  const ya = new Set((formulario.value?.entradas ?? []).map(e => Number(e.producto.id)))
+  return resultados.value.filter(r => !ya.has(Number(r.id)))
+})
+const mostrarBuscador = computed(() => !!formulario.value && (!formulario.value.entradas.length || formulario.value.buscandoOtro))
 
 // Las versiones de un producto: el producto entero, cada opción (medida,
 // "con baúl"…) y cada tela/medida de las variantes. Con el precio de lista
 // que pone Nueva orden.
-const versiones         = ref([])
-const cargandoVersiones = ref(false)
-async function cargarVersiones(productoId) {
-  cargandoVersiones.value = true
+async function cargarVersiones(entrada) {
+  entrada.cargando = true
   try {
+    const productoId = entrada.producto.id
     const [prod, configs, variantes] = await Promise.all([
       api.get(`/productos/${productoId}`).then(r => r.data).catch(() => null),
       api.get(`/productos/${productoId}/variante-configs`).then(r => r.data).catch(() => []),
       api.get(`/productos/${productoId}/variantes`).then(r => r.data).catch(() => []),
     ])
-    const base = Number(prod?.precio_base ?? 0)
-    if (formulario.value && prod) formulario.value.producto = { ...formulario.value.producto, ...prod }
+    const base = Number(prod?.precio_base ?? entrada.producto.precio_base ?? 0)
+    if (prod) entrada.producto = { ...entrada.producto, ...prod }
     const lista = [{ clave: 'todo', texto: 'Todo el producto', grupo: null, config_id: null, variante_id: null, precio: base }]
     for (const g of configs ?? []) {
       for (const o of g.items ?? []) {
@@ -201,39 +229,61 @@ async function cargarVersiones(productoId) {
         precio: v.precio_variante != null ? Number(v.precio_variante) : base,
       })
     }
-    versiones.value = lista
+    entrada.versiones = lista
+    // Una versión marcada que ya no existe (la borraron) no se manda.
+    const existen = new Set(lista.map(v => v.clave))
+    entrada.marcadas = entrada.marcadas.filter(c => existen.has(c))
+    if (lista.length <= 1) entrada.alcance = 'todas'
   } finally {
-    cargandoVersiones.value = false
+    entrada.cargando = false
   }
 }
 
 async function elegirProducto(p) {
-  formulario.value.producto = p
-  formulario.value.version  = null
+  const f = formulario.value
+  f.entradas.push({ producto: p, versiones: [], cargando: true, alcance: 'todas', marcadas: [] })
+  f.buscandoOtro = false
   resultados.value = []
   busqueda.value = ''
-  await cargarVersiones(p.id)
-  formulario.value.version = versiones.value[0] ?? null
+  // El objeto reactivo (el que está en la lista), no el de antes de meterlo.
+  await cargarVersiones(f.entradas[f.entradas.length - 1])
 }
 
-const gruposVersiones = computed(() => {
+function quitarEntrada(i) {
+  formulario.value.entradas.splice(i, 1)
+}
+
+function gruposDe(entrada) {
   const grupos = []
-  for (const v of versiones.value.slice(1)) {
+  for (const v of entrada.versiones.slice(1)) {
     let g = grupos.find(x => x.nombre === v.grupo)
     if (!g) grupos.push(g = { nombre: v.grupo, items: [] })
     g.items.push(v)
   }
   return grupos
-})
+}
+const tieneVersiones = (entrada) => entrada.versiones.length > 1
+
+function alternarVersion(entrada, clave) {
+  entrada.marcadas = entrada.marcadas.includes(clave)
+    ? entrada.marcadas.filter(c => c !== clave)
+    : [...entrada.marcadas, clave]
+}
+function marcarTodasLasVersiones(entrada) {
+  const todas = entrada.versiones.slice(1).map(v => v.clave)
+  entrada.marcadas = entrada.marcadas.length === todas.length ? [] : todas
+}
+
 // Con versiones de distinto precio, "precio final" a todo el producto las
 // dejaría iguales: el servidor lo frena, aquí ni se ofrece.
-const tieneVersionesConPrecio = computed(() => {
-  const base = versiones.value[0]?.precio ?? 0
-  return versiones.value.slice(1).some(v => v.precio !== base)
+function versionesConPrecioDistinto(entrada) {
+  const base = entrada.versiones[0]?.precio ?? 0
+  return entrada.versiones.slice(1).some(v => v.precio !== base)
+}
+const puedePrecioFinal = computed(() => {
+  const f = formulario.value
+  return !!f?.entradas.length && f.entradas.every(e => e.alcance !== 'todas' || !versionesConPrecioDistinto(e))
 })
-const puedePrecioFinal = computed(() =>
-  !!formulario.value?.version && (formulario.value.version.clave !== 'todo' || !tieneVersionesConPrecio.value)
-)
 watch(puedePrecioFinal, (si) => {
   if (!si && formulario.value?.tipo === 'precio') formulario.value.tipo = 'porcentaje'
 })
@@ -248,10 +298,8 @@ function marcarTodas() {
 }
 
 // Cómo queda: lo mismo que Promocion::precioCon.
-const precioLista = computed(() => Number(formulario.value?.version?.precio ?? 0))
-const precioPromo = computed(() => {
+function precioCon(lista) {
   const f = formulario.value
-  const lista = precioLista.value
   const valor = Number(f?.valor) || 0
   if (!f || !valor) return null
   let queda = lista
@@ -259,11 +307,18 @@ const precioPromo = computed(() => {
   else if (f.tipo === 'monto') queda = lista - valor
   else queda = Math.min(lista, valor)
   return Math.max(0, Math.min(lista, queda))
-})
+}
+/** Lo que se rebaja de esa entrada, para mostrar lista → promoción. */
+function filasDePrecio(entrada) {
+  if (entrada.alcance === 'algunas') return entrada.versiones.filter(v => entrada.marcadas.includes(v.clave))
+  return entrada.versiones.slice(0, 1)
+}
 
+const entradaIncompleta = (e) => e.cargando || (e.alcance === 'algunas' && !e.marcadas.length)
 const puedeGuardar = computed(() => {
   const f = formulario.value
-  return f && f.producto && f.version && Number(f.valor) > 0 && f.fecha_inicio && f.fecha_fin && f.tiendas.length
+  return f && f.entradas.length && !f.entradas.some(entradaIncompleta)
+    && Number(f.valor) > 0 && f.fecha_inicio && f.fecha_fin && f.tiendas.length
 })
 
 async function guardar() {
@@ -274,9 +329,15 @@ async function guardar() {
   try {
     const payload = {
       nombre:       f.nombre.trim() || null,
-      producto_id:  f.producto.id,
-      config_id:    f.version.config_id,
-      variante_id:  f.version.variante_id,
+      productos:    f.entradas.map(e => {
+        const marcadas = e.alcance === 'algunas' ? e.versiones.filter(v => e.marcadas.includes(v.clave)) : []
+        return {
+          producto_id:  e.producto.id,
+          alcance:      e.alcance,
+          config_ids:   marcadas.filter(v => v.config_id).map(v => v.config_id),
+          variante_ids: marcadas.filter(v => v.variante_id).map(v => v.variante_id),
+        }
+      }),
       tipo:         f.tipo,
       valor:        Number(f.valor),
       fecha_inicio: f.fecha_inicio,
@@ -351,9 +412,12 @@ async function guardar() {
                   <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-semibold text-gray-800 truncate">{{ p.producto?.nombre ?? 'Producto' }}</p>
+                  <!-- Con varios productos el "y 3 más" no se puede cortar: dos renglones. -->
+                  <p :class="['text-sm font-semibold text-gray-800', (p.productos?.length ?? 1) > 1 ? 'line-clamp-2' : 'truncate']">{{ tituloDe(p) }}</p>
                   <p class="text-xs text-gray-500 truncate">
-                    {{ p.version ? p.version : 'Todo el producto' }}<span v-if="p.nombre"> · {{ p.nombre }}</span>
+                    <template v-if="(p.productos?.length ?? 1) > 1">{{ p.productos.length }} productos</template>
+                    <template v-else>{{ p.version ? p.version : 'Todo el producto' }}</template>
+                    <span v-if="p.nombre"> · {{ p.nombre }}</span>
                   </p>
                 </div>
                 <span :class="['rounded-full text-xs font-semibold px-2 py-0.5 flex-shrink-0', ESTADOS[p.estado]?.cls]">
@@ -363,7 +427,7 @@ async function guardar() {
 
               <div class="flex items-baseline gap-1.5 flex-wrap text-xs">
                 <span class="bg-rose-100 text-rose-700 rounded-full font-semibold px-2 py-0.5">{{ textoRebaja(p) }}</span>
-                <template v-if="p.version || p.tipo === 'precio' || p.precio_promo !== p.precio_lista">
+                <template v-if="p.precio_lista != null && (p.version || p.tipo === 'precio' || p.precio_promo !== p.precio_lista)">
                   <span class="text-gray-400 line-through">{{ pesos(p.precio_lista) }}</span>
                   <span class="text-gray-400">→</span>
                   <span class="font-bold text-gray-800">{{ pesos(p.precio_promo) }}</span>
@@ -400,25 +464,78 @@ async function guardar() {
         <!-- ── Formulario ────────────────────────────────────────────────── -->
         <template v-else>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-            <!-- 1. Producto -->
+            <!-- 1. Productos (uno, o varios con la misma promoción) -->
             <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">Producto</label>
-              <div v-if="formulario.producto" class="flex items-center gap-3 border border-gray-200 rounded-xl p-2.5">
-                <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0">
-                  <img v-if="formulario.producto.foto_url" :src="cloudinaryOpt(formulario.producto.foto_url, 80)" class="w-full h-full object-cover" alt="" />
-                  <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
+              <label class="block text-xs font-medium text-gray-500 mb-1">
+                {{ formulario.entradas.length > 1 ? `Productos (${formulario.entradas.length})` : 'Producto' }}
+              </label>
+
+              <div class="space-y-2">
+                <div
+                  v-for="(e, i) in formulario.entradas" :key="e.producto.id"
+                  class="border border-gray-200 rounded-xl p-2.5 space-y-2"
+                >
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      <img v-if="e.producto.foto_url" :src="cloudinaryOpt(e.producto.foto_url, 80)" class="w-full h-full object-cover" alt="" />
+                      <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-semibold text-gray-800 truncate">{{ e.producto.nombre }}</p>
+                      <p class="text-xs text-gray-400 truncate">{{ e.producto.categoria }}</p>
+                    </div>
+                    <button type="button" @click="quitarEntrada(i)" class="text-xs font-semibold text-red-500">Quitar</button>
+                  </div>
+
+                  <div v-if="e.cargando" class="flex justify-center py-2"><AppSpinner /></div>
+                  <template v-else>
+                    <!-- ¿A cuáles versiones? Solo si tiene. -->
+                    <div v-if="tieneVersiones(e)">
+                      <p class="text-xs text-gray-500 mb-1">¿A cuáles versiones aplica?</p>
+                      <div class="bg-gray-100 rounded-xl p-1 flex text-xs font-semibold">
+                        <button
+                          v-for="a in ALCANCES" :key="a.v" type="button" @click="e.alcance = a.v"
+                          :class="['flex-1 py-1.5 rounded-lg transition-colors', e.alcance === a.v ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
+                        >{{ a.l }}</button>
+                      </div>
+                      <p class="text-xs text-gray-400 mt-1">{{ ALCANCES.find(a => a.v === e.alcance)?.d }}</p>
+
+                      <div v-if="e.alcance === 'algunas'" class="mt-2 space-y-2">
+                        <div v-for="g in gruposDe(e)" :key="g.nombre">
+                          <p class="text-xs text-gray-400 mb-1">{{ g.nombre }}</p>
+                          <div class="flex flex-wrap gap-1.5">
+                            <button
+                              v-for="v in g.items" :key="v.clave" type="button" @click="alternarVersion(e, v.clave)"
+                              :class="['rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+                                e.marcadas.includes(v.clave) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
+                            >{{ v.texto }} <span class="font-normal opacity-75">{{ pesos(v.precio) }}</span></button>
+                          </div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                          <p v-if="!e.marcadas.length" class="text-xs text-amber-600">Marca al menos una.</p>
+                          <button type="button" @click="marcarTodasLasVersiones(e)" class="text-xs font-semibold text-blue-600 ml-auto">
+                            {{ e.marcadas.length === e.versiones.length - 1 ? 'Desmarcar todas' : 'Marcar todas' }}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Cómo queda -->
+                    <div v-if="Number(formulario.valor) > 0" class="space-y-0.5">
+                      <div v-for="v in filasDePrecio(e)" :key="v.clave" class="text-xs flex items-baseline gap-1.5 flex-wrap">
+                        <span v-if="e.alcance === 'algunas'" class="text-gray-500">{{ v.texto }}</span>
+                        <span class="text-gray-400 line-through">{{ pesos(v.precio) }}</span>
+                        <span class="text-gray-400">→</span>
+                        <span class="font-bold text-gray-800">{{ pesos(precioCon(v.precio)) }}</span>
+                        <span v-if="e.alcance === 'todas' && tieneVersiones(e)" class="text-gray-400">(y cada versión sobre su precio)</span>
+                      </div>
+                    </div>
+                  </template>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-semibold text-gray-800 truncate">{{ formulario.producto.nombre }}</p>
-                  <p class="text-xs text-gray-400 truncate">{{ formulario.producto.categoria }}</p>
-                </div>
-                <button
-                  v-if="!formulario.id" type="button"
-                  @click="formulario.producto = null; formulario.version = null; versiones = []"
-                  class="text-xs font-semibold text-blue-600"
-                >Cambiar</button>
               </div>
-              <template v-else>
+
+              <!-- Buscar: el primero, u otro con la misma promoción -->
+              <div v-if="mostrarBuscador" :class="formulario.entradas.length ? 'mt-2' : ''">
                 <div class="relative">
                   <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
@@ -427,9 +544,9 @@ async function guardar() {
                   />
                 </div>
                 <div v-if="buscando" class="flex justify-center py-3"><AppSpinner /></div>
-                <div v-else-if="resultados.length" class="mt-2 border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-60 overflow-y-auto">
+                <div v-else-if="resultadosLibres.length" class="mt-2 border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-60 overflow-y-auto">
                   <button
-                    v-for="r in resultados" :key="r.id" type="button" @click="elegirProducto(r)"
+                    v-for="r in resultadosLibres" :key="r.id" type="button" @click="elegirProducto(r)"
                     class="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-gray-50"
                   >
                     <span class="flex-1 min-w-0">
@@ -439,41 +556,24 @@ async function guardar() {
                     <span class="text-xs font-semibold text-gray-600 flex-shrink-0">{{ pesos(r.precio_base) }}</span>
                   </button>
                 </div>
+                <p v-else-if="resultados.length" class="text-xs text-gray-400 mt-2">Lo que coincide con “{{ busqueda.trim() }}” ya está en esta promoción.</p>
                 <p v-else-if="busqueda.trim().length >= 2" class="text-xs text-gray-400 mt-2">No se encontró nada con “{{ busqueda.trim() }}”.</p>
-              </template>
-            </div>
-
-            <!-- 2. Qué versión -->
-            <div v-if="formulario.producto">
-              <label class="block text-xs font-medium text-gray-500 mb-1">¿Qué entra en la promoción?</label>
-              <div v-if="cargandoVersiones" class="flex justify-center py-3"><AppSpinner /></div>
-              <div v-else class="space-y-2">
                 <button
-                  v-if="versiones[0]" type="button" @click="formulario.version = versiones[0]"
-                  :class="['w-full text-left rounded-lg border px-3 py-2 text-sm flex items-center justify-between',
-                    formulario.version?.clave === 'todo' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200']"
-                >
-                  <span class="font-medium text-gray-800">
-                    Todo el producto
-                    <span v-if="gruposVersiones.length" class="block text-xs font-normal text-gray-400">Todas sus medidas, telas y opciones</span>
-                  </span>
-                  <span class="text-xs text-gray-500">{{ pesos(versiones[0].precio) }}</span>
-                </button>
-                <div v-for="g in gruposVersiones" :key="g.nombre">
-                  <p class="text-xs text-gray-400 mb-1">{{ g.nombre }}</p>
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="v in g.items" :key="v.clave" type="button" @click="formulario.version = v"
-                      :class="['rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
-                        formulario.version?.clave === v.clave ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
-                    >{{ v.texto }} <span class="font-normal opacity-75">{{ pesos(v.precio) }}</span></button>
-                  </div>
-                </div>
+                  v-if="formulario.entradas.length" type="button"
+                  @click="formulario.buscandoOtro = false; busqueda = ''"
+                  class="text-xs font-semibold text-gray-500 mt-2"
+                >Cancelar</button>
               </div>
+              <button
+                v-else-if="formulario.entradas.length" type="button" @click="formulario.buscandoOtro = true"
+                class="mt-2 flex items-center gap-1 text-xs font-semibold text-blue-600"
+              >
+                <PlusIcon class="w-4 h-4" /> Agregar otro producto con esta misma promoción
+              </button>
             </div>
 
-            <!-- 3. Tiendas -->
-            <div v-if="formulario.producto">
+            <!-- 2. Tiendas -->
+            <div v-if="formulario.entradas.length">
               <div class="flex items-center justify-between mb-1">
                 <label class="text-xs font-medium text-gray-500">¿En qué tiendas?</label>
                 <button type="button" @click="marcarTodas" class="text-xs font-semibold text-blue-600">
@@ -489,15 +589,15 @@ async function guardar() {
               </div>
             </div>
 
-            <!-- 4. Cuánto -->
-            <div v-if="formulario.producto">
+            <!-- 3. Cuánto -->
+            <div v-if="formulario.entradas.length">
               <label class="block text-xs font-medium text-gray-500 mb-1">¿Cuánto?</label>
               <div class="bg-gray-100 rounded-xl p-1 flex text-xs font-semibold mb-2">
                 <button
                   v-for="t in [{ v: 'porcentaje', l: '% menos' }, { v: 'monto', l: '$ menos' }, { v: 'precio', l: 'Precio final' }]"
                   :key="t.v" type="button"
                   :disabled="t.v === 'precio' && !puedePrecioFinal"
-                  :title="t.v === 'precio' && !puedePrecioFinal ? 'Sus versiones tienen precios distintos: escoge una para dejarle un precio final' : ''"
+                  :title="t.v === 'precio' && !puedePrecioFinal ? 'Un producto con todas sus versiones tiene precios distintos: escoge cuáles para dejarles un precio final' : ''"
                   @click="formulario.tipo = t.v; formulario.valor = null"
                   :class="['flex-1 py-1.5 rounded-lg transition-colors disabled:opacity-40',
                     formulario.tipo === t.v ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
@@ -516,19 +616,15 @@ async function guardar() {
                   :placeholder="formulario.tipo === 'precio' ? 'Precio de promoción' : 'Cuánto se le quita'"
                   class="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <div v-if="precioPromo !== null && formulario.version" class="text-xs flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-gray-400 line-through">{{ pesos(precioLista) }}</span>
-                  <span class="text-gray-400">→</span>
-                  <span class="font-bold text-gray-800">{{ pesos(precioPromo) }}</span>
-                </div>
               </div>
-              <p v-if="formulario.version?.clave === 'todo' && gruposVersiones.length" class="text-xs text-gray-400 mt-1">
-                Se aplica a cada versión sobre su propio precio. Si una medida tiene su propia promoción, vale la de la medida.
+              <p class="text-xs text-gray-400 mt-1">
+                {{ formulario.entradas.length > 1 ? 'La misma rebaja para todos los productos de arriba; ahí ves cómo queda cada uno.' : 'Arriba ves cómo queda el precio.' }}
+                Si una medida tiene su propia promoción, vale la de la medida.
               </p>
             </div>
 
-            <!-- 5. Fechas -->
-            <div v-if="formulario.producto" class="grid grid-cols-2 gap-2">
+            <!-- 4. Fechas -->
+            <div v-if="formulario.entradas.length" class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-xs font-medium text-gray-500 mb-1">Desde</label>
                 <input v-model="formulario.fecha_inicio" type="date"
@@ -541,8 +637,8 @@ async function guardar() {
               </div>
             </div>
 
-            <!-- 6. Nombre -->
-            <div v-if="formulario.producto">
+            <!-- 5. Nombre -->
+            <div v-if="formulario.entradas.length">
               <label class="block text-xs font-medium text-gray-500 mb-1">Nombre (opcional)</label>
               <input v-model="formulario.nombre" maxlength="120" placeholder="Ej.: Feria de octubre"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />

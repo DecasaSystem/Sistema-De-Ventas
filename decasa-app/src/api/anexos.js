@@ -6,6 +6,13 @@ export const getAnexo          = (id)        => api.get(`/anexos/${id}`, { silen
 // El enlace que se le mandó a este cliente desde Nueva orden y sigue sin orden
 // (esperando firma o recién firmado): para retomarlo si la página se recargó.
 export const anexoEnCurso      = (clienteId) => api.get('/anexos/en-curso', { params: { cliente_id: clienteId }, silencioso: true })
+// Los enlaces con la orden guardada que esperan firma o que ya firmaron y
+// falta crear la orden: Nueva orden los muestra arriba.
+export const anexosSinOrden    = ()          => api.get('/anexos/sin-orden', { silencioso: true })
+// Crear la orden con lo que se guardó al mandar el enlace (ver OrdenDelAnexo).
+export const crearOrdenDeAnexo = (id)        => api.post(`/anexos/${id}/crear-orden`)
+// Mientras el cliente no firma: que la orden se cree sola, o esperar y crearla a mano.
+export const cambiarCrearAlFirmar = (id, crear) => api.patch(`/anexos/${id}/crear-al-firmar`, { crear_al_firmar: crear })
 // "Cancelar envío": el enlace deja de servir.
 export const anularAnexo        = (id)        => api.post(`/anexos/${id}/anular`, {}, { silencioso: true })
 export const enviarAnexoEmail  = (id, email) => api.post(`/anexos/${id}/enviar-email`, { email: email || undefined })

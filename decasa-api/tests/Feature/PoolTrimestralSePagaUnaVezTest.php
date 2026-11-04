@@ -285,6 +285,44 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
         $this->assertEqualsWithDelta($pool, $cobra['Juan'] + $cobra['Genesis'], 3);
     }
 
+    /** Una regla de comisión (Fase 4) para esta tienda desde un mes. */
+    private function regla(string $clave, mixed $valor, string $desde): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('comision_reglas')) {
+            \Illuminate\Support\Facades\Schema::create('comision_reglas', function ($t) {
+                $t->id(); $t->string('clave'); $t->string('alcance'); $t->unsignedBigInteger('alcance_id')->nullable();
+                $t->json('valor')->nullable(); $t->char('desde_mes', 7); $t->string('nota')->nullable();
+                $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+            });
+        }
+        DB::table('comision_reglas')->insert(['clave' => $clave, 'alcance' => 'tienda',
+            'alcance_id' => self::PEREIRA, 'valor' => json_encode($valor), 'desde_mes' => $desde]);
+        \App\Support\CachesDePeticion::olvidarTodo();
+    }
+
+    public function test_partes_iguales_no_mira_los_dias(): void
+    {
+        // El mismo caso de arriba con "partes iguales": cada mes que estuvo
+        // pesa 1. Juan estuvo los 3 meses (3), Genesis solo septiembre (1).
+        $this->regla('reparto_pool', 'iguales', '2026-07');
+        TiendaReemplazo::create([
+            'tienda_id' => self::PEREIRA, 'tipo' => TiendaReemplazo::TRASLADO,
+            'usuario_id' => self::GENESIS, 'desde' => '2026-09-01', 'hasta' => '2026-09-30',
+        ]);
+        TiendaReemplazo::olvidarCache();
+
+        $this->orden(self::JUAN,    '2026-07-10', 20_000_000);
+        $this->orden(self::JUAN,    '2026-08-10', 20_000_000);
+        $this->orden(self::JUAN,    '2026-09-10', 10_000_000);
+        $this->orden(self::GENESIS, '2026-09-12', 10_000_000);
+
+        $cobra = $this->loQueCobraCadaUno();
+
+        $pool = 30_000_000 / 1.19 * 0.05;
+        $this->assertEqualsWithDelta($pool * 3 / 4, $cobra['Juan'], 3);
+        $this->assertEqualsWithDelta($pool * 1 / 4, $cobra['Genesis'], 3);
+    }
+
     // ─────────── La regla: los 3 meses obligatorios, con la deuda arrastrada ───────────
 
     private function metaDe(float $meta): void
@@ -379,6 +417,36 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
         $this->assertEqualsWithDelta(15_000_000 / 1.19 * 0.05, $q4['deficit_inicial'], 1);
         $this->assertEqualsWithDelta(5_000_000 / 1.19 * 0.05, $q4['pool_pagado'], 1);
         $this->assertEquals(0, $q4['deficit_final']);
+    }
+
+    public function test_una_tienda_que_no_arrastra_la_deuda_arranca_cada_trimestre_de_cero(): void
+    {
+        // Regla de la Fase 4 (dueño, 2026-10-27): por tienda, la deuda puede no pasar.
+        \Illuminate\Support\Facades\Schema::create('comision_reglas', function ($t) {
+            $t->id(); $t->string('clave'); $t->string('alcance'); $t->unsignedBigInteger('alcance_id')->nullable();
+            $t->json('valor')->nullable(); $t->char('desde_mes', 7); $t->string('nota')->nullable();
+            $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+        });
+        DB::table('comision_reglas')->insert(['clave' => 'arrastra_deuda_trimestre', 'alcance' => 'tienda',
+            'alcance_id' => self::PEREIRA, 'valor' => json_encode(false), 'desde_mes' => '2026-10']);
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        // Mismo caso que arriba: Q3 deja 15M de deuda; Q4 hace +20M.
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 30_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 35_000_000);
+        $this->orden(self::JUAN, '2026-10-10', 50_000_000);
+        $this->orden(self::JUAN, '2026-11-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-12-10', 50_000_000);
+        $this->travelTo(\Carbon\Carbon::parse('2027-01-25 10:00', 'America/Bogota'));
+
+        $pools = $this->pools();
+        // Q3 sigue dejando su deuda (lo dice la regla de Q3, que es la de siempre)…
+        $this->assertEqualsWithDelta(15_000_000 / 1.19 * 0.05, $pools[self::PEREIRA . '_2026-Q3']['deficit_final'], 1);
+        // …pero Q4 no la trae: comisionan los 20M enteros.
+        $this->assertEquals(0, $pools[self::PEREIRA . '_2026-Q4']['deficit_inicial']);
+        $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $pools[self::PEREIRA . '_2026-Q4']['pool_pagado'], 1);
     }
 
     public function test_la_deuda_sigue_si_el_trimestre_siguiente_tampoco_alcanza(): void

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
 use App\Services\NotificacionService;
+use App\Support\AjustesSistema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -71,9 +72,14 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             ]);
         }
 
-        // ── 2. Alertar los que vencen en 1-3 días ───────────────────────────
-        $porVencer = Produccion::where('estado', 'en_proceso')
-            ->whereRaw('DATEDIFF(fecha_compromiso, CURDATE()) BETWEEN 1 AND 3')
+        // ── 2. Alertar los que vencen en los días escogidos ─────────────────
+        // Antes era fijo a 3, 2 y 1 día: cada pieza avisaba tres veces y la
+        // campana se llenaba (dueño, 2026-11-03). Ahora se escoge en Gestión →
+        // Ajustes; de fábrica, solo el día antes. Sin días escogidos no se
+        // consulta nada (el "Entrega hoy" de abajo sigue igual).
+        $diasAviso = AjustesSistema::diasAvisoEntrega();
+        $porVencer = empty($diasAviso) ? collect() : Produccion::where('estado', 'en_proceso')
+            ->whereRaw('DATEDIFF(fecha_compromiso, CURDATE()) IN (' . implode(',', $diasAviso) . ')')
             ->with([
                 'ordenItem.producto:id,nombre',
                 'ordenItem.orden.cliente:id,nombre,telefono',

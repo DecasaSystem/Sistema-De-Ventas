@@ -131,7 +131,7 @@ Laravel 13 / PHP 8.4. Dependencias clave: `laravel/sanctum`, `laravel/reverb`,
 
 | Servicio | Responsabilidad |
 |---|---|
-| `AgentService` | Chat de IA con ~25 tools (ventas, inventario, producción, comisiones, fichas…) y `calcularPrecioItem()` (cotizador determinístico) |
+| `AgentService` | Chat de IA con ~26 tools (ventas, qué fabricar, inventario, producción, garantías, promociones, comisiones, fichas…) y `calcularPrecioItem()` (cotizador determinístico). Permisos en `Asistente/PermisosAsistente`, análisis de fabricación en `Asistente/QueFabricar` |
 | `EntregaService` | **Única puerta para entregar**: cierra una entrega (`DespachoItem` + `EntregaLinea`), baja stock por línea, cierra producción, deja la orden en su estado |
 | `NumeracionOrdenes` | Corregir números: convertir a/de FV2 o R y correr consecutivos sin dejar huecos |
 | `ComisionIndependientes` | Comisión de independientes (5 % fijo, bolsón de restauraciones, abono a almacén) |
@@ -166,7 +166,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `src/stores/` | `auth` (sesión, perfiles alternos, todos los `puedeX`), `notificaciones`, `modulos` (nombres personalizados), `pasos`, `despacho`, `surtidos`, `consultas`, `appearance` (modo oscuro, tamaño de letra) |
 | `src/composables/` | `useRealtime` (Echo), `useToast`, `usePushNotifications`, `usePwaInstall`, `useBorradorLocal` (borradores en el aparato), `useFiltrosRecordados`, `useTelas`, `useTiposProceso`, sockets de despacho/surtidos |
 | `src/components/` | Por dominio: `ordenes/`, `despacho/`, `produccion/`, `inventario/`, `costos/`, `comisiones/`, `reportes/`, `gestion/`, `encargos/`, `anexo/`, `common/` (BadgeEstado, InputPesos, MoneyDisplay, ComboInput, IconoPicker…) + `AgentChat`, `BocetoCanvas`, `FirmaCanvas`, `DireccionColombia` |
-| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `whatsapp`, `navegacion` |
+| `src/utils/` | `pesos`, `descuentos`, `juegos` (venta por juego/pieza), `colaPeticiones`, `comprimirImagen`, `cloudinary`, `exportarExcel`, `excelComisiones`, `excelListas`, `excelComoVa`, `whatsapp`, `navegacion` |
 | `src/constants/` | `iconos.js`, `specsConfig.js` (especificaciones por categoría de mueble) |
 | `src/data/` | `colombia.js` (departamentos/ciudades), `telasCatalogo.js` |
 | `src/assets/main.css` | Tailwind + overrides de modo oscuro |
@@ -187,6 +187,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `/despacho`, `/mis-entregas` | `DespachoView`, `MisEntregasView` | Rutas, conductores, entregas |
 | `/caja` | `CajaView` | Caja de tienda / propia |
 | `/comisiones` | `ComisionesView` | Metas, pools, pagos, anticipos, reemplazos |
+| `/comisiones/reglas` | `ReglasComisionView` | Reglas del cálculo con fecha y simulador (cambiarlas pide `acceso_reglas_comision`) |
 | `/nomina` | `NominaView` | Sueldos, pagos, ausencias, préstamos, bonos |
 | `/finanzas` | `FinanzasView` | Estado de resultados, gastos fijos y variables, flujo de caja, proyecciones, rentabilidad por tienda |
 | `/costos`, `/consultas-costo` | `CostosView`, `ConsultasView`, `ConsultaDetalleView` | Fichas, materiales, tarifas, precisión IA; consultas al ebanista |
@@ -313,6 +314,27 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - **Productos únicos** (piezas irrepetibles ya vendidas).
 - **Auditoría de descuadres** (supervisor): reservas fantasma y entregas que no
   descontaron, con corrección.
+- **Categorías: renombrar y juntar** (2026-10-29, botón *Categorías* en Inventario,
+  supervisor; `Services/CategoriasProducto`, `components/inventario/CategoriasModal.vue`,
+  `GET /productos/categorias/gestion`, `POST /productos/categorias/renombrar`). No hay tabla
+  de categorías: es el texto `productos.categoria`, y se "crea" escribiendo un nombre nuevo
+  en un producto (vendedores también). Renombrar cambia el texto en todos sus productos
+  (activos y apagados) en una transacción. Si el nombre nuevo ya existe (sin mirar tildes,
+  mayúsculas ni separadores) responde 409 con `existe` y, confirmado con `juntar: true`, las
+  dos quedan en una con el nombre escrito. Cada cambio queda en `categorias_renombradas`
+  (migración `2026_11_06_000001`): `/catalogo/<nombre viejo>` sigue abriendo (sigue la
+  cadena), el asistente interno busca también el nombre de hoy y los agentes de chat le
+  enseñan a su `mapaCategoriasBD` que el nombre nuevo es la categoría de antes
+  (`aplicarRenombres` en `core/contrato-bd.js`, al arrancar y cada hora). No se tocan
+  `orden_items.categoria_custom` (historia de la orden) ni `fichas_tecnicas.categoria`
+  (lista fija del cotizador). La pantalla muestra el nombre real: `CATEGORY_LABELS` de
+  Inventario pone nombres bonitos a algunas ("Bases comedor" es `comedores`).
+- **Copiar el producto** (2026-11-03, botón *Copiar* junto al precio de cada tarjeta, todos):
+  deja en el portapapeles el texto para mandarle al cliente por WhatsApp
+  (`utils/textoProducto.js`): nombre, precio o "desde", medidas, material, descripción,
+  cada opción/talla con su precio completo (`precio_adicional` / `precio_variante`, 0 = el del
+  producto), telas con stock y la promoción vigente de la tienda que se mira (`promoParaItem`)
+  con su fecha final. En "Todas las tiendas" no lleva promoción. Nunca costos ni cantidades.
 - **Promociones por tienda** (2026-10-15, botón *Promociones* en Inventario, supervisor;
   `PromocionController`, `Promocion`, `components/inventario/PromocionesModal.vue`,
   `utils/promociones.js`). Se programa una vez: qué se rebaja (el producto entero, una
@@ -330,6 +352,21 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   Lo personalizado, los regalos, lo que espera precio y lo que viene de un borrador o
   cotización guardados (`_sin_promo`) no la llevan. Editar una orden (agregar productos)
   y cotizaciones no la guardan aparte. Prueba: `PromocionesPorTiendaTest`.
+  **Varios productos en una promoción** (2026-10-28, migración
+  `2026_11_03_000001_promociones_varios_productos`): lo que se rebaja vive en
+  `promocion_productos` (modelo `PromocionProducto`), una fila por producto o versión; la
+  promoción guarda solo las reglas (cuánto, fechas, tiendas, encendida). Es opcional: se
+  escoge un producto como siempre y "Agregar otro producto con esta misma promoción" suma
+  más. Por cada producto con versiones se pregunta **a cuáles**: *Todas* (fila sin
+  versión), *Solo algunas* (una fila por opción o tela marcada) o *Ninguna*
+  (`sin_versiones`: solo cuando la línea se vende sin medida, tela ni opción). `vigentes`
+  devuelve una fila por cada una, con el mismo `id` de promoción y una `clave` única, así
+  Nueva orden escoge igual que antes ("sin opciones" cuenta como versión concreta). El
+  cruce se revisa fila por fila y el mensaje dice qué producto choca. La API acepta
+  todavía la forma de antes (`producto_id` + `config_id`/`variante_id`). Las columnas
+  viejas `promociones.producto_id/config_id/variante_id` se quedan con el primer producto
+  (solo por compatibilidad; nadie las lee) y ya no borran la promoción en cascada: borrar
+  un producto quita solo sus filas.
 
 ### 6.6 Surtidos, traslados y Reserva de Fábrica
 - **Surtido** (`SurtidoController`): fábrica → tiendas. Lo crea quien tenga
@@ -374,6 +411,36 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - Cuando todas las producciones de una orden quedan `listo` → `listo_entrega`.
 - Permisos: `acceso_produccion` (ver tablero), `gestiona_produccion` (mover),
   o tener pasos asignados. Job diario marca retrasos.
+
+### 6.8b Carga de trabajo (órdenes + taller)
+`CargaTrabajoController` (`GET /api/carga-trabajo?tienda_id=`), `Services/CargaDeTrabajo`,
+`CargaTrabajoView` (`/carga-trabajo`, acceso desde el Home y el botón "Carga" de
+Producción). Lo ven el supervisor y quien ve producción. **Solo lee** y no trae plata.
+Pedido del dueño (2026-10-28): "saber cuánto trabajo tenemos y vamos a tener".
+
+- **Órdenes abiertas** (`pendiente_cotizacion, pendiente_anticipo, en_produccion,
+  listo_entrega, en_camino, devuelto`, filtradas con `visiblesPara`): por estado;
+  cuáles se pueden entregar hoy (algún producto `estaListoParaEntregar`, completas o
+  parciales); cuáles tienen algo que pasa por el taller (`pasaPorElTaller`), por tipo
+  (a fabricar, personalizado, diseño nuevo, cambio de tela, restauración) y cuáles
+  tienen piezas **sin arrancar**; atrasadas (la misma regla que "Retrasadas" de la
+  lista); por tienda; calendario por la fecha más lejana que falta.
+- **Taller** (piezas `pendiente, en_proceso, retrasado, pendiente_despachador` de
+  órdenes abiertas + Reserva): sin arrancar (`pendiente`, con días esperando),
+  empezadas, en despacho; lista de cada pieza con su paso actual, días en el paso,
+  responsables y barra de pasos. Unidades: en una venta manda `orden_items.cantidad`
+  (`produccion.cantidad` solo es real en lo de la Reserva).
+- **Pasos**: por proceso, piezas **en proceso** (paso `en_proceso`) y las que **le
+  llegan** (pasos `pendiente` ya puestos en el flujo), ritmo (cerrados en 28 días),
+  duración normal (mediana de 90 días), personas asignadas, sin responsable y días
+  para ponerse al día. Se marca "el más cargado" si pasa de 7 días.
+- Entradas (`fecha_inicio`) vs salidas (`fecha_real`) del taller por semana (8 semanas).
+- Los números llevan a Órdenes / Producción con el filtro puesto (`?estado=`,
+  `?retrasadas=1`, `?tienda_id=`; las listas lo leen una vez y limpian la dirección).
+- **Ayuda** (`AyudaCargaTrabajoView`, `/carga-trabajo/ayuda?tema=`): qué es cada cifra
+  y de dónde sale, con ejemplos. Se abre con el botón "?" o con el enlace al pie de cada
+  pestaña (abre su tema). Si cambia una regla de `CargaDeTrabajo` (28 días, 90 días,
+  8 semanas, 7 días del "más cargado"), cambiar también la ayuda.
 
 ### 6.9 Despacho y entregas
 `DespachoController`, `EntregaService`, modelos `Despacho`, `DespachoItem`,
@@ -472,6 +539,26 @@ entregada"). Solo supervisor.
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Los tres Excel** (2026-10-30, sin migración): el botón Excel abre una hoja para escoger
+  (1) **Lo que se va a pagar** (el libro de Listas, todo o un mes), (2) **Un mes completo**
+  (cualquier mes, entero, sin los filtros de la pantalla; opcional una persona;
+  `utils/excelComisiones.js` con `vista: 'mes'`) o (3) **Cómo va el mes** (el mes en curso,
+  ESTIMADO, `utils/excelComoVa.js`: tiendas contra la meta con lo que falta y cuánto sumar
+  por día, órdenes que no cuentan con cuánto falta cobrar, lo estimado por persona). Antes
+  era un solo botón que bajaba uno u otro según la pestaña. "Cómo va" usa
+  `GET /comisiones/metas?avance=1` (vendido y lo que cuenta: `avanceDeMetas`, solo cuando se
+  pide) y los campos `pagado_orden` / `valor_orden_entera` de cada renglón; no calcula plata.
+- **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
+  "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
+  `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →
+  `resumenDelMes($mes, conDetalle: true)`), con más campos por orden (valor entero, pagado,
+  medios de pago, tarjeta, franquicia; `ordenParaElExcel`), la cuenta del pool de cada
+  tarjeta (`cuentaDeLaTarjeta`), lo que debía de anticipos al corte (`debe_al_corte`), el
+  bolsón de los independientes y `tiendas` (la cuenta de cada tienda y mes, sin su lista de
+  órdenes). Hojas: Resumen (por persona, por tienda, total general), Por persona (mes por
+  mes, de dónde sale cada peso), Por tienda (meta, pool, reparto, trimestre, bolsón), Todas
+  las órdenes (con filtro) y Cómo se calcula. El libro no calcula plata: los totales son los
+  de la respuesta; la diferencia de redondeo del bolsón va en su propio renglón.
 - **Abonos** (2026-10-19): dar una parte de una comisión ya lista y el resto después.
   Listas → "Registrar abono" (`POST /comisiones/abonos`, supervisor). Es un renglón
   `anticipo` de `comision_anticipos` con el mes de esa comisión y clave `abono:…`
@@ -499,6 +586,55 @@ entregada"). Solo supervisor.
   sesión (botón Ayuda en Comisiones y enlace en las estadísticas del vendedor).
   **Si cambia una regla de comisiones, cambiar también la ayuda.**
 - Datáfono: lo pagado con tarjeta/Addi descuenta la franquicia del comisionable.
+- **Reglas en un solo sitio** (2026-10-27, Fase 0 de `docs/plan-comisiones-personalizables.md`):
+  el cálculo ya no tiene cifras propias (5 %, ÷ 1,19, 5,5 %, 50 %, día 20, la mitad de una
+  compartida, el bolsón…); las pide a `App\Support\ReglasComision::valor($clave, $mes, $tienda,
+  $persona)`, que hoy devuelve el valor de siempre. **Una cifra nueva de comisiones va al
+  catálogo, no suelta en el código**, y se pide con el mes de la venta (no el de hoy). Dentro
+  de SQL, con `ReglasComision::sql()` (literal, nunca `?`). La lista de medios con franquicia
+  de comisiones es la regla `franquicia_metodos`; `Orden::METODOS_CON_FRANQUICIA` sigue siendo
+  la de descuentos y Finanzas.
+- **Reglas con fecha** (2026-10-27, Fase 1, migración `2026_11_02_000001_reglas_de_comision`):
+  `comision_reglas` guarda cambios "desde tal mes" para todos, una tienda o una persona (gana
+  la más específica; nulo en tienda/persona = vuelve a la de arriba). Cada comisión se calcula
+  con lo que regía en su mes de venta; al pagar se guarda `comisiones.reglas_usadas`. Las ve
+  quien tiene Comisiones; las cambia solo quien tiene `usuarios.acceso_reglas_comision`
+  (permiso que solo da quien ya lo tiene). Hacia un mes pasado solo sin pagos y con
+  confirmación. `ReglaComisionController` (`GET/POST /comisiones/reglas`,
+  `DELETE /comisiones/reglas/{id}`, `POST /comisiones/reglas/simular`); cada cambio va a la
+  bitácora y pide un recálculo. Pantalla: Comisiones → Reglas (`ReglasComisionView`), con
+  simulador (corre el resumen del mes en una transacción que se deshace: no guarda nada).
+  El permiso se da en la ficha del trabajador, bajo "Acceso a comisiones".
+- **Repartos escogibles** (2026-10-27, Fase 4, sin migración): además de cifras, hay reglas de
+  tipo opción con lo de siempre por defecto: cómo se cobra el bolsón (cada uno completo / se
+  reparte) y quién entra, el pool por días o en partes iguales, la restauración en partes
+  iguales o "quien la hizo primero" (con su parte), restauraciones que cuentan como ventas en
+  una tienda (suman a meta y pool, ya no se pagan aparte), no arrastrar la deuda trimestral, y
+  la parte de la compartida por tienda o persona. Ver `docs/plan-comisiones-personalizables.md`.
+  Detalle y decisiones del dueño en `docs/plan-comisiones-personalizables.md`.
+- **Cómo cobra quien reemplaza** (2026-10-29, sin migración, apagado por defecto): regla
+  `reparto_reemplazo` (por tienda) con "Entra al pool por días" (lo de siempre) o "Un porcentaje
+  de lo que vendió" (`pct_reemplazo`, por tienda o persona). Con la segunda, decidido por el
+  dueño: solo los reemplazos (no los traslados ni el equipo); lo que vendió entre el desde y el
+  hasta del reemplazo se paga con ese porcentaje (forma `reemplazo_ventas`, con el 50 % pagado y
+  el día de pago de siempre) y **no suma a la meta ni al pool**; quien faltó pierde esos días y su
+  parte se reparte entre los que estaban. Quien cubre tampoco entra ese día al reparto de las
+  restauraciones ni de lo que deja un independiente. Dónde: `TiendaReemplazo::cobraPorSusVentas`
+  (`pesosDelMes`, `equipoElDia`) y `ComisionController::idsDeReemplazoPorVentas` (sale de
+  `cargarTotales`, `totalesQueCuentan` y `libroDelPool`; `enriquecer` la paga). Sin esa regla
+  puesta en ninguna parte no se hace ni una consulta más.
+- **Textos que leen las reglas** (2026-10-27, Fase 3, sin migración): la Ayuda, el desglose,
+  los totales de la tienda, el detalle de cada comisión, el Excel y el asistente dicen el
+  porcentaje, el divisor del IVA, el día de pago y el reparto que rigen, no "5 %" fijo. Salen de
+  `GET /comisiones/reglas/vigentes` (general + excepciones del mes; sin Comisiones, solo la
+  general) y `utils/reglasComision.js` en la app. Un texto nuevo de comisiones con una cifra
+  de regla se escribe con esas funciones, no a mano.
+- **Pool por tramos y bono** (2026-10-27, pieza 8, sin migración, apagado por defecto): en una
+  tienda **mensual** el pool puede ir por tramos que suman (cada tramo paga su % sobre lo que cae
+  en él; el primero empieza en la meta) y llevar un bono fijo para el equipo encima, el mes que
+  llega a la meta. Reglas `formula_pool`, `tramos_pool`, `bono_meta`; cálculo en
+  `ComisionController::poolDe` / `desglosePool`. Las trimestrales no: su deuda se guarda en
+  pesos de pool. Detalle en `docs/plan-comisiones-personalizables.md` §10.
 
 ### 6.11 Costos de fabricación y cotizador IA
 `FichaTecnicaController`, `MaterialController`, `ConfiguracionCostosController`,
@@ -521,9 +657,44 @@ entregada"). Solo supervisor.
 
 ### 6.12 Chat de IA (asistente)
 `AgentChat.vue` → `POST /agent/chat`. GPT-4o con tools sobre los datos reales:
-fichas, comisiones, inventario, ventas por producto/categoría, clientes top,
-producción, órdenes, trabajadores, reportes, telas, caja, interesados, rotación.
+fichas, comisiones, inventario, variantes, telas, promociones, órdenes, producción,
+garantías, ventas (`analisis_ventas`), qué fabricar (`recomendar_fabricacion`),
+clientes, trabajadores, reportes, caja, interesados y finanzas.
 Las cifras de costo salen del motor determinístico, nunca del modelo.
+
+**Permisos (actualizado 2026-10-26)** — una sola regla en
+`Services/Asistente/PermisosAsistente`, con los mismos permisos de las pantallas:
+- El chat es solo de supervisores y vendedores (la API ahora también lo exige).
+- A cada persona solo se le mandan al modelo las herramientas que puede usar, y
+  `ejecutarTool` lo vuelve a revisar. Comisiones: `acceso_comisiones` (sin él, nada:
+  ni lo suyo ni las reglas). Finanzas: supervisor + `acceso_finanzas`. Fichas
+  técnicas: `acceso_costos`. Interesados: supervisor o `acceso_redes`. Reporte de
+  ventas/vendedores de la empresa: supervisor.
+- El prompt se arma por partes: las reglas de un tema solo van si tiene el permiso, y
+  le dice qué módulos no tiene para que no improvise.
+- Las órdenes salen con `Orden::visiblesPara` (antes: solo `vendedor_id`).
+- Negar es solo para los módulos de esa lista. Lo demás (p. ej. "¿dónde están los
+  catálogos?") se responde: el prompt trae el mapa del menú, y `consultar_catalogos`
+  da los enlaces (`/c/{slug}` y `/catalogo/{categoria}`). Antes, sin herramienta, el
+  modelo le decía a un supervisor que no tenía acceso (2026-10-26).
+- El chat (`AgentChat.vue`): temas del inicio según los permisos de la persona,
+  enlaces que se tocan, copiar/compartir, reintentar, y la conversación se guarda en
+  `sessionStorage` por usuario. La IA termina cada respuesta con una línea
+  `>> pregunta | pregunta` que la pantalla quita y muestra como botones (si se cambia
+  ese formato en el prompt, cambiar `separarSugerencias`).
+- **Una herramienta nueva hay que agregarla en `PermisosAsistente`** (falla
+  `AsistenteIaTest::test_cada_herramienta_definida_tiene_su_permiso` si no).
+
+**Análisis** — `analisis_ventas` llama a los mismos métodos de `StatsController` /
+`ReporteController::canalVentas` que las pantallas (mismas cifras; un vendedor ve lo
+suyo). `recomendar_fabricacion` usa `Services/Asistente/QueFabricar`: lo vendido sin
+cotizaciones/borradores/canceladas ni restauraciones, en días de Colombia; lo que hay =
+libre en tiendas (físico − apartado) + libre en fábrica + lo que el taller hace para la
+Reserva; fabricar = venta de 4 semanas − lo que hay; tendencia contra el período
+anterior; a qué tiendas mandar; diseños especiales repetidos; demanda de interesados
+(Clientes + Clientes → Redes). Con `acceso_costos` agrega costo de ficha y precio÷costo.
+Reemplazó a `analizar_rotacion_inventario`, `productos_mas_vendidos` y
+`ventas_por_categoria`, que contaban cotizaciones y borradores como venta.
 
 ### 6.13 Nómina
 `Nomina*Controller` (sueldos, empleados, pagos, ausencias, préstamos, ajustes,
@@ -568,6 +739,14 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
 - `CitaController`: citas presenciales o por mensaje; recordatorios diarios.
 - **Catálogo público** (`/catalogo/:seccion`) y **catálogos visuales** tipo
   revista (`/c`, `/c/:slug`, gestionados en Gestión → Catálogos, con QR).
+  Cada hoja tiene **nombre** (interno, 2026-10-30: lo usa Elena para saber qué hoja
+  manda y mandar solo esa) y **nota** (la ve el cliente encima de la hoja); se guardan
+  por separado (`PATCH …/paginas/{pid}` solo toca lo que llega). `/c/:slug?hoja=<id>`
+  abre el visor en esa hoja (por id, no por posición); el botón de enlace de cada hoja
+  en Gestión copia ese enlace. Migración `2026_11_06_000002_nombre_de_hojas_del_catalogo`.
+- **Dos fotos por producto** (Inventario → Gestionar: foto y "foto adicional",
+  `productos.foto_url_2`). Elena manda las dos al pedir la foto y reconoce la foto
+  del cliente con cualquiera de las dos. La adicional se puede quitar.
 
 ### 6.16 Anexo de garantías
 `AnexoGarantiaController`, `Support/AnexoGarantiaTexto` (texto de fábrica versionado;
@@ -588,6 +767,27 @@ opción, cantidades, precios y descuentos (redondeados); si la orden cambia, la 
 no vale (al crear) o el enlace no deja firmar (orden existente, 409). Un enlace vivo
 por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
 (`POST /anexos/{id}/anular`). El vendedor ve las respuestas "No" del check list.
+
+**La orden viaja con el enlace (2026-10-28):** al mandar el enlace desde Nueva orden, la
+pantalla valida la orden como al crearla (menos la firma), sube comprobantes y bocetos y
+guarda la orden completa en el anexo (`anexos_garantia.orden_pendiente`, el mismo cuerpo
+de `POST /ordenes`, con su `clave_envio`). El vendedor escoge antes de mandarlo:
+- **Crear la orden sola** (`crear_al_firmar`): al firmar, `firmar` encola
+  `Jobs\CrearOrdenFirmada` → `Services\OrdenDelAnexo` llama a `OrdenController::store`
+  a nombre de quien mandó el enlace, con `anexo_id`. Avisa al vendedor la orden creada o
+  el motivo (`orden_auto_estado` = creada | fallo, `orden_auto_error`). No con precio por
+  consultar (la consulta de costo la pide la pantalla).
+- **Esperar y crearla yo**: "Crear la orden" en Nueva orden (`POST /anexos/{id}/crear-orden`).
+Nueva orden muestra arriba "Pedidos enviados a firmar" (`GET /anexos/sin-orden`: esperando
+o firmados ≤30 días sin orden), aunque el formulario (48 h) ya no esté. Mientras espera se
+puede cambiar la opción (`PATCH /anexos/{id}/crear-al-firmar`). Mandar otra versión al mismo
+cliente descarta la firmada sin orden (`descartada`); "Quitar" también (la firma queda).
+El enlace dura **30 días** (antes 7) y lo firmado se retoma 30 días (antes 3). La huella de la
+orden guardada tiene que cuadrar con el resumen; la misma `clave_envio` evita dos órdenes si
+el vendedor también le da "Crear orden". El cliente tiene que marcar **"Revisé mi pedido,
+todo está bien"** antes de firmar (`orden_revisada`, se guarda en `respuestas`); ve también
+las notas y cómo paga el anticipo. Migración `2026_11_04_000001_crear_orden_al_firmar`
+(solo agrega). Tests en `AnexoGarantiaTest`.
 
 **Declaración de diseños y medidas especiales (2026-10-21):** el papel que el cliente
 firmaba para lo que no está en el catálogo, ahora en el sistema. `Support/DeclaracionEspeciales`
@@ -670,6 +870,11 @@ sesión, `PATCH` solo supervisor. Interruptores:
   aunque una app vieja los mande. Lo ya calificado se conserva y se sigue viendo
   (Usuarios, detalle de la orden, Mis pasos). No toca plata: Nómina y bonificaciones
   (`nomina_producciones`, a mano) no leen las calificaciones.
+- **Aviso de entrega próxima** (2026-11-03, `avisar_entrega_dias_antes`, guarda `'1,2'`;
+  de fábrica solo `1`). Con cuántos días de anticipación `AlertarRetrasoProduccion` manda
+  `por_vencer` por cada pieza `en_proceso` (antes 3, 2 y 1 fijos). Casillas 1/2/3; sin
+  ninguna, solo sale "Entrega hoy". Vale para todos; por persona se apaga el grupo
+  "Próximos a entregar".
 Para agregar otro: entrada en `AjustesSistema::DEFINICION` y en `todos()`, validación en
 el controlador, y que el backend lo respete.
 
@@ -729,7 +934,7 @@ mismo editor (`EditorCampos.vue`) sirve para todas:
   **arquetipo** que define el comportamiento: `vendedor`, `supervisor`,
   `conductor`, `taller`, `despachador`.
 - **Banderas por usuario** (`usuarios.*`): `facturacion`, `independiente`,
-  `acceso_redes`, `acceso_comisiones`, `recarga_telas`, `acceso_telas`,
+  `acceso_redes`, `acceso_comisiones`, `acceso_reglas_comision`, `recarga_telas`, `acceso_telas`,
   `acceso_surtir`, `acceso_costos`, `acceso_proveedores`, `acceso_despacho`,
   `acceso_entregas`, `acceso_produccion`, `gestiona_produccion`, `acceso_reserva`,
   `acceso_nomina`, `acceso_finanzas` (además de ser supervisor), `acceso_compras`, `lleva_encargos`, `acceso_encargos`,

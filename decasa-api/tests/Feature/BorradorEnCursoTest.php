@@ -75,6 +75,23 @@ class BorradorEnCursoTest extends TestCase
             ]);
     }
 
+    /**
+     * Los campos vacíos vuelven vacíos, no como null. Laravel convierte ''
+     * en null en todo lo que recibe (ConvertEmptyStringsToNull) y la pantalla
+     * hacía .trim() sobre las notas, el motivo o la dirección recuperados:
+     * Nueva orden quedaba en blanco al seguir la orden en otro aparato
+     * (2026-10-27). Los espacios tampoco se recortan: es lo que se escribió.
+     */
+    public function test_los_textos_vacios_vuelven_vacios_y_sin_recortar(): void
+    {
+        $u = $this->vendedora();
+        $datos = ['notas' => '', 'motivoSerie' => '', 'direccionEnvio' => '', 'contactoNombre' => 'Ana ',
+                  'nuevoCliente' => ['nombre' => '', 'cedula' => ''], 'items' => [['specs_notas' => '']]];
+        $this->guardar($u, 0, $datos)->assertOk();
+
+        $this->assertSame($datos, $this->actingAs($u)->getJson('/api/borradores-en-curso/' . self::CLAVE)->json('datos'));
+    }
+
     public function test_un_aparato_con_la_version_vieja_no_pisa_la_nueva(): void
     {
         $u = $this->vendedora();

@@ -36,6 +36,7 @@ class UsuarioController extends Controller
             'notif_stock'         => (bool) $u->notif_stock,
             'acceso_redes'        => (bool) $u->acceso_redes,
             'acceso_comisiones'   => (bool) $u->acceso_comisiones,
+            'acceso_reglas_comision' => (bool) ($u->acceso_reglas_comision ?? false),
             'recarga_telas'       => (bool) $u->recarga_telas,
             'acceso_telas'        => (bool) $u->acceso_telas,
             'acceso_surtir'       => (bool) $u->acceso_surtir,
@@ -292,6 +293,7 @@ class UsuarioController extends Controller
             'notif_stock'         => 'nullable|boolean',
             'acceso_redes'        => 'nullable|boolean',
             'acceso_comisiones'   => 'nullable|boolean',
+            'acceso_reglas_comision' => 'nullable|boolean',
             'recarga_telas'       => 'nullable|boolean',
             'acceso_telas'        => 'nullable|boolean',
             'acceso_surtir'       => 'nullable|boolean',
@@ -372,6 +374,23 @@ class UsuarioController extends Controller
 
         if ($request->has('acceso_comisiones')) {
             $data['acceso_comisiones'] = $request->boolean('acceso_comisiones');
+        }
+        // "Reglas de comisión" mueve la plata de todos (dueño, 2026-10-27: un
+        // permiso aparte). No lo puede dar cualquier supervisor —se lo daría a
+        // sí mismo—: solo quien ya lo tiene. El primero, mientras nadie lo
+        // tenga, lo da un supervisor con acceso a Comisiones.
+        unset($data['acceso_reglas_comision']);
+        if ($request->has('acceso_reglas_comision')
+            && \App\Support\Esquema::columna('usuarios', 'acceso_reglas_comision')
+            && $request->boolean('acceso_reglas_comision') !== (bool) $usuario->acceso_reglas_comision) {
+            $quien = $request->user();
+            $nadieLoTiene = ! Usuario::where('acceso_reglas_comision', true)->exists();
+            $puedeDarlo = $quien->acceso_reglas_comision
+                || ($nadieLoTiene && $quien->rol === 'supervisor' && $quien->acceso_comisiones);
+            if (! $puedeDarlo) {
+                return response()->json(['message' => 'El permiso "Reglas de comisión" solo lo da o lo quita quien ya lo tiene.'], 403);
+            }
+            $data['acceso_reglas_comision'] = $request->boolean('acceso_reglas_comision');
         }
         if ($request->has('acceso_telas')) {
             $data['acceso_telas'] = $request->boolean('acceso_telas');

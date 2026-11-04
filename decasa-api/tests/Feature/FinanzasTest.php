@@ -390,6 +390,32 @@ class FinanzasTest extends TestCase
             ->assertJsonStructure(['mes' => ['ventas', 'utilidad_operativa'], 'indicadores' => ['punto_equilibrio', 'semaforo'], 'proximos']);
     }
 
+    public function test_la_ultima_foto_se_pinta_mientras_calcula_y_no_trae_los_pagos(): void
+    {
+        $jefa = $this->jefa();
+        // Sin cálculo previo no hay foto.
+        $this->actingAs($jefa)->getJson('/api/finanzas/resumen?mes=2026-10&serie=1&foto=1')->assertNoContent();
+
+        $this->venta(5_950_000, 2_000_000);
+        $fresco = $this->actingAs($jefa)->getJson('/api/finanzas/resumen?mes=2026-10&serie=1')->assertOk()->json();
+
+        $foto = $this->actingAs($jefa)->getJson('/api/finanzas/resumen?mes=2026-10&serie=1&foto=1')->assertOk()->json();
+        $this->assertSame($fresco['mes'], $foto['datos']['mes']);
+        $this->assertSame($fresco['serie'], $foto['datos']['serie']);
+        // Los próximos pagos tienen el botón Pagar: nunca de una foto.
+        $this->assertNull($foto['datos']['proximos']);
+        $this->assertNotEmpty($foto['foto_at']);
+        // Cada mes y cada variante tiene su foto.
+        $this->actingAs($jefa)->getJson('/api/finanzas/resumen?mes=2026-10&foto=1')->assertNoContent();
+
+        // Las demás pantallas también la dejan.
+        $flujo = $this->actingAs($jefa)->getJson('/api/finanzas/flujo-caja')->json();
+        $this->actingAs($jefa)->getJson('/api/finanzas/flujo-caja?foto=1')->assertOk()->assertJsonPath('datos.meses', $flujo['meses']);
+
+        // Quien no ve Finanzas tampoco ve la foto.
+        $this->actingAs(Usuario::find(2))->getJson('/api/finanzas/resumen?mes=2026-10&serie=1&foto=1')->assertForbidden();
+    }
+
     public function test_las_demas_pantallas_responden(): void
     {
         $this->venta(5_950_000, 2_000_000);

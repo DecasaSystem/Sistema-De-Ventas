@@ -4,9 +4,10 @@
 // honesta para decidir si una tienda se sostiene. La UTILIDAD le resta además
 // su parte de lo general (taller, administración), que siempre se discute.
 import { ref, computed, watch } from 'vue'
-import { getPorTienda, getPorCanal } from '@/api/finanzas'
+import { getPorTienda, getPorCanal, getFoto } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, nombreMes } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
+import FotoAviso from './FotoAviso.vue'
 import { useToast } from '@/composables/useToast'
 import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
@@ -15,6 +16,8 @@ const emit = defineEmits(['ajustes'])
 const toast = useToast()
 
 const cargando = ref(true)
+// La hora de la foto del servidor que se está mostrando (null = lo recién traído).
+const fotoAt = ref(null)
 const datos = ref(null)
 const abierta = ref(null)
 
@@ -28,10 +31,21 @@ async function cargar() {
   const antes = recordado(`tiendas:${mes}`)
   if (antes) [datos.value, canales.value] = antes
   else datos.value = null
+  fotoAt.value = null
   cargando.value = true
+  // Sin nada en memoria, la última foto del servidor mientras se calcula.
+  if (!antes) {
+    Promise.all([getFoto('por-tienda', { mes }), getFoto('por-canal', { mes })]).then(([t, c]) => {
+      if (!t || yo !== pedido || !cargando.value) return
+      datos.value = t.datos
+      canales.value = c?.datos ?? null
+      fotoAt.value = t.foto_at
+    })
+  }
   try {
     const [t, c] = await Promise.all([getPorTienda(mes), getPorCanal(mes)])
     if (yo !== pedido) return   // ya cambiaron de mes
+    fotoAt.value = null
     datos.value = t.data
     canales.value = c.data
     recordar(`tiendas:${mes}`, [t.data, c.data])
@@ -111,6 +125,7 @@ const filasDesglose = (t) => [
 </script>
 
 <template>
+  <FotoAviso :fecha="cargando ? fotoAt : null" />
   <div v-if="cargando && !datos" class="flex justify-center py-16"><AppSpinner /></div>
 
   <div v-else-if="datos" class="space-y-4" :class="cargando && 'opacity-60'">

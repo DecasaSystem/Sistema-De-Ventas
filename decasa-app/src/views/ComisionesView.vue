@@ -20,8 +20,10 @@ import {
   ArrowDownTrayIcon,
   PencilIcon,
   QuestionMarkCircleIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
+import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
@@ -51,6 +53,11 @@ const guardandoMeta = ref(null)
 const metaEdits    = ref({})
 const metas        = ref([])
 
+// Las reglas que rigen en el mes, para que el desglose y los totales digan el
+// porcentaje de verdad y no "5%" escrito a mano (utils/reglasComision).
+const reglasVigentes = ref(null)
+const reglasDe = (r) => reglasPara(reglasVigentes.value, { tiendaId: r.tienda_id, usuarioId: r.vendedor_id })
+
 // Asesores asignados (para panel metas)
 const todosVendedores  = ref([])   // lista para el select
 const agregandoAsesor  = ref({})   // tienda_id → vendedor_id seleccionado
@@ -69,10 +76,12 @@ async function cargar() {
       params.vendedor_id = vendedorSel.value
     }
 
-    const [cRes, vRes] = await Promise.all([
+    const [cRes, vRes, reglas] = await Promise.all([
       api.get('/comisiones', { params }),
       api.get('/comisiones/vendedores', { params: { mes: mesActual.value } }),
+      cargarReglasVigentes(mesActual.value),
     ])
+    reglasVigentes.value = reglas
     comisiones.value = cRes.data
     vendedores.value = vRes.data
     await cargarMetas()
@@ -587,55 +596,75 @@ function toastPago(nombre, data) {
 
 // Una comisión se paga de tres maneras y no se distinguían en pantalla: se
 // veía el desglose del pool aunque la orden no se hubiera pagado por pool.
+// El resumen recibe las reglas de esa comisión (r): decía "5%" escrito a mano.
 const FORMAS_PAGO = {
   restauracion_5: {
     etiqueta: 'Restauración',
-    resumen:  '5% del valor. No pasa por el pool ni le suma a la meta.',
+    resumen:  (r) => `${num(r.pct_restauracion)}% del valor. No pasa por el pool ni le suma a la meta.`,
     clase:    'bg-purple-100 text-purple-700',
   },
   restauracion_equipo: {
     etiqueta: 'Restauración de la tienda',
-    resumen:  'El 5% de la restauración se parte entre los que estaban en la tienda ese día: si son dos, 2,5% para cada uno. No le suma a la meta.',
+    resumen:  (r) => r.reparto_restauracion === 'autor_primero'
+      ? `Del ${num(r.pct_restauracion)}% de la restauración, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% y el resto se parte igual entre los demás que estaban en la tienda ese día. No le suma a la meta.`
+      : `El ${num(r.pct_restauracion)}% de la restauración se parte entre los que estaban en la tienda ese día: si son dos, ${num(r.pct_restauracion / 2)}% para cada uno. No le suma a la meta.`,
     clase:    'bg-purple-100 text-purple-700',
   },
   fuera_del_pool: {
     etiqueta: 'Fuera del pool',
-    resumen:  'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga comisión.',
+    resumen:  () => 'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga comisión.',
     clase:    'bg-amber-100 text-amber-700',
   },
   sin_meta_5: {
     etiqueta: 'Individual',
-    resumen:  'Sin meta no hay pool: cobra el 5% de lo suyo, sin dividir.',
+    resumen:  (r) => `Sin meta no hay pool: cobra el ${num(r.pct_individual)}% de lo suyo, sin dividir.`,
+    clase:    'bg-sky-100 text-sky-700',
+  },
+  reemplazo_ventas: {
+    etiqueta: 'Reemplazo',
+    resumen:  (r) => `La vendió cubriendo a alguien en esta tienda: cobra el ${num(r.pct_reemplazo)}% de lo que vendió esos días. Esa venta no suma a la meta ni al pool de la tienda.`,
     clase:    'bg-sky-100 text-sky-700',
   },
   pool: {
     etiqueta: 'Pool',
-    resumen:  'Su parte del pool de la tienda, igual que la de todos. Cuentan las ventas de la tienda cuyo cliente ya pagó la mitad.',
+    resumen:  (r) => `Su parte del pool de la tienda, igual que la de todos. Cuentan las ventas de la tienda cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}.`,
     clase:    'bg-gray-100 text-gray-600',
   },
   abono_almacen: {
     etiqueta: 'Le dejó un independiente',
-    resumen:  'Su parte del 5% que dejó un independiente al compartir una venta con su tienda. No le suma a la meta.',
+    resumen:  (r) => `Su parte del ${num(r.almacen_pct)}% que dejó un independiente al compartir una venta con su tienda. No le suma a la meta.`,
     clase:    'bg-emerald-100 text-emerald-700',
   },
   independiente_5: {
     etiqueta: 'Independiente',
-    resumen:  'Trabaja por su cuenta: 5% de su venta (÷1,19), sobre el valor entero aunque la haya compartido con un almacén.',
+    resumen:  (r) => `Trabaja por su cuenta: ${num(r.indep_pct_venta)}% de su venta${r.iva_en_venta ? ` (÷${divisor(r.iva_divisor)})` : ''}, sobre el valor entero aunque la haya compartido con un almacén.`,
     clase:    'bg-sky-100 text-sky-700',
   },
   bolson_restauraciones: {
     etiqueta: 'Bolsón de restauraciones',
-    resumen:  'El 5% de todas las restauraciones del mes, igual para cada independiente. No cuelga de ninguna orden.',
+    resumen:  (r) => r.bolson_modo === 'se_reparte'
+      ? `El ${num(r.indep_pct_bolson)}% de todas las restauraciones del mes, repartido entre los independientes. No cuelga de ninguna orden.`
+      : `El ${num(r.indep_pct_bolson)}% de todas las restauraciones del mes, igual para cada independiente. No cuelga de ninguna orden.`,
     clase:    'bg-purple-100 text-purple-700',
   },
   parte_pool: {
     etiqueta: 'Parte del equipo',
-    resumen:  'Su parte del pool, igual que la de todos. Va aquí porque no tiene una venta propia por la cual pagársela: no vendió, o esas ya se le pagaron y el pool creció después.',
+    resumen:  () => 'Su parte del pool, igual que la de todos. Va aquí porque no tiene una venta propia por la cual pagársela: no vendió, o esas ya se le pagaron y el pool creció después.',
     clase:    'bg-amber-100 text-amber-700',
   },
 }
 function formaPago(c) {
-  return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
+  const f = FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
+  return { ...f, resumen: f.resumen(reglasDe(c ?? {})) }
+}
+
+/** El porcentaje con que se sacó una comisión que no va por el pool. */
+function pctDeLaForma(c) {
+  const r = reglasDe(c)
+  if (c.abono_de_almacen) return r.almacen_pct
+  if (c.forma_pago === 'restauracion_5' || c.forma_pago === 'restauracion_equipo') return r.pct_restauracion
+  if (c.forma_pago === 'reemplazo_ventas') return r.pct_reemplazo
+  return r.pct_individual
 }
 
 // El desglose de cada quien lo pinta DesgloseComision: la lista de renglones
@@ -891,8 +920,8 @@ async function cambiarCompartidas(meta, comparte) {
     await api.patch(`/comisiones/tiendas/${meta.tienda_id}/compartidas`, { comparte })
     meta.comisiones_compartidas = comparte
     toast.success(comparte
-      ? `${meta.nombre}: el 5% ahora se reparte entre el equipo`
-      : `${meta.nombre}: cada uno cobra el 5% de lo suyo`)
+      ? `${meta.nombre}: la comisión ahora se reparte entre el equipo`
+      : `${meta.nombre}: cada uno cobra el ${num(reglasDe(meta).pct_individual)}% de lo suyo`)
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
   } catch (e) {
@@ -1063,52 +1092,130 @@ function resumenEstadoLabel(r) {
 }
 
 // ── Exportación a Excel ──────────────────────────────────────────────────────
-// Un solo libro con todo el mes explicado (ver utils/excelComisiones.js).
-// Los filtros de la pantalla recortan lo que sale: la vista, la pestaña de
-// estado, el vendedor elegido y, en el resumen, la agrupación. Los datos se
-// piden frescos al servidor para que el archivo no dependa de qué pestaña
-// se cargó antes ni de un vendedor que se dejó elegido en otra vista.
+// El botón "Excel" abre una hoja con tres libros, cada uno dicho en palabras.
+// Antes era un solo botón que bajaba cosas distintas según la pestaña (en
+// Listas lo por pagar, en las demás el mes de la pantalla, recortado por sus
+// filtros): a una persona le bajó octubre queriendo Listas (2026-10-29), y el
+// mes solo se podía escoger en Resumen. Ahora se escoge qué y de qué mes, y
+// el mes completo sale entero, sin los filtros de la pantalla.
+//   · Lo que se va a pagar → utils/excelListas.js
+//   · Un mes completo      → utils/excelComisiones.js
+//   · Cómo va el mes       → utils/excelComoVa.js (el mes en curso, estimado)
+// Los datos se piden frescos al servidor: el archivo no depende de lo que la
+// pantalla haya cargado antes.
 const exportando = ref(false)
+const hojaExcel  = ref(false)
+const excelOpcion    = ref('listas')   // listas | mes | como_va
+const excelMesListas = ref('')         // '' = todo lo que hay por pagar
+const excelMes       = ref(mesDeHoy())
+const excelVendedor  = ref('')         // '' = todas las personas
+const excelPersonas  = ref([])
 
-async function exportarExcelCompleto() {
+const enListas = computed(() => vistaTab.value === 'estado' && tab.value === 'lista')
+
+async function cargarPersonasExcel() {
+  excelPersonas.value = []
+  if (!excelMes.value) return
+  try {
+    const { data } = await api.get('/comisiones/vendedores', { params: { mes: excelMes.value }, silencioso: true })
+    excelPersonas.value = data ?? []
+    if (excelVendedor.value && !excelPersonas.value.some(p => p.id === excelVendedor.value)) excelVendedor.value = ''
+  } catch { /* sin la lista se baja el mes entero */ }
+}
+
+/** Abre la hoja con lo que se estaba mirando ya escogido. */
+function abrirExcel() {
+  excelOpcion.value    = enListas.value ? 'listas' : 'mes'
+  excelMesListas.value = mesListas.value
+  excelMes.value       = mesActual.value
+  excelVendedor.value  = vistaTab.value === 'vendedor' && vendedorSel.value ? vendedorSel.value : ''
+  hojaExcel.value = true
+  cargarPersonasExcel()
+}
+
+async function exportarExcelListas(mes) {
+  const { data } = await api.get('/comisiones/por-pagar', {
+    params: { detalle: 1, ...(mes ? { mes } : {}) },
+  })
+  if (!data.personas?.length) {
+    toast.error(mes ? `No hay nada por pagar de ${nombreMes(mes)}.` : 'No hay nada listo para pagar.')
+    return false
+  }
+  const meses = [...new Set([data.mes_que_toca, ...data.personas.flatMap(p => p.bloques.map(b => b.mes))])]
+  const reglas = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m)])))
+  const { exportarListasExcel } = await import('@/utils/excelListas')
+  await exportarListasExcel({ porPagar: data, reglas, generadoPor: auth.usuario?.nombre })
+  return true
+}
+
+async function exportarExcelDelMes(mes, vendedorId) {
+  const [cRes, iRes, mRes, rRes, reglas] = await Promise.all([
+    api.get('/comisiones', { params: { mes } }),
+    api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
+    api.get('/comisiones/metas', { params: { mes } }),
+    api.get('/comisiones/reemplazos', { params: { mes } }).catch(() => ({ data: {} })),
+    cargarReglasVigentes(mes),
+  ])
+
+  const filtros = {
+    vista:          'mes',
+    estado:         null,
+    vendedorId:     vendedorId || null,
+    vendedorNombre: vendedorId ? (excelPersonas.value.find(p => p.id === vendedorId)?.nombre ?? null) : null,
+    agrupacion:     null,
+  }
+
+  const hayAlgo = (cRes.data ?? []).some(c => !filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
+  if (!hayAlgo && !(iRes.data?.independientes?.length)) {
+    toast.error(`No hay comisiones en ${nombreMes(mes)}${filtros.vendedorNombre ? ' de ' + filtros.vendedorNombre : ''}.`)
+    return false
+  }
+
+  await exportarComisionesExcel({
+    mes,
+    comisiones:  cRes.data ?? [],
+    indep:       (iRes.data?.independientes?.length || iRes.data?.almacenes?.length) ? iRes.data : null,
+    metas:       mRes.data ?? [],
+    reemplazos:  rRes.data?.reemplazos ?? [],
+    reparto:     Object.fromEntries((rRes.data?.reparto ?? []).map(r => [r.tienda_id, r])),
+    reglas,
+    filtros,
+    generadoPor: auth.usuario?.nombre,
+  })
+  return true
+}
+
+async function exportarExcelComoVa() {
+  const mes = mesDeHoy()
+  const [cRes, iRes, mRes, reglas] = await Promise.all([
+    api.get('/comisiones', { params: { mes } }),
+    api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
+    api.get('/comisiones/metas', { params: { mes, avance: 1 } }),
+    cargarReglasVigentes(mes),
+  ])
+  const { exportarComoVaExcel } = await import('@/utils/excelComoVa')
+  await exportarComoVaExcel({
+    mes,
+    comisiones:  cRes.data ?? [],
+    metas:       mRes.data ?? [],
+    indep:       iRes.data?.independientes?.length ? iRes.data : null,
+    reglas,
+    generadoPor: auth.usuario?.nombre,
+  })
+  return true
+}
+
+async function descargarExcel() {
+  if (excelOpcion.value === 'mes' && !excelMes.value) {
+    toast.error('Escoge el mes.')
+    return
+  }
   exportando.value = true
   try {
-    const mes = mesActual.value
-    const [cRes, iRes, mRes, rRes] = await Promise.all([
-      api.get('/comisiones', { params: { mes } }),
-      api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
-      api.get('/comisiones/metas', { params: { mes } }),
-      api.get('/comisiones/reemplazos', { params: { mes } }).catch(() => ({ data: {} })),
-    ])
-
-    const enVendedor = vistaTab.value === 'vendedor' && vendedorSel.value
-    const filtros = {
-      vista:          vistaTab.value,
-      // En el resumen se ve el mes entero; en las otras vistas, la pestaña.
-      estado:         vistaTab.value === 'resumen' ? null : tab.value,
-      vendedorId:     enVendedor ? vendedorSel.value : null,
-      vendedorNombre: enVendedor ? (vendedorActual.value?.nombre ?? null) : null,
-      agrupacion:     vistaTab.value === 'resumen' ? resumenFiltro.value : null,
-    }
-
-    const hayAlgo = (cRes.data ?? []).some(c =>
-      (!filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
-      && (!filtros.estado || (c.estado_calculado ?? c.estado) === filtros.estado))
-    if (!hayAlgo && !(iRes.data?.independientes?.length)) {
-      toast.error('No hay comisiones para exportar con estos filtros.')
-      return
-    }
-
-    await exportarComisionesExcel({
-      mes,
-      comisiones:  cRes.data ?? [],
-      indep:       (iRes.data?.independientes?.length || iRes.data?.almacenes?.length) ? iRes.data : null,
-      metas:       mRes.data ?? [],
-      reemplazos:  rRes.data?.reemplazos ?? [],
-      reparto:     Object.fromEntries((rRes.data?.reparto ?? []).map(r => [r.tienda_id, r])),
-      filtros,
-      generadoPor: auth.usuario?.nombre,
-    })
+    const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
+      : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
+      : await exportarExcelComoVa()
+    if (listo) hojaExcel.value = false
   } catch {
     toast.error('No se pudo generar el Excel.')
   } finally {
@@ -1144,9 +1251,9 @@ onMounted(async () => {
       </h1>
       <div class="flex flex-wrap gap-2 justify-end">
         <button
-          @click="exportarExcelCompleto"
+          @click="abrirExcel"
           :disabled="exportando"
-          title="Descargar Excel del mes con los filtros de la pantalla (resumen, por vendedor, por tienda, detalle, independientes, metas)"
+          title="Descargar Excel: lo que se va a pagar, un mes completo o cómo va el mes"
           class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700 disabled:opacity-50"
         >
           <ArrowDownTrayIcon class="w-3.5 h-3.5" />
@@ -1165,6 +1272,13 @@ onMounted(async () => {
           class="text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg px-2.5 py-1.5 hover:bg-blue-100 disabled:opacity-50"
         >
           {{ recalculando ? 'Calculando…' : 'Recalcular' }}
+        </button>
+        <button
+          @click="router.push({ name: 'comisiones-reglas' })"
+          class="flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
+        >
+          <AdjustmentsHorizontalIcon class="w-3.5 h-3.5" />
+          Reglas
         </button>
         <button
           @click="router.push({ name: 'comisiones-ayuda' })"
@@ -1262,7 +1376,7 @@ onMounted(async () => {
       <template v-if="indepData.almacenes.length">
         <p class="text-[11px] font-semibold text-gray-500 uppercase mt-3 mb-1">Almacenes que ayudaron</p>
         <p class="text-[11px] text-gray-500 mb-1">
-          Ese 5% no se queda en la tienda: se reparte en partes iguales entre su
+          Ese {{ num(reglasDe({}).almacen_pct) }}% no se queda en la tienda: se reparte en partes iguales entre su
           gente y les suma a su comisión del mes.
         </p>
         <div v-for="a in indepData.almacenes" :key="a.tienda_id"
@@ -1464,11 +1578,11 @@ onMounted(async () => {
               </span>
               <span class="block text-[11px] text-gray-500 leading-snug">
                 <template v-if="m.comisiones_compartidas">
-                  El 5% es del equipo: el pool se parte entre todos, las restauraciones también,
+                  La comisión es del equipo: el pool ({{ num(reglasDe(m).pct_pool) }}%) se parte entre todos, las restauraciones también,
                   y quien no vendió cobra su parte igual.
                 </template>
                 <template v-else>
-                  Cada uno cobra el 5% de lo suyo y las restauraciones enteras. No se reparte nada.
+                  Cada uno cobra el {{ num(reglasDe(m).pct_individual) }}% de lo suyo y las restauraciones enteras. No se reparte nada.
                 </template>
               </span>
             </span>
@@ -1898,6 +2012,7 @@ onMounted(async () => {
                 :desglose="r.desglose"
                 :total="r.comision_total"
                 :ventas="r.total_ventas"
+                :reglas="reglasDe(r)"
                 class="mb-2"
               />
 
@@ -1907,6 +2022,7 @@ onMounted(async () => {
                 v-if="!r.es_independiente && r.resumen_tienda"
                 :resumen="r.resumen_tienda"
                 :tienda="r.tienda_nombre"
+                :reglas="reglasDe(r)"
                 class="mb-2"
               />
 
@@ -2032,7 +2148,7 @@ onMounted(async () => {
                     >Descuento</span>
                     <span
                       v-if="o.sin_descontar_iva"
-                      title="FV2 especial: la comisión se sacó sobre el valor completo, sin dividir por 1,19"
+                      title="FV2 especial: la comisión se sacó sobre el valor completo, sin quitarle el IVA"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
                     >Sin restar IVA</span>
                     <span
@@ -2205,7 +2321,7 @@ onMounted(async () => {
                         <template v-if="b.se_descuenta > 0"> · <span class="text-red-600">{{ textoDescuentoBloque(b) }}</span></template>
                       </p>
                       <p v-if="b.pendientes > 0" class="text-[10px] text-orange-500 mt-0.5">
-                        {{ b.pendientes }} todavía pendiente{{ b.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado la mitad)
+                        {{ b.pendientes }} todavía pendiente{{ b.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado {{ laParte(reglasDe(b).req_pagado_pct) }})
                       </p>
                       <p v-if="b.es_independiente && b.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600 mt-0.5">
                         incluye bolsón de restauraciones
@@ -2487,7 +2603,7 @@ onMounted(async () => {
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.req_50_pct" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
-                <span :class="c.req_50_pct ? 'text-green-700' : 'text-gray-500'">50% de la orden pagado</span>
+                <span :class="c.req_50_pct ? 'text-green-700' : 'text-gray-500'">{{ num(reglasDe(c).req_pagado_pct) }}% de la orden pagado</span>
               </div>
               <span class="text-gray-400 font-medium">{{ c.pct_pagado }}%</span>
             </div>
@@ -2499,7 +2615,7 @@ onMounted(async () => {
                 <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
                 <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">
-                  {{ c.periodicidad === 'trimestral' ? `Trimestre ${c.trimestre} en positivo` : 'Meta tienda alcanzada (con lo que tiene la mitad pagada)' }}
+                  {{ c.periodicidad === 'trimestral' ? `Trimestre ${c.trimestre} en positivo` : `Meta tienda alcanzada (con lo que tiene ${partePagada(reglasDe(c).meta_req_pagado_pct)})` }}
                 </span>
               </div>
               <span v-if="c.periodicidad !== 'trimestral'" class="text-gray-400 font-medium">
@@ -2528,11 +2644,11 @@ onMounted(async () => {
               <p>{{ formaPago(c).resumen }}</p>
               <p>{{ c.abono_de_almacen ? 'Lo que le tocó de la orden' : 'Valor de la orden' }}:
                 {{ cop(c.valor_orden) }}</p>
-              <p v-if="c.forma_pago === 'sin_meta_5' || (c.abono_de_almacen && !c.es_restauracion)">
-                Sin IVA (÷1.19): {{ cop(c.valor_orden / 1.19) }}
+              <p v-if="(c.forma_pago === 'sin_meta_5' || c.forma_pago === 'reemplazo_ventas' || (c.abono_de_almacen && !c.es_restauracion)) && reglasDe(c).iva_en_venta">
+                Sin IVA (÷{{ divisor(reglasDe(c).iva_divisor) }}): {{ cop(c.valor_orden / reglasDe(c).iva_divisor) }}
               </p>
               <p class="font-bold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">
-                5% = {{ cop(c.monto_comision) }}
+                {{ num(pctDeLaForma(c)) }}% = {{ cop(c.monto_comision) }}
               </p>
             </div>
             <div v-else-if="c.periodicidad === 'trimestral'" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
@@ -2547,10 +2663,14 @@ onMounted(async () => {
             </div>
             <div v-else-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
               <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
-              <p>Ventas tienda mes (con el 50% pagado): {{ cop(c.total_tienda_mes) }}</p>
+              <p>Ventas tienda mes (con el {{ num(reglasDe(c).meta_req_pagado_pct) }}% pagado): {{ cop(c.total_tienda_mes) }}</p>
               <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>
-              <p>Sin IVA (÷1.19): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / 1.19)) }}</p>
-              <p>Pool 5%: {{ cop(c.comision_pool) }}</p>
+              <template v-if="poolDeSiempre(reglasDe(c))">
+                <p v-if="reglasDe(c).iva_en_venta">Sin IVA (÷{{ divisor(reglasDe(c).iva_divisor) }}): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / reglasDe(c).iva_divisor)) }}</p>
+                <p>Pool {{ num(reglasDe(c).pct_pool) }}%: {{ cop(c.comision_pool) }}</p>
+              </template>
+              <!-- Por tramos o con bono: la cuenta completa está en "Toda la tienda". -->
+              <p v-else>Pool {{ cuentaPool(reglasDe(c)) }}: {{ cop(c.comision_pool) }}</p>
               <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
               <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
@@ -2563,6 +2683,91 @@ onMounted(async () => {
         </div>
       </div>
     </template>
+
+    <!-- Descargar Excel: qué libro y de qué mes -->
+    <div v-if="hojaExcel" class="fixed inset-0 bg-black/40 z-[60] flex items-end sm:items-center justify-center" @click.self="hojaExcel = false">
+      <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-3 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h3 class="text-base font-bold text-gray-800">Descargar Excel</h3>
+            <p class="text-xs text-gray-500">Escoge qué quieres ver</p>
+          </div>
+          <button type="button" @click="hojaExcel = false" class="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 1. Lo que se va a pagar -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'listas' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="listas" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Lo que se va a pagar</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Lo mismo que Listas: por persona y tienda, orden por orden, con anticipos y totales.</p>
+              <div v-if="excelOpcion === 'listas'" class="mt-2 flex items-center justify-between gap-2">
+                <p class="text-[11px] text-gray-600">{{ excelMesListas ? `Solo ${nombreMes(excelMesListas)}` : 'Todo lo que hay por pagar' }}</p>
+                <div class="flex items-center gap-2">
+                  <button v-if="excelMesListas" type="button" @click.prevent="excelMesListas = ''" class="text-[10px] text-blue-600 font-semibold">Todo</button>
+                  <input type="month" v-model="excelMesListas" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 2. Un mes completo -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'mes' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="mes" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Un mes completo</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Cualquier mes, entero: cada tienda contra su meta, cada persona, cada orden con su cuenta, independientes y reemplazos.</p>
+              <div v-if="excelOpcion === 'mes'" class="mt-2 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600">Mes</p>
+                  <input type="month" v-model="excelMes" @change="cargarPersonasExcel" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600 shrink-0">Persona</p>
+                  <select v-model="excelVendedor" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="">Todas</option>
+                    <option v-for="p in excelPersonas" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+                  </select>
+                </div>
+                <p v-if="excelMes === mesDeHoy()" class="text-[10px] text-amber-700">Es el mes en curso: las cifras todavía cambian.</p>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 3. Cómo va el mes -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'como_va' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="como_va" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Cómo va el mes <span class="text-[10px] font-semibold text-amber-700 border border-amber-300 rounded-full px-1.5 py-0.5 ml-1">estimado</span></p>
+              <p class="text-[11px] text-gray-500 leading-snug">
+                <span class="capitalize">{{ nombreMes(mesDeHoy()) }}</span> a hoy: cuánto le falta a cada tienda para la meta, cuánto hay que
+                vender por día, qué órdenes faltan por cobrar para que cuenten y cuánto daría si cerrara hoy.
+              </p>
+            </div>
+          </div>
+        </label>
+
+        <button
+          type="button"
+          @click="descargarExcel"
+          :disabled="exportando"
+          class="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg py-2.5 text-xs font-semibold"
+        >
+          <ArrowDownTrayIcon class="w-4 h-4" />
+          {{ exportando ? 'Armando el Excel…' : 'Descargar' }}
+        </button>
+      </div>
+    </div>
 
   </div>
 </template>

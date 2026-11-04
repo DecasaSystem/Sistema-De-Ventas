@@ -20,6 +20,12 @@ export const getDesgloseVariantes = (tiendaId) =>
 export const getResumenCategoria = (tiendaId, categoria) =>
   api.get('/inventario/resumen-categoria', { params: { tienda_id: tiendaId, categoria } })
 
+// Categorías (supervisor): el nombre real con cuántos productos tiene, y
+// renombrar/juntar. 409 con `existe` = ya hay otra con ese nombre; se manda
+// otra vez con `juntar: true` si la persona confirma.
+export const getGestionCategorias = () => api.get('/productos/categorias/gestion')
+export const renombrarCategoria   = (data) => api.post('/productos/categorias/renombrar', data)
+
 export const addStock    = (data) => api.post('/inventario/entrada', data)
 export const removeStock = (data) => api.post('/inventario/salida',  data)
 

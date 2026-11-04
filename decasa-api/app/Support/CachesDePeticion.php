@@ -33,6 +33,7 @@ class CachesDePeticion
         \App\Services\ConsumoTelas::olvidarCache();
         \App\Models\Tienda::olvidarCerradas();
         \App\Services\ComisionIndependientes::olvidarCache();
+        \App\Support\ReglasComision::olvidarCache();
         \App\Services\GarantiaService::olvidarCache();
         \App\Http\Controllers\OrdenMensajeController::olvidarCache();
         \App\Services\CostoEmpleador::olvidarCache();

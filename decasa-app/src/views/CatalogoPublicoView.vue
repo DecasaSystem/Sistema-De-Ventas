@@ -64,6 +64,14 @@ const ordenados  = computed(() => [
 const destacado  = computed(() => (ordenados.value[0]?.foto_url ? ordenados.value[0] : null))
 const resto      = computed(() => (destacado.value ? ordenados.value.slice(1) : ordenados.value))
 const fotosDe    = (p) => [p?.foto_url, p?.foto_url_2].filter(Boolean)
+// El mueble completo, nunca recortado. Las fotos de inventario vienen de todas
+// las formas (cuadradas, 2:3, 9:16) y las cajas son 4:5: con object-cover a un
+// reloj redondo le cortaban los lados del aro y a uno vertical casi un tercio.
+// Van "contain" sobre una caja blanca: las fotos de estudio tienen fondo
+// blanco y se funden con ella. (Con multiply sobre el marfil se teñía de beige
+// lo blanco del mueble, como la esfera de un reloj.) Se piden con calidad
+// alta: es lo único del sistema que ve el cliente.
+const foto = (url, ancho) => cloudinaryOpt(url, ancho, { calidad: 'best' })
 const detalleDe  = (p) => [p.medidas, p.material].filter(Boolean).join(' · ')
 
 // ── Ficha del producto ───────────────────────────────────────────────────────
@@ -141,9 +149,9 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()
         <div>
           <button v-if="fotosDe(abierto).length" type="button"
             @click="abrirFoto(fotosDe(abierto), { indice: fotoIdx, nombre: abierto.nombre })"
-            class="relative block w-full aspect-[4/5] bg-[#E7DDCF] sm:rounded-[20px] overflow-hidden"
+            class="relative block w-full aspect-[4/5] bg-white sm:rounded-[20px] overflow-hidden"
             :aria-label="`Ampliar la foto de ${abierto.nombre}`">
-            <img :src="cloudinaryOpt(fotosDe(abierto)[fotoIdx], 900)" :alt="abierto.nombre" class="w-full h-full object-cover" />
+            <img :src="foto(fotosDe(abierto)[fotoIdx], 1200)" :alt="abierto.nombre" class="w-full h-full object-contain p-4 sm:p-6" />
             <span class="absolute bottom-3.5 left-3.5 flex items-center gap-1.5 text-xs font-semibold bg-[#F6F1E9] rounded-full px-3 py-1.5">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
               Ampliar
@@ -161,9 +169,9 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()
           <div v-if="fotosDe(abierto).length > 1" class="flex gap-2.5 px-5 sm:px-0 pt-3">
             <button v-for="(f, i) in fotosDe(abierto)" :key="f" type="button" @click="fotoIdx = i"
               :aria-label="`Ver foto ${i + 1}`"
-              :class="['w-16 h-20 rounded-xl overflow-hidden bg-[#E7DDCF]',
+              :class="['w-16 h-20 rounded-xl overflow-hidden bg-white',
                 i === fotoIdx ? 'ring-2 ring-[#231C17] ring-offset-2 ring-offset-[#F6F1E9]' : 'opacity-70']">
-              <img :src="cloudinaryOpt(f, 160)" alt="" class="w-full h-full object-cover" />
+              <img :src="foto(f, 200)" alt="" class="w-full h-full object-contain p-1" />
             </button>
           </div>
         </div>
@@ -220,8 +228,8 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()
            va en la cuadrícula con su etiqueta. -->
       <button v-if="destacado" type="button" @click="abrir(destacado)"
         class="sm:hidden mx-5 w-[calc(100%-2.5rem)] flex flex-col gap-3.5 text-left">
-        <div class="relative w-full aspect-[4/5] rounded-[20px] overflow-hidden bg-[#E7DDCF]">
-          <img :src="cloudinaryOpt(destacado.foto_url, 800)" :alt="destacado.nombre" class="w-full h-full object-cover" />
+        <div class="relative w-full aspect-[4/5] rounded-[20px] overflow-hidden bg-white">
+          <img :src="foto(destacado.foto_url, 1200)" :alt="destacado.nombre" class="w-full h-full object-contain p-5" />
           <span class="absolute top-3.5 left-3.5 text-[11px] font-bold tracking-[0.08em] uppercase text-white bg-[#9A5A30] rounded-full px-3 py-1.5">Destacado</span>
           <span v-if="destacado.foto_url_2" class="absolute top-3.5 right-3.5 text-[11px] font-semibold bg-[#F6F1E9] rounded-full px-2.5 py-1.5">2 fotos</span>
         </div>
@@ -242,8 +250,8 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-6 sm:gap-x-7 sm:gap-y-12 px-5 sm:px-10">
         <button v-for="(p, i) in [...(destacado ? [destacado] : []), ...resto]" :key="p.id" type="button" @click="abrir(p)"
           :class="['flex-col gap-2.5 sm:gap-4 text-left', destacado && i === 0 ? 'hidden sm:flex' : 'flex']">
-          <div class="relative w-full aspect-[4/5] rounded-2xl sm:rounded-[20px] overflow-hidden bg-[#E7DDCF]">
-            <img v-if="p.foto_url" :src="cloudinaryOpt(p.foto_url, 600)" :alt="p.nombre" loading="lazy" class="w-full h-full object-cover" />
+          <div :class="['relative w-full aspect-[4/5] rounded-2xl sm:rounded-[20px] overflow-hidden', p.foto_url ? 'bg-white' : 'bg-[#E7DDCF]']">
+            <img v-if="p.foto_url" :src="foto(p.foto_url, 700)" :alt="p.nombre" loading="lazy" decoding="async" class="w-full h-full object-contain p-3 sm:p-5" />
             <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1.5 text-[#A8977F]">
               <svg class="w-10 h-10 sm:w-14 sm:h-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11V8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3" /><path d="M3 13a2 2 0 0 1 4 0v2h10v-2a2 2 0 0 1 4 0v4H3z" /><path d="M5 17v2M19 17v2" /></svg>
               <span class="text-[10px] tracking-[0.16em] uppercase text-[#8C7B69]">Sin foto</span>

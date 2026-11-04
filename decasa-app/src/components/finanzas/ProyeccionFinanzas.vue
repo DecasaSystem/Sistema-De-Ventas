@@ -3,9 +3,10 @@
 // utilidad y un simulador. Lo de nómina y gastos fijos ya se sabe (sale de
 // Nómina y de las plantillas); lo de las ventas es estadística, y se dice.
 import { ref, computed, watch } from 'vue'
-import { getProyeccion } from '@/api/finanzas'
+import { getProyeccion, getFoto } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, nombreMes } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
+import FotoAviso from './FotoAviso.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { useToast } from '@/composables/useToast'
 import { recordado, recordar } from '@/utils/memoriaFinanzas'
@@ -14,14 +15,26 @@ const props = defineProps({ version: Number })
 const toast = useToast()
 
 const cargando = ref(true)
+// La hora de la foto del servidor que se está mostrando (null = lo recién traído).
+const fotoAt = ref(null)
 const datos = ref(null)
 
 async function cargar() {
   // Lo último que se vio, al instante, mientras llega lo nuevo (memoriaFinanzas).
   datos.value ??= recordado('proyeccion')
   cargando.value = true
+  // Sin nada en memoria, la última foto del servidor mientras se calcula.
+  if (!datos.value) {
+    getFoto('proyeccion', { meses: 3 }).then(f => {
+      if (!f || !cargando.value || datos.value) return
+      datos.value = f.datos
+      fotoAt.value = f.foto_at
+    })
+  }
   try {
-    datos.value = (await getProyeccion(3)).data
+    const nuevo = (await getProyeccion(3)).data
+    fotoAt.value = null
+    datos.value = nuevo
     recordar('proyeccion', datos.value)
   } catch {
     toast.error('No se pudo cargar la proyección')
@@ -131,6 +144,7 @@ const simulado = computed(() => {
 </script>
 
 <template>
+  <FotoAviso :fecha="cargando ? fotoAt : null" />
   <div v-if="cargando && !datos" class="flex justify-center py-16"><AppSpinner /></div>
 
   <div v-else-if="datos" class="space-y-4" :class="cargando && 'opacity-60'">

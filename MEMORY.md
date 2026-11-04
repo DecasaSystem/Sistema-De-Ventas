@@ -277,6 +277,15 @@ escribiendo precios (Fase 1b).
   garantía** todavía lo trataban como recargo ("+$", base + opción); se corrigieron el
   2026-10-16 (mismo trabajo). Nunca volver a sumarlo. **Elena todavía no
   sabe de promociones** (lee precios directo de la BD): cotiza a precio de lista.
+  **Una promoción para varios productos** (2026-10-28, **subido a `main`** ese día, commit 764d1b9, rama
+  `claude/inventory-promotion-function-5ec0d4`, trae **migración**
+  `2026_11_03_000001_promociones_varios_productos`: crea `promocion_productos`, copia las
+  promociones que ya existen y afloja las llaves de `promociones.producto_id/config_id/
+  variante_id` a `nullOnDelete`). Pedido del usuario: la misma promoción con las mismas
+  reglas a varios productos "fácil y rápido", **opcional** (lo normal sigue siendo uno), y
+  "ten en cuenta siempre las variantes": por cada producto se pregunta si va a todas sus
+  versiones, solo a algunas o a ninguna. Detalle en `docs/PROYECTO.md` (Inventario). No
+  cambió ninguna regla de plata ni cómo se calcula el precio.
 - **Perfiles alternos guardados en la cuenta** (2026-10-16, **sin subir**, rama
   `claude/dual-profiles-persistence-61ee57`). Trae **migración**
   `2026_10_24_000001_perfiles_alternos_autorizados` (agrega `perfiles_alternos.autorizado_at`).
@@ -380,11 +389,96 @@ escribiendo precios (Fase 1b).
   se registran con quien de verdad cubrió. Quedan sueltos (no cambian la comisión): pagos que
   faltan en sep (#4348 $3,28 M, #4361 $1,4 M, #4343 $900.000), restauración de Alba Lucía
   Ovalle sin subir, R-1101 con un cojín de $0 sin marcar como restauración.
+  **2026-10-28:** Paola subió las restauraciones de agosto que faltaban como R-1133 (Alba Lucía
+  Ovalle, $6 M) y R-1134 (Claudia Valencia, $1,1 M); por pedido del usuario la migración
+  `2026_11_05_000001_restauraciones_norte_agosto_r1090_r1133` las pasa al 31 y al 15 de agosto
+  (la 1134 queda como R-1090 y el contador de R vuelve a 1133) y rehace sus comisiones en agosto
+  (equipo Paola/Martha/NN). Agosto de Norte ya estaba pagado: lo de estas dos sale aparte en Listas.
   Archivo: `Downloads/Conciliacion Norte ago-sep 2026.xlsx`. Script reutilizable:
   `conciliar.php` + un archivo de filas por tienda (en el scratchpad de la sesión; se pierde con ella).
   Archivo: `Downloads/Conciliacion ordenes Pereira ago-sep 2026.xlsx`.
   Leer producción solo lectura con `.env.lectura-produccion` (raíz del repo principal), con
   permiso del usuario.
+- **Comisiones personalizables** (`docs/plan-comisiones-personalizables.md`). Pedido del dueño
+  (2026-10-26): que las reglas de comisión no estén fijas en el código "por si algún día cambia
+  el funcionamiento de todo, sin dañar nada". **Fase 0 hecha y subida a `main` el 2026-10-27
+  (commit 7e51c47), sin migración**, rama `claude/comisiones-module-analysis-c42e66`: catálogo `App\Support\ReglasComision`
+  con los valores de hoy y todo el cálculo pidiéndolos ahí. **No cambió ni un peso**: prueba
+  diferencial byte a byte (8.000 órdenes, todos los caminos, pagos incluidos) y suite completa.
+  Mismo patrón que `CostoEmpleador`. Decisiones del dueño (2026-10-27): permiso aparte
+  `acceso_reglas_comision` (solo lo da quien ya lo tiene), reglas por tienda y por persona,
+  hacia atrás solo sin pagos y con confirmación, Estadísticas siguen 50/50 con la compartida.
+  **Fases 1 y 2 subidas a `main` el 2026-10-27 (commit 12d38e3)**. Fase 1 trae **migración**
+  `2026_11_02_000001_reglas_de_comision` (solo crea/agrega): tabla con fecha, foto al pagar y
+  API. **Fase 2** (sin migración nueva): pantalla Comisiones →
+  Reglas con simulador y el interruptor "Reglas de comisión" en la ficha del trabajador.
+  **Al subir, nadie tiene el permiso**: el primero lo da un supervisor con acceso a Comisiones
+  (después, solo quien ya lo tiene).
+  **Fase 4 hecha y subida a `main` el 2026-10-27** (commit 55f6b86, sin migración): repartos como reglas de tipo
+  opción (bolsón cada uno/se reparte y quién entra, pool por días/iguales, restauración
+  iguales/autor primero, restauraciones como ventas por tienda, no arrastrar deuda trimestral,
+  compartida por tienda/persona). Con "restauraciones como ventas" la restauración entra al pool (÷1,19) y deja de pagarse
+  aparte, para no pagar doble (confirmado por el dueño el 2026-10-27). Tramos/bono del pool y forzar cobro individual: el dueño dijo "no por ahora".
+  El 2026-10-27 pidió el diseño del pool por tramos o bono: está en el §10 del plan (sin
+  programar). Decisiones del dueño ese día: los tramos **suman** (cada uno paga su % sobre lo
+  que cae en él, sin saltos), el bono va **encima** del pool y es **para el equipo** (se reparte
+  como el pool), y **solo en tiendas mensuales** (las trimestrales guardan la deuda en pesos de
+  pool, que con tramos no se puede volver ventas). Los tramos empiezan en el 100 % de la meta:
+  pagar pool por debajo de la meta rompería una de las 3 condiciones que "no cambian nunca".
+  Programado el mismo día (sin subir, sin migración), apagado por defecto: `poolDe` /
+  `desglosePool` para el pool mensual, la regla no se deja poner en una tienda trimestral.
+  Prueba diferencial sin cambio de montos.
+  Trampa: el simulador no muestra reglas que cambian lo guardado en cada renglón
+  (`ReglasComision::SE_VEN_AL_RECALCULAR`); avisa y se ven tras el recálculo.
+  El dueño confirmó la semántica de "restauraciones como ventas" (2026-10-27) y la Fase 4 quedó
+  en el commit 55f6b86.
+  **Fase 3 hecha y subida a `main` el 2026-10-27** (commit 8723ad8, sin migración): Ayuda, desglose, totales de la tienda,
+  detalle de la comisión, Excel y asistente leen las reglas (`GET /comisiones/reglas/vigentes`,
+  `utils/reglasComision.js`). Con las reglas de siempre dicen lo mismo que antes; no cambió
+  ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con
+  esas funciones, nunca a mano. Quien no tiene Comisiones recibe solo la regla general (la Ayuda
+  es de todos, las excepciones por persona no).
+- **Cómo cobra quien reemplaza, personalizable** (2026-10-29, **sin subir**, sin migración, rama
+  `claude/mystifying-wozniak-21d359`). Pedido del dueño: poder escoger en Reglas que quien
+  reemplaza cobre "por ventas hechas por ese vendedor en esa tienda con cierto porcentaje" en vez
+  de por días, **como opción, no aplicada ya**. Reglas `reparto_reemplazo` (`dias` por defecto /
+  `sus_ventas`) y `pct_reemplazo` (5 % por defecto). Decisiones del dueño para `sus_ventas`: solo
+  los reemplazos (no traslados ni equipo), sus ventas de esos días **no suman a la meta ni al
+  pool**, quien faltó **pierde esos días**, el porcentaje es su propia regla. Por defecto mío
+  (**falta que el dueño confirme**): mismo 50 % y día de pago; quien cubre no entra ese día al
+  reparto de restauraciones ni del almacén. Detalle en `docs/PROYECTO.md` (Comisiones) y §11 del
+  plan de comisiones personalizables. Con la regla apagada no cambia ni un peso (suite completa).
+- **Excel de Listas** (2026-10-28, **subido a `main`** ese día, commits db021a5 + 8bef5f1,
+  sin migración, rama `claude/mystifying-wozniak-21d359`). Revisado con una copia de
+  producción hecha en modo solo lectura: cuadró con Listas (13 personas, $13.918.917).
+  Datos raros vistos (no tocados, deciden ellos): R-1095 de Henry cuenta como venta y no
+  como restauración; R-1101 de Norte por el cojín de $0. Pedido del dueño: estando en Listas, un Excel con todo
+  lo que se va a pagar, por persona y tienda, cada orden, por qué se resta o no la tarjeta,
+  el ÷ 1,19, de dónde sale cada monto y los totales. Sale de `por-pagar?detalle=1` (la misma
+  cuenta de Listas, nada recalculado aparte); detalle en `docs/PROYECTO.md` (Comisiones). No
+  cambió ninguna regla de plata. Trampa: en un pool, el monto por orden es solo cómo se
+  reparte la parte de la persona sobre sus ventas que ya cuentan (a prorrata); la cuenta real
+  es la de la tienda (pool × días ÷ días del equipo − lo ya pagado). El libro lo dice así.
+- **Tres Excel en Comisiones** (2026-10-30, **sin subir**, sin migración). Pedido del dueño:
+  que un supervisor saque el Excel de cualquier mes o de cómo va el mes, "entendible para
+  todos y bien organizado". El botón Excel ahora abre una hoja: lo que se va a pagar (Listas),
+  un mes completo (sin los filtros de la pantalla) o cómo va el mes (estimado, en ámbar).
+  Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
+  mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
+  "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
+- **PDF como comprobante y anexo** (2026-10-28, **subido a `main`** ese día, sin migración,
+  rama `claude/exciting-wescoff-65acf7`). Nueva orden, Editar orden, Registrar pago y Despacho
+  (comprobante y anexo de la entrega; `DespachoController::subirCloudinary` también sube PDF
+  como raw). Pedido del usuario: comprobantes de pago y anexo en
+  papel también en PDF. `POST /upload/foto` acepta PDF solo en `UploadController::CARPETAS_CON_PDF`
+  (facturas, comprobantes, anexos, borradores) y lo sube a Cloudinary como **raw** con `.pdf` en
+  el nombre (subido como imagen, Cloudinary no deja verlo en cuentas sin esa opción: 401). La
+  app reconoce el PDF por el enlace (`esUrlDePdf` en `utils/cloudinary.js`; `cloudinaryOpt` no
+  le mete transformaciones) y lo muestra con `components/common/TarjetaPdf.vue` (abre en otra
+  pestaña, no en el visor). `urlToBase64` devuelve null con un PDF (DomPDF no lo pinta). Para
+  aceptar PDF en otra pantalla: agregar su carpeta a la lista y usar `esPdf`/`nombreParaSubir`
+  (`utils/comprimirImagen.js`). No se probó una subida real a Cloudinary antes de subir (no hay
+  credenciales aquí): si un PDF no abre, revisar primero la respuesta de `raw/upload`.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no
@@ -449,6 +543,20 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Crear la orden al firmar a distancia** (2026-10-28, **subido a `main`** ese día, rama
+  `claude/order-signature-creation-flow-6841e1`, trae **migración**
+  `2026_11_04_000001_crear_orden_al_firmar`, solo agrega columnas a `anexos_garantia`).
+  Pedido del usuario: que el cliente vea toda la orden y la marque como revisada antes de
+  firmar; que el vendedor escoja antes de mandar el enlace si la orden se crea sola al firmar
+  o si espera y la crea él; y que "no se expire tan rápido". Hecho: la orden completa viaja
+  en el anexo (`Services/OrdenDelAnexo`, una sola puerta: `OrdenController::store` a nombre
+  del vendedor), enlace de 30 días (antes 7) y firmado retomable 30 días (antes 3), lista
+  "Pedidos enviados a firmar" en Nueva orden. Detalle en `docs/PROYECTO.md` §6.16.
+  Decisiones que tomé por defecto (**falta que el dueño confirme**): la opción viene en
+  "crear sola"; mandar el enlace ahora exige la orden completa (antes se podía mandar sin
+  anticipo/comprobante y llenarlo después); con precio por consultar no se crea sola. Trampa:
+  la cola (`queue:work`) tiene que estar viva para que se cree sola; si no, la firma queda y
+  el vendedor la crea desde la lista.
 - **Nueva orden a medio hacer se sigue en otro aparato** (2026-10-22, **subido a `main`** ese día, rama
   `claude/cross-device-order-sync-2ede47`, trae **migración**
   `2026_10_29_000001_crear_borradores_en_curso`, solo crea tabla). Queja del usuario: se
@@ -479,6 +587,35 @@ escribiendo precios (Fase 1b).
   Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
   también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
   pantalla advierte en ámbar. Lo cambia solo un supervisor.
+- **Botón Copiar en la tarjeta de Inventario** (2026-11-03, **sin subir**, sin migración, solo
+  front). Pedido del dueño: un atajo para cuando un cliente pregunta por un producto. Copia
+  un texto listo para WhatsApp (`utils/textoProducto.js`): nombre, precio ("desde" si las
+  versiones valen distinto), juego/pieza suelta, medidas, material, descripción (lo mismo que
+  ya muestra el catálogo público), cada opción con su precio, tallas, telas **con stock** y la
+  promoción tachada con "hasta el …". Nada de costos ni cantidades. **Confirmado por el
+  dueño (2026-11-03):** la promoción es la de la **tienda que se está mirando** (la misma de
+  la pastilla 🏷️) y en "Todas las tiendas" no se copia ninguna. Por defecto mío: el nombre de
+  la promoción no se copia (es interno). La promoción se busca con `promoParaItem`
+  (la misma regla de Nueva orden). Con dos tipos de opción (medida + baúl) cada opción sale
+  con su precio por separado, no combinadas.
+- **#4423 (Lina María Otálvaro, El Edén) pasa al 31 de octubre** (2026-11-03, **subido a
+  `main`** ese día, rama `claude/creation-date-october-fix-715b48`, trae **migración** de datos
+  `2026_11_07_000001_orden_4423_es_de_octubre`). Se les olvidó subirla y se subió en noviembre.
+  Cambia `created_at` a mediodía en Bogotá, deja el número y los pagos, queda en el historial y
+  mueve su comisión a octubre. Busca la orden por número, cliente y fecha de noviembre; si no la
+  encuentra así, no hace nada. **Trampa:** `sincronizarValorOrden` NO mueve el mes de la comisión
+  de una venta normal (`crearParaOrden` es `firstOrCreate`; solo las restauraciones se rehacen):
+  al cambiar la fecha de una venta, actualizar `mes_venta`/`fecha_venta`/`fecha_disponible` en su
+  sitio. No borrarlas para recrearlas: `comision_anticipos.comision_id` borra en cascada.
+- **Aviso de entrega próxima solo el día antes** (2026-11-03, **subido a `main`** ese día, sin migración).
+  Pedido del dueño: "solo notifique cuando la entrega sea en 1 día… en 3 días o en 2 no las
+  veo tan necesarias; que se pueda personalizar". Los avisos `por_vencer` ("Entrega próxima")
+  salían a 3, 2 y 1 día fijos de cada pieza `en_proceso` (`AlertarRetrasoProduccion`, 7:00 a. m.).
+  Ahora los días se escogen en **Gestión → Ajustes** (casillas 1/2/3, clave
+  `avisar_entrega_dias_antes` en `configuracion`, `AjustesSistema::diasAvisoEntrega`); de
+  fábrica, solo 1. Es **para todo el sistema** (supervisores y vendedor de la orden); por
+  persona ya se apaga el grupo "Próximos a entregar" en Trabajadores. "Entrega hoy" no cambia.
+  Tests en `AvisoEntregaProximaTest`.
 - **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
   `claude/special-warranty-client-signature-ed7f21`, trae **migración**
   `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel
@@ -532,6 +669,57 @@ escribiendo precios (Fase 1b).
   `docs/PROYECTO.md` §6.9c. De paso: el modal "Definir tela" (6b92f09) estaba dentro del
   `<Transition>` del de daño y en desarrollo Detalle de la orden no compilaba (en
   producción sí); ahora cada uno tiene el suyo. Tests en `CambioProductoConReemplazoTest`.
+- **Asistente de IA al día y con permisos** (2026-10-26, **subido a `main`** ese día, commits d17e0dc + 8e66a2a, rama
+  `claude/update-system-ai-9bce19`, sin migración). Pedido del dueño: que la IA conozca los
+  módulos nuevos, que analice mejor ("¿qué producto fabricar más?" mirando Reportes) y
+  "siempre manteniendo una buena seguridad": **a un vendedor sin acceso a Comisiones no se
+  le responde nada de comisiones** (antes le daba la suya con desglose y le explicaba el
+  pool). Regla única en `Services/Asistente/PermisosAsistente` (herramientas que se le
+  mandan al modelo + revisión al ejecutar + secciones del prompt). Fugas cerradas de paso:
+  fichas técnicas a cualquiera, chat abierto en la API a conductores, órdenes de vendedor
+  sin la regla de la tienda. Nuevas: `analisis_ventas` (mismos métodos de Stats/Reportes),
+  `recomendar_fabricacion` (`QueFabricar`), `consultar_garantias`, `consultar_promociones`.
+  Detalle en `docs/PROYECTO.md` §6.12. No se probó con el modelo real (no hay
+  `OPENAI_API_KEY` aquí). Mismo día, pedido del usuario: `GET /stats/tendencia` aceptaba
+  `vendedor_id` de cualquiera (un vendedor veía la tendencia de otro); ahora solo el
+  supervisor escoge, el vendedor siempre ve lo suyo.
+- **Carga de trabajo** (2026-10-28, **subida a `main`** ese día, commit ab1802e, sin migración, rama
+  `claude/workload-dashboard-656524`). Pedido del dueño: "pendientes para todo para saber
+  cuánto trabajo tenemos" (órdenes por entregar, cuántas tienen algo por fabricar /
+  personalizado / diseño nuevo, piezas empezadas y sin arrancar, cuántas tiene cada paso y
+  cuántas le esperan). Pantalla nueva `/carga-trabajo` (detalle en `docs/PROYECTO.md` §6.8b).
+  Solo lee, no cambia reglas. Decisiones que tomé por defecto (**falta que el dueño
+  confirme**): la ven supervisor y quien ve producción (no el vendedor); "atrasada" = la
+  regla de la lista de Órdenes; "el más cargado" = más de 7 días de trabajo al ritmo de las
+  últimas 4 semanas. De paso, Órdenes y Producción aceptan el filtro en la dirección y
+  Órdenes tiene la opción "Devuelto" en el menú de estado. Tests en `CargaDeTrabajoTest`.
+- **Renombrar y juntar categorías de inventario** (2026-10-29, **sin subir**, rama
+  `claude/strange-shaw-a9d11b`, trae **migración** `2026_11_06_000001_crear_categorias_renombradas`,
+  solo crea tabla; y cambio en el repo `Desktop/Agentes`: `core/contrato-bd.js`, ya sincronizado,
+  **sin desplegar**). Queja del usuario: "si me equivoco no puedo editar los nombres de las
+  categorías". Aprobado por el usuario tras explicarle los riesgos (links ya mandados y Elena).
+  Solo supervisor; crear categorías sigue igual (vendedores también). Detalle en
+  `docs/PROYECTO.md` §6.5. Orden de despliegue: backend (crea la tabla) y luego los agentes; si
+  los agentes van antes, no pasa nada (la tabla es opcional). Trampa: en MySQL la comparación es
+  sin tildes ni mayúsculas, así que "Sofa" y "sofa" ya eran una sola en la lista; en SQLite no.
+- **Segunda foto para Elena + nombre de las hojas del catálogo** (2026-10-30, **subido a `main`** ese día con los dos bots,
+  rama `claude/sharp-poincare-53acaf` + `Desktop/Agentes` (core, Agente-ws, Agente-ig), trae
+  **migración** `2026_11_06_000002_nombre_de_hojas_del_catalogo`, solo agrega
+  `catalogo_paginas.nombre`). Pedido del usuario: "2 imágenes en inventario para que la IA
+  tenga 2 opciones o mandarle las 2 al cliente" y "ponerle nombre a las hojas del catálogo
+  para saber qué hoja le está mandando". Lo que se encontró: `foto_url_2` ya existía e
+  Instagram ya mandaba las dos, pero **WhatsApp nunca mandaba la segunda** (`db.js` la leía en
+  el SELECT y no la pasaba al producto) y el reconocimiento de la foto del cliente (hash exacto
+  y comparación con IA) solo miraba la primera. Ahora las dos se usan en los dos bots
+  (`core/fotos-producto.js`: la segunda se indexa en `producto_imagen_hash` con la clave
+  `<nombre> · foto 2`, sin cambiar la tabla). Hojas: el **nombre** es interno (Elena) y la
+  **nota** la ve el cliente; no se reusó la nota por eso. `enviar_catalogo` acepta `hoja`
+  (`core/catalogos.js` → `resolverHoja`: todas las palabras pedidas en el nombre; varias →
+  pregunta) y manda la imagen de la hoja + `/c/<slug>?hoja=<id>`. Orden de despliegue:
+  backend (migración) y después los bots (si no, el contrato opcional avisa que falta la
+  columna; sin ella se manda el catálogo completo como antes). No se probó con el modelo real
+  (`npm run eval` cuesta y no hay clave aquí). Comparar con dos fotos sube un poco los tokens de
+  visión en los productos que tienen foto adicional.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -597,6 +785,30 @@ escribiendo precios (Fase 1b).
   solo memoria; Gastos y "Próximos pagos" nunca con datos viejos: tienen botón Pagar).
   Queda ~45 consultas × 200 ms: **lo que falta es terminar la mudanza a Virginia**
   (vercel.json sigue apuntando a `decasa-api-b91v`, Oregón).
+  2026-10-28 (rama `claude/finance-module-optimization-2ae343`, **sin subir**, sin
+  migración; queja: "se demora demasiado cargando"): medido en un proceso nuevo (como
+  Render: los estáticos se pierden en cada petición) eran resumen 50, flujo 48,
+  calendario 63. **Prestaciones::vencimientos** volvía a cargar trabajadores y ciclos
+  (~9 consultas) por CADA vencimiento en la ventana: de diciembre a febrero (prima,
+  intereses, cesantías) el resumen y el flujo sumaban ~27 de más. Ahora lo sin pagar se
+  arma una vez y Finanzas pasa lo ya cargado (`FuenteNomina::sinPagar`). Además: las 4
+  sumas de caja de comisiones en un UNION ALL, garantías 5 → 2 consultas, lo vendido se
+  carga 24 meses de una (la proyección pedía 24 y volvía a consultar) y la cartera por
+  antigüedad sin Carbon. Quedó resumen 44, flujo 36, calendario 36; prueba diferencial
+  idéntica byte a byte en 9 endpoints (con nómina, garantías, anticipos/abonos,
+  reembolsos y prestaciones sembrados: el script de siembra estaba en el scratchpad).
+  El PHP (sin la base) es ~1,5 s del resumen; la mitad es `CostoEmpleador::dePago` de
+  los pagos viejos sin costo congelado.
+  **Última foto en el servidor** (mismo día, pedido del dueño: "que Finanzas se pinte al
+  instante y se actualice por detrás"): cada cálculo de resumen, resultados, flujo,
+  calendario, proyección, por tienda y por canal deja su copia en la caché
+  (`Services/Finanzas/UltimaFoto`, 40 días) y `?foto=1` la devuelve sin calcular (2
+  consultas: las de la sesión). La pantalla, si no tiene nada en memoria, pide la foto y
+  lo nuevo a la vez, pinta la foto atenuada con "Cifras de las 3:40 p. m. · actualizando…"
+  (`FotoAviso.vue`) y la cambia cuando llega lo nuevo. **La foto del resumen va sin
+  `proximos`** (botón Pagar) y Gastos no tiene foto, por lo mismo. La foto vive en el
+  servidor, nunca en el aparato. Si se agrega otra pantalla pesada: `conFoto()` en
+  FinanzasController + `getFoto()` en la pantalla.
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
 - **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
   antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y
@@ -707,6 +919,15 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **Nueva orden en blanco al seguir la orden a medio hacer** (2026-10-27, consola:
+  `Cannot read properties of null (reading 'trim')` en NuevaOrdenView). Laravel convierte `''`
+  en `null` en todo lo que recibe (`ConvertEmptyStringsToNull`, y `TrimStrings` recorta): el
+  respaldo en la cuenta (`PUT /borradores-en-curso`, del 2026-10-22) guardaba notas, motivo y
+  dirección como null, y al recuperarlo `resumenOrden` y `DireccionColombia` hacían `.trim()`.
+  Arreglo: esa ruta queda fuera de los dos middleware (`bootstrap/app.php`) y la pantalla
+  repara los respaldos viejos al restaurar (`sinNulos`). Para guardar JSON "tal cual" que
+  manda el front, recordar estos dos middleware.
+
 - **"El aviso del día de pago llegó el 26"** (2026-10-26, **subido a `main`** ese día, commit ea01cf8, sin migración). En
   producción el aviso se creó el 20 a las 6:36 a. m.: el sistema avisó a tiempo. El push
   salía sin vencimiento (el servidor de Google/Apple lo guarda hasta 4 semanas y lo entrega
@@ -773,6 +994,39 @@ Decisiones del dueño del 2026-10-08:
   compilación de Vite 8 + Tailwind 4 pide Chrome/Edge ≥ 111; Windows 7 se queda en
   Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
   avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
+
+- **"Fecha de entrega 10 jul · Prometida 10 nov"** (2026-10-31, subido a `main` ese día, sin
+  migración). Los ítems nacen con la fecha prometida, pero corregir la prometida en Editar orden
+  no los movía (el vendedor se equivocó de mes y lo arregló solo arriba). Ahora
+  `OrdenController::update` mueve los ítems que seguían con la vieja (o sin fecha) y el
+  `fecha_compromiso` del taller; los que un supervisor puso en otra fecha se quedan. Las órdenes
+  que ya estaban así se corrigen a mano ("usar fecha sugerida" en Detalle).
+- **Catálogo visual borroso y recortado** (2026-11-03, **subido a `main`** ese día, commit 0857a88, sin migración, solo front,
+  rama `claude/catalogo-imagen-calidad-e355ef`). Queja: en el link `/c/<slug>` las hojas se veían
+  "con zoom", recortadas y en mala calidad. Causas: (1) el visor pedía la imagen por el tamaño de
+  la ventana suponiendo hoja vertical y densidad máx. 2 (hoja horizontal en PC: llegaba a 1.000 px
+  para 1.250 en pantalla; celular de densidad 3: 800 para 1.160) → el navegador la estiraba;
+  ahora se pide por el ancho real de la hoja × densidad (hasta 3) con `q_auto:best`.
+  (2) La subida pasaba a JPEG 88 % a 2.400 px toda hoja de más de 1 MB y Cloudinary la
+  recomprimía; ahora se sube el original si cabe en 10 MB. (3) Portada pública, miniaturas del
+  visor y de Gestión con `object-cover` (+ zoom al pasar el mouse en la portada): ahora enteras.
+  Las hojas ya subidas mejoran por (1); las que se comprimieron al subir solo mejoran si se
+  vuelven a subir. **Mismo día, el link de las categorías de Inventario** (`/catalogo/:seccion`,
+  `CatalogoPublicoView`, **sin subir**): fotos cuadradas o verticales en cajas 4:5 con
+  `object-cover` (al reloj Angel le cortaba el aro, al Romano casi un tercio). Ahora enteras
+  (`contain`) sobre caja **blanca**; se probó `mix-blend-multiply` sobre el marfil y teñía de
+  beige lo blanco del mueble: no usarlo. Una foto que en el inventario es chica (Reloj Togo,
+  205 px) se ve borrosa igual: hay que subirla mejor.
+  Trampa de entorno: ese día `vite build` del worktree se caía con "Illegal instruction" (exit
+  132), también con el código de `main`; para revisar un .vue sirve `@vue/compiler-sfc`.
+- **"Hay una versión nueva, recarga"** (2026-10-30, **sin subir**, sin migración, solo front).
+  Queja: a alguien el Excel de Listas le bajaba el de octubre; tenía la app abierta desde
+  antes de subirlo (en el celular queda abierta días) y su versión no conocía ese libro. Los
+  datos siempre llegan frescos; lo viejo es el código. Ahora cada compilación lleva su versión
+  (`__VERSION_APP__` y `/version.json`, en `vite.config.js`) y `AvisoVersionNueva.vue` pregunta
+  al volver a la app y cada 5 min; si cambió, aviso con "Recargar" (no recarga solo: podría
+  estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
+  "no le sale" a una persona, lo primero es preguntar si recargó.
 
 - Basura versionada por accidente (comandos de tinker mal escritos):
   `decasa-api/count())`, `decasa-api/get()`, `decasa-api/pluck('categoria')`,

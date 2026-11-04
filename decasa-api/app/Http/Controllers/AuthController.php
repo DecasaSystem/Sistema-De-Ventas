@@ -173,6 +173,7 @@ class AuthController extends Controller
             'facturacion'       => (bool) $usuario->facturacion,
             'acceso_redes'       => (bool) $usuario->acceso_redes,
             'acceso_comisiones'  => (bool) $usuario->acceso_comisiones,
+            'acceso_reglas_comision' => (bool) ($usuario->acceso_reglas_comision ?? false),
             'recarga_telas'      => (bool) $usuario->recarga_telas,
             'acceso_telas'       => (bool) $usuario->acceso_telas,
             'acceso_surtir'      => (bool) $usuario->acceso_surtir,

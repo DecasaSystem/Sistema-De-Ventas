@@ -24,19 +24,37 @@ class FuenteGarantiasYCanales
         if (! \App\Support\Esquema::tabla('garantias')) return null;
         [$ini, $fin] = Periodo::limites($mes);
 
-        $del = DB::table('garantias')
-            ->whereDate('fecha_reporte', '>=', $ini->toDateString())->whereDate('fecha_reporte', '<=', $fin->toDateString());
+        // Las del mes por tipo y por decisión en una sola consulta (antes dos), y
+        // las abiertas y los reembolsos juntos en otra (antes dos más): cada
+        // viaje a Aiven cuesta ~200 ms y esto sale en el resumen.
+        $porTipo = [];
+        $porDecision = [];
+        $grupos = DB::table('garantias')
+            ->whereDate('fecha_reporte', '>=', $ini->toDateString())->whereDate('fecha_reporte', '<=', $fin->toDateString())
+            ->selectRaw('tipo_dano, decision, COUNT(*) AS n')->groupBy('tipo_dano', 'decision')
+            ->orderBy('tipo_dano')->orderBy('decision')->get();
+        foreach ($grupos as $g) {
+            $porTipo[(string) $g->tipo_dano] = ($porTipo[(string) $g->tipo_dano] ?? 0) + (int) $g->n;
+            if ($g->decision !== null) {
+                $porDecision[$g->decision] = ($porDecision[$g->decision] ?? 0) + (int) $g->n;
+            }
+        }
+        ksort($porDecision);
 
-        $porTipo = (clone $del)->selectRaw('tipo_dano, COUNT(*) AS n')->groupBy('tipo_dano')->pluck('n', 'tipo_dano')->all();
-        $porDecision = (clone $del)->whereNotNull('decision')->selectRaw('decision, COUNT(*) AS n')->groupBy('decision')->pluck('n', 'decision')->all();
+        [$rIni, $rFin] = Periodo::rangoUtc($mes, $mes);
+        $conReembolsos = \App\Support\Esquema::columna('pagos', 'tipo');
+        $totales = DB::query()->selectRaw(
+            "(SELECT COUNT(*) FROM garantias WHERE estado NOT IN ('resuelta', 'no_procede')) AS abiertas, "
+            . ($conReembolsos
+                ? "(SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE tipo = 'reembolso' AND created_at BETWEEN ? AND ?) AS reembolsos"
+                : '0 AS reembolsos'),
+            $conReembolsos ? [$rIni, $rFin] : []
+        )->first();
+        $abiertas = (int) $totales->abiertas;
+        $reembolsos = (float) $totales->reembolsos;
 
-        $reembolsos = \App\Support\Esquema::columna('pagos', 'tipo')
-            ? (float) DB::table('pagos')->where('tipo', 'reembolso')->whereBetween('created_at', Periodo::rangoUtc($mes, $mes))->sum('monto')
-            : 0.0;
-
-        $abiertas = DB::table('garantias')->whereNotIn('estado', ['resuelta', 'no_procede'])->count();
-        $ventasMes = (int) DB::table('ordenes')->whereBetween('created_at', Periodo::rangoUtc($mes, $mes))
-            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES)->count();
+        // Las órdenes del mes con el mismo criterio de lo vendido (ya cargado).
+        $ventasMes = (int) (FuenteVentas::vendidoPorMes($mes, $mes)[$mes]['ordenes'] ?? 0);
         $reportadas = (int) array_sum($porTipo);
 
         return [

@@ -7,6 +7,7 @@ use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
 use App\Models\Producto;
 use App\Models\ProductoVariante;
+use App\Services\CategoriasProducto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -273,6 +274,46 @@ class ProductoController extends Controller
             ->pluck('categoria');
 
         return response()->json($cats);
+    }
+
+    /**
+     * GET /api/productos/categorias/gestion — supervisor
+     * Las categorías con su nombre de verdad (no el bonito de las pastillas) y
+     * cuántos productos tiene cada una, contando los apagados: renombrar los
+     * cambia también.
+     */
+    public function gestionCategorias()
+    {
+        return response()->json(CategoriasProducto::listado());
+    }
+
+    /**
+     * POST /api/productos/categorias/renombrar — supervisor
+     * { de, a, juntar? }
+     *
+     * Cambia la categoría en todos sus productos (ver CategoriasProducto). Si ya
+     * hay otra con ese nombre responde 409 con `existe`, y la pantalla pregunta
+     * si se juntan; con `juntar: true` las deja en una sola.
+     */
+    public function renombrarCategoria(Request $request)
+    {
+        $data = $request->validate([
+            'de'     => 'required|string|max:80',
+            'a'      => 'required|string|max:80',
+            'juntar' => 'sometimes|boolean',
+        ]);
+
+        $juntar = (bool) ($data['juntar'] ?? false);
+        if (! $juntar && ($otra = CategoriasProducto::otraQueSeLlamaAsi($data['de'], $data['a']))) {
+            return response()->json([
+                'message' => "Ya existe la categoría \"{$otra}\". ¿Las juntas en una sola?",
+                'existe'  => $otra,
+            ], 409);
+        }
+
+        return response()->json(
+            CategoriasProducto::renombrar($data['de'], $data['a'], $juntar, $request->user()?->id)
+        );
     }
 
     /**

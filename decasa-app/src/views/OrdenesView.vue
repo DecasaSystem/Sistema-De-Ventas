@@ -5,7 +5,7 @@ import { seVolvioAtras } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes } from '@/api/ordenes'
@@ -19,6 +19,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
 
 const router = useRouter()
+const route  = useRoute()
 const toast = useToast()
 const auth = useAuthStore()
 
@@ -67,6 +68,25 @@ const filtros = ref({
 // Al volver del detalle (o entrar otra vez por el menú) siguen puestos.
 useFiltrosRecordados('ordenes', { filtros, busqueda, porEntregar })
 
+// Desde Carga de trabajo se llega con el filtro en la dirección (?estado=,
+// ?retrasadas=1, ?tienda_id=). Manda sobre lo recordado: se tocó un número y
+// la lista tiene que mostrar exactamente eso. Se limpia la dirección para que
+// recargar no vuelva a imponerlo.
+{
+  const q = route.query
+  if (q.estado || q.retrasadas || q.tienda_id) {
+    filtros.value = {
+      estado: q.retrasadas ? '' : String(q.estado ?? ''),
+      tienda_id: q.tienda_id ? Number(q.tienda_id) : '',
+      desde: '', hasta: '', serie: '',
+      atrasados: !!q.retrasadas,
+    }
+    busqueda.value = ''
+    porEntregar.value = false
+    router.replace({ query: {} })
+  }
+}
+
 // Como ahora se quedan puestos, el botón avisa: si no, una lista corta parece
 // que le faltan órdenes. La serie no cuenta, ya se ve en los apartados.
 const hayFiltros = computed(() => {
@@ -103,6 +123,9 @@ const estadosOpts = [
   { value: 'en_produccion', label: 'En producción' },
   { value: 'listo_entrega', label: 'Listo entrega' },
   { value: 'en_camino', label: 'En camino' },
+  // Volvió algo en el camión y espera decisión. Carga de trabajo las cuenta
+  // y lleva aquí; sin la opción, el menú quedaba en blanco al llegar.
+  { value: 'devuelto', label: 'Devuelto' },
   { value: 'entregado', label: 'Entregado' },
   { value: 'cancelado', label: 'Cancelado' },
   // No es un estado: son las que tienen la entrega vencida, estén en el

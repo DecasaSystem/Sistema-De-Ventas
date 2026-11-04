@@ -56,6 +56,7 @@ use App\Http\Controllers\CajaController;
 use App\Http\Controllers\CatalogoPublicoController;
 use App\Http\Controllers\CatalogoVisualController;
 use App\Http\Controllers\ComisionController;
+use App\Http\Controllers\ReglaComisionController;
 use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
 use App\Http\Controllers\NominaAjusteController;
@@ -390,6 +391,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Productos
     Route::get('/productos',             [ProductoController::class, 'index']);
     Route::get('/productos/categorias',  [ProductoController::class, 'categorias']);
+    // Renombrar una categoría cambia todas las tiendas y lo que dice Elena: solo supervisor.
+    Route::get('/productos/categorias/gestion',    [ProductoController::class, 'gestionCategorias'])->middleware('role:supervisor');
+    Route::post('/productos/categorias/renombrar', [ProductoController::class, 'renombrarCategoria'])->middleware('role:supervisor');
     Route::get('/productos/sugerencias', [ProductoController::class, 'sugerencias']);
     Route::get('/productos/unicos',      [ProductoController::class, 'unicosVendidos']);
     Route::post('/productos',            [ProductoController::class, 'store']);
@@ -445,7 +449,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
     Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
     Route::get('/anexos/en-curso',            [\App\Http\Controllers\AnexoGarantiaController::class, 'enCurso']);
+    // Los enlaces con la orden guardada que esperan firma o que ya firmaron y
+    // falta crear la orden (Nueva orden los muestra arriba).
+    Route::get('/anexos/sin-orden',           [\App\Http\Controllers\AnexoGarantiaController::class, 'sinOrden']);
     Route::get('/anexos/{id}',                [\App\Http\Controllers\AnexoGarantiaController::class, 'show'])->whereNumber('id');
+    Route::post('/anexos/{id}/crear-orden',   [\App\Http\Controllers\AnexoGarantiaController::class, 'crearOrden'])->whereNumber('id')->middleware('throttle:20,1');
+    Route::patch('/anexos/{id}/crear-al-firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'cambiarCrearAlFirmar'])->whereNumber('id');
     Route::post('/ordenes/{id}/firma-remota', [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarOrden'])->whereNumber('id')->middleware('throttle:30,1');
     Route::get('/ordenes/{id}/firma-remota',  [\App\Http\Controllers\AnexoGarantiaController::class, 'deOrden'])->whereNumber('id');
     Route::post('/anexos/{id}/anular',        [\App\Http\Controllers\AnexoGarantiaController::class, 'anular'])->whereNumber('id');
@@ -665,6 +674,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Fabricar contra stock: crea una producción para la Reserva de Fábrica.
     Route::post('/produccion/producir', [ProduccionController::class, 'producir']);
     Route::patch('/produccion/{id}', [ProduccionController::class, 'update'])->whereNumber('id');
+
+    // Carga de trabajo: órdenes por entregar, piezas sin arrancar, cola de
+    // cada paso. Solo lee (ver App\Services\CargaDeTrabajo).
+    Route::get('/carga-trabajo', [\App\Http\Controllers\CargaTrabajoController::class, 'index']);
 
     // Producción — flujo de pasos (ebanista y tapicero-supervisor)
     Route::get('/produccion/mis-pasos',                        [ProduccionController::class, 'misPasos']);
@@ -899,6 +912,14 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('role:supervisor')->whereNumber('id');
         // Quién cambió qué: metas, equipos, reemplazos, pagos.
         Route::get('/bitacora',                  [ComisionController::class, 'bitacora']);
+        // Reglas del cálculo con fecha (porcentajes, día de pago, 50 %…): las
+        // ve quien tiene Comisiones, las cambia quien tiene "Reglas de comisión".
+        Route::get('/reglas',                    [ReglaComisionController::class, 'index']);
+        // Lo que rige en un mes, para los textos de Ayuda, desglose y Excel.
+        Route::get('/reglas/vigentes',           [ReglaComisionController::class, 'vigentes']);
+        Route::post('/reglas',                   [ReglaComisionController::class, 'guardar'])->middleware('role:supervisor');
+        Route::post('/reglas/simular',           [ReglaComisionController::class, 'simular'])->middleware('role:supervisor');
+        Route::delete('/reglas/{id}',            [ReglaComisionController::class, 'quitar'])->middleware('role:supervisor')->whereNumber('id');
         // Anticipos de comisión: lo que se llevan cada mes y se les descuenta al pagar.
         Route::get('/anticipos',                 [ComisionController::class, 'anticipos']);
         Route::post('/anticipos',                [ComisionController::class, 'setAnticipo'])->middleware('role:supervisor');

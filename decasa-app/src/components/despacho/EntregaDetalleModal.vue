@@ -1,5 +1,6 @@
 <script setup>
-import { cloudinaryOpt } from '@/utils/cloudinary'
+import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { detalleEntrega, registrarPagoEntrega, marcarEntregado, fijarLineasEntrega } from '@/api/despacho'
 import { descargarOrdenEntrega } from '@/api/ordenes'
@@ -10,7 +11,7 @@ import { useTextosNegocio, rellenar } from '@/utils/textosNegocio'
 import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon, CameraIcon, XMarkIcon, PrinterIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
-import { comprimirImagen } from '@/utils/comprimirImagen'
+import { comprimirImagen, esPdf } from '@/utils/comprimirImagen'
 
 // Antes había aquí una copia propia que cargaba la foto ENTERA de la cámara
 // en memoria y, si la foto no abría, se quedaba esperando para siempre: en
@@ -139,12 +140,15 @@ function fotosDe(oi) {
 const procesando = ref({})   // { [zona]: true }
 const arrastrando = ref(null) // la zona sobre la que se está arrastrando
 
-/** Lo que llegó, solo las imágenes, ya comprimidas. Avisa si algo no sirve. */
-async function prepararFotos(zona, archivos, cupo) {
+/**
+ * Lo que llegó, solo las imágenes, ya comprimidas. Avisa si algo no sirve.
+ * El comprobante y el anexo también aceptan PDF (`aceptaPdf`): va tal cual.
+ */
+async function prepararFotos(zona, archivos, cupo, { aceptaPdf = false } = {}) {
   const todos = Array.from(archivos ?? [])
-  const imagenes = todos.filter(esImagen).slice(0, Math.max(0, cupo))
+  const imagenes = todos.filter(f => esImagen(f) || (aceptaPdf && esPdf(f))).slice(0, Math.max(0, cupo))
   if (todos.length && !imagenes.length) {
-    toast.error('Eso no es una foto. Arrastra o elige una imagen.')
+    toast.error(aceptaPdf ? 'Eso no es una foto ni un PDF. Arrastra o elige una imagen o un PDF.' : 'Eso no es una foto. Arrastra o elige una imagen.')
     return []
   }
   procesando.value = { ...procesando.value, [zona]: true }
@@ -444,7 +448,7 @@ function _createPreviewUrl(blob) {
 onUnmounted(() => _blobUrls.forEach(u => URL.revokeObjectURL(u)))
 
 async function agregarFotosPago(archivos) {
-  const nuevas = await prepararFotos('pago', archivos, 6 - fotosPago.value.length)
+  const nuevas = await prepararFotos('pago', archivos, 6 - fotosPago.value.length, { aceptaPdf: true })
   fotosPago.value.push(...nuevas)
 }
 
@@ -490,7 +494,7 @@ function intentarCerrar() {
 }
 
 async function agregarFotoAnexo(archivos) {
-  const [f] = await prepararFotos('anexo', archivos, 1)
+  const [f] = await prepararFotos('anexo', archivos, 1, { aceptaPdf: true })
   if (f) { fotoAnexo.value = f.blob; fotoAnexoPreview.value = f.preview }
 }
 
@@ -544,11 +548,11 @@ async function guardarPagoYEntregar() {
       fd.append('monto', monto.value)
       fd.append('metodo', metodo.value)
       if (referencia.value) fd.append('referencia', referencia.value)
-      fotosPago.value.forEach((f, i) => fd.append('fotos_pago[]', f.blob, `foto_pago_${i + 1}.jpg`))
+      fotosPago.value.forEach((f, i) => fd.append('fotos_pago[]', f.blob, `foto_pago_${i + 1}.${esPdf(f.blob) ? 'pdf' : 'jpg'}`))
     } else {
       fd.append('monto', '0')
     }
-    if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value, 'foto_anexo.jpg')
+    if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value, esPdf(fotoAnexo.value) ? 'foto_anexo.pdf' : 'foto_anexo.jpg')
 
     // ── Acta de satisfacción ────────────────────────────────────────────────
     if (noHayQuienFirme.value) {
@@ -972,13 +976,14 @@ async function guardarPagoYEntregar() {
                       v-else-if="!fotosPago.length"
                       class="relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
                     >
-                      <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoPago" />
+                      <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago" />
                       <CameraIcon class="w-5 h-5" aria-hidden="true" />
-                      <span>Foto o pantallazo del comprobante <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
+                      <span>Foto, pantallazo o PDF del comprobante <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
                     </label>
                     <div v-else class="grid grid-cols-3 gap-2">
                       <div v-for="(f, i) in fotosPago" :key="f.preview" class="relative aspect-square">
-                        <img :src="f.preview" :alt="`Comprobante ${i + 1}`" class="w-full h-full object-cover rounded-lg border border-gray-200" />
+                        <TarjetaPdf v-if="esPdf(f.blob)" :href="f.preview" :nombre="`Comprobante ${i + 1}`" compacta class="!h-full !px-1" />
+                        <img v-else :src="f.preview" :alt="`Comprobante ${i + 1}`" class="w-full h-full object-cover rounded-lg border border-gray-200" />
                         <button type="button" @click="quitarFotoPago(i)"
                           class="absolute top-1 right-1 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white"
                           :aria-label="`Quitar comprobante ${i + 1}`"><XMarkIcon class="w-4 h-4" aria-hidden="true" /></button>
@@ -987,7 +992,7 @@ async function guardarPagoYEntregar() {
                         v-if="fotosPago.length < 6"
                         class="relative aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
                       >
-                        <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoPago" />
+                        <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago" />
                         <CameraIcon class="w-6 h-6" aria-hidden="true" />
                         Agregar
                       </label>
@@ -1124,7 +1129,8 @@ async function guardarPagoYEntregar() {
                 <p class="paso-ayuda">Si el cliente firma el documento en la entrega, súbelo aquí.</p>
               </div>
               <div v-if="fotoAnexoPreview" class="relative">
-                <img :src="fotoAnexoPreview" alt="Anexo firmado" class="w-full h-32 object-cover rounded-xl border border-gray-200" />
+                <TarjetaPdf v-if="esPdf(fotoAnexo)" :href="fotoAnexoPreview" :nombre="fotoAnexo.name || 'Anexo firmado'" class="pr-12" />
+                <img v-else :src="fotoAnexoPreview" alt="Anexo firmado" class="w-full h-32 object-cover rounded-xl border border-gray-200" />
                 <button
                   type="button" @click="quitarFotoAnexo"
                   class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white"
@@ -1136,13 +1142,14 @@ async function guardarPagoYEntregar() {
                 @dragover.prevent="arrastrando = 'anexo'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoAnexo)"
                 :class="['relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed text-sm font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500', arrastrando === 'anexo' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600']"
               >
-                <input type="file" accept="image/*" class="sr-only" @change="onFotoAnexo" />
-                <CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto del anexo
+                <input type="file" accept="image/*,application/pdf" class="sr-only" @change="onFotoAnexo" />
+                <CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto o PDF del anexo
               </label>
             </div>
             <div v-else class="border-t border-gray-100 pt-5">
               <h4 class="text-sm font-semibold text-gray-800 mb-2">Anexo firmado</h4>
-              <a :href="item.orden.anexo_foto_url" target="_blank">
+              <TarjetaPdf v-if="esUrlDePdf(item.orden.anexo_foto_url)" :href="item.orden.anexo_foto_url" nombre="Anexo firmado" />
+              <a v-else :href="item.orden.anexo_foto_url" target="_blank">
                 <img :src="cloudinaryOpt(item.orden.anexo_foto_url, 600)" alt="Anexo firmado" class="w-full h-32 object-cover rounded-xl border border-gray-100" />
               </a>
             </div>

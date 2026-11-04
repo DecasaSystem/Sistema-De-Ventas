@@ -25,8 +25,10 @@ class FuenteVentas
      */
     public static function vendidoPorMes(string $desde, string $hasta, ?int $tiendaId = null): array
     {
+        // 24 meses de una vez: es una sola consulta agrupada, y la proyección
+        // (flujo de caja, Proyección) pide dos años.
         return Periodo::porMesRecordado("vendido:$tiendaId", $desde, $hasta,
-            fn ($d, $h) => self::cargarVendido($d, $h, $tiendaId));
+            fn ($d, $h) => self::cargarVendido($d, $h, $tiendaId), 24);
     }
 
     private static function cargarVendido(string $desde, string $hasta, ?int $tiendaId): array
@@ -125,14 +127,28 @@ class FuenteVentas
             ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->get(['o.created_at', 'v.saldo_pendiente']);
 
+        // Los días con enteros y no con Carbon: son cientos de órdenes con saldo
+        // y armar dos fechas por cada una eran ~0,3 s del resumen. Misma cuenta:
+        // el día en Bogotá (UTC−5, sin horario de verano) de la orden contra hoy.
+        $hoyDia = intdiv(gmmktime(0, 0, 0, (int) $hoy->month, (int) $hoy->day, (int) $hoy->year), 86400);
         $tramos = ['0_30' => 0.0, '31_90' => 0.0, 'mas_90' => 0.0];
         foreach ($filas as $f) {
-            $dias = \Carbon\Carbon::parse($f->created_at, 'UTC')->setTimezone(Periodo::TZ)->startOfDay()->diffInDays($hoy);
+            $dias = $hoyDia - intdiv(self::segundosUtc((string) $f->created_at) - 5 * 3600, 86400);
             $tramo = $dias <= 30 ? '0_30' : ($dias <= 90 ? '31_90' : 'mas_90');
             $tramos[$tramo] += (float) $f->saldo_pendiente;
         }
 
         return ['total' => array_sum($tramos), 'tramos' => $tramos];
+    }
+
+    /** 'Y-m-d H:i:s' en UTC → segundos desde 1970, sin Carbon. */
+    private static function segundosUtc(string $instante): int
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/', $instante, $m)) {
+            return gmmktime((int) $m[4], (int) $m[5], (int) $m[6], (int) $m[2], (int) $m[3], (int) $m[1]);
+        }
+
+        return \Carbon\Carbon::parse($instante, 'UTC')->getTimestamp();
     }
 
     private static array $columnas = [];

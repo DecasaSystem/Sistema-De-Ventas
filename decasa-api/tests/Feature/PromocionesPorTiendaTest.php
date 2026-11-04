@@ -144,6 +144,7 @@ class PromocionesPorTiendaTest extends TestCase
         $this->completarEsquemaDeEntregas();
 
         (require database_path('migrations/2026_10_23_000001_promociones_por_tienda.php'))->up();
+        (require database_path('migrations/2026_11_03_000001_promociones_varios_productos.php'))->up();
 
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Decasa Unicentro'],
@@ -336,5 +337,151 @@ class PromocionesPorTiendaTest extends TestCase
         $this->actingAs($this->supervisora)->deleteJson("/api/promociones/{$id}")->assertOk();
         $this->assertSame(0, Promocion::count());
         $this->assertSame(0, DB::table('promocion_tienda')->count());
+        $this->assertSame(0, DB::table('promocion_productos')->count());
+    }
+
+    // ── Una promoción para varios productos (2026-10-28) ─────────────────────
+
+    /** "Feria de octubre" para varios productos de una: misma rebaja, fechas y tiendas. */
+    private function crearVarios(array $productos, array $datos = [])
+    {
+        return $this->actingAs($this->supervisora)->postJson('/api/promociones', array_merge([
+            'nombre'       => 'Feria de octubre',
+            'productos'    => $productos,
+            'tipo'         => 'porcentaje',
+            'valor'        => 15,
+            'fecha_inicio' => '2026-10-01',
+            'fecha_fin'    => '2026-10-31',
+            'tiendas'      => [1, 2],
+        ], $datos));
+    }
+
+    public function test_una_promocion_para_varios_productos_y_solo_algunas_versiones(): void
+    {
+        // La Bali solo en 1.40 (la de 1.00 no) y el comedor entero.
+        $r = $this->crearVarios([
+            ['producto_id' => 10, 'alcance' => 'algunas', 'config_ids' => [100]],
+            ['producto_id' => 20, 'alcance' => 'todas'],
+        ])->assertCreated();
+        $r->assertJsonCount(2, 'productos')
+          ->assertJsonPath('productos.0.alcance', 'algunas')
+          ->assertJsonPath('productos.0.versiones.0.texto', '1.40')
+          ->assertJsonPath('productos.0.versiones.0.precio_promo', 1530000)
+          ->assertJsonPath('productos.1.alcance', 'todas')
+          ->assertJsonPath('productos.1.precio_promo', 1700000);
+
+        // Nueva orden la ve como antes: una fila por producto o versión, con el mismo id.
+        $filas = $this->actingAs($this->vendedora())->getJson('/api/promociones/vigentes?tienda_id=1')
+            ->assertOk()->assertJsonCount(2)->json();
+        $this->assertSame([$r->json('id'), $r->json('id')], array_column($filas, 'id'));
+        $this->assertSame([100, null], array_column($filas, 'config_id'));
+        $this->assertNotSame($filas[0]['clave'], $filas[1]['clave']);
+
+        // La orden la deja escrita en la 1.40 y en el comedor; en la 1.00 no.
+        $linea = fn (array $extra) => array_merge([
+            'cantidad' => 1, 'es_personalizado' => true, 'fabricar_pedido' => true, 'promocion_id' => $r->json('id'),
+        ], $extra);
+        $this->actingAs($this->vendedora())->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
+            'firma_url'  => 'https://ejemplo/firma.png',
+            'items' => [
+                $linea(['producto_id' => 10, 'combo_config_id' => 100, 'precio_unitario' => 1530000]),
+                $linea(['producto_id' => 10, 'combo_config_id' => 101, 'precio_unitario' => 1200000]),
+                $linea(['producto_id' => 20, 'precio_unitario' => 1700000]),
+            ],
+        ])->assertCreated();
+        $this->assertSame(
+            [$r->json('id'), null, $r->json('id')],
+            OrdenItem::orderBy('id')->pluck('promocion_id')->map(fn ($id) => $id ? (int) $id : null)->all()
+        );
+    }
+
+    public function test_sin_versiones_solo_cuando_se_vende_sin_opciones(): void
+    {
+        $id = $this->crearVarios([['producto_id' => 10, 'alcance' => 'sin_versiones']])->assertCreated()
+            ->assertJsonPath('version', 'Sin opciones')->json('id');
+        $this->actingAs($this->vendedora())->getJson('/api/promociones/vigentes?tienda_id=1')
+            ->assertJsonPath('0.sin_versiones', true)->assertJsonPath('0.config_id', null);
+
+        $this->actingAs($this->vendedora())->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
+            'firma_url'  => 'https://ejemplo/firma.png',
+            'items' => [
+                ['producto_id' => 10, 'cantidad' => 1, 'precio_unitario' => 1275000, 'es_personalizado' => true, 'fabricar_pedido' => true, 'promocion_id' => $id],
+                ['producto_id' => 10, 'combo_config_id' => 100, 'cantidad' => 1, 'precio_unitario' => 1800000, 'es_personalizado' => true, 'fabricar_pedido' => true, 'promocion_id' => $id],
+            ],
+        ])->assertCreated();
+        $this->assertSame([$id, null], OrdenItem::orderBy('id')->pluck('promocion_id')->map(fn ($v) => $v ? (int) $v : null)->all());
+    }
+
+    public function test_varios_productos_tambien_frenan_lo_que_no_cuadra(): void
+    {
+        // Ya hay una del comedor: otra que lo traiga entre varios choca y dice cuál.
+        $this->crearVarios([['producto_id' => 20]])->assertCreated();
+        $this->crearVarios([['producto_id' => 10], ['producto_id' => 20]])
+            ->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'COMEDOR ROMA'));
+        // "Solo algunas" sin ninguna marcada.
+        $this->crearVarios([['producto_id' => 10, 'alcance' => 'algunas']], ['tiendas' => [3]])->assertStatus(422);
+        // Una medida de la Bali puesta en el comedor.
+        $this->crearVarios([['producto_id' => 20, 'alcance' => 'algunas', 'config_ids' => [100]]], ['tiendas' => [3]])->assertStatus(422);
+        // El mismo producto dos veces.
+        $this->crearVarios([['producto_id' => 10], ['producto_id' => 10]], ['tiendas' => [3]])->assertStatus(422);
+        // Un precio final que no le sirve a uno de ellos: dice a cuál.
+        $this->crearVarios([
+            ['producto_id' => 10, 'alcance' => 'algunas', 'config_ids' => [101]],
+            ['producto_id' => 10 + 10, 'alcance' => 'todas'],
+        ], ['tipo' => 'precio', 'valor' => 1300000, 'tiendas' => [3]])
+            ->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'CAMA BALI'));
+        // La de la Bali "todas" junto a una de su 1.40 sí puede (gana la de la medida).
+        $this->crear(['tiendas' => [3]])->assertCreated();
+        $this->crearVarios([['producto_id' => 10]], ['tiendas' => [3], 'valor' => 10])->assertCreated();
+    }
+
+    public function test_editar_cambia_los_productos_y_las_reglas_de_todos(): void
+    {
+        $id = $this->crearVarios([['producto_id' => 10], ['producto_id' => 20]])->assertCreated()->json('id');
+        $this->actingAs($this->supervisora)->patchJson("/api/promociones/{$id}", [
+            'productos'    => [['producto_id' => 20]],
+            'tipo'         => 'porcentaje', 'valor' => 20,
+            'fecha_inicio' => '2026-10-01', 'fecha_fin' => '2026-10-31', 'tiendas' => [1],
+        ])->assertOk()->assertJsonCount(1, 'productos')->assertJsonPath('precio_promo', 1600000);
+        $this->assertSame([20], DB::table('promocion_productos')->where('promocion_id', $id)->pluck('producto_id')->map(fn ($v) => (int) $v)->all());
+
+        // Apagar y prender sigue mirando los cruces con sus productos.
+        $this->actingAs($this->supervisora)->patchJson("/api/promociones/{$id}", ['activa' => false])->assertOk();
+        $this->crearVarios([['producto_id' => 20]], ['tiendas' => [1]])->assertCreated();
+        $this->actingAs($this->supervisora)->patchJson("/api/promociones/{$id}", ['activa' => true])->assertStatus(422);
+    }
+
+    public function test_las_promociones_de_antes_pasan_a_la_tabla_nueva(): void
+    {
+        $migracion = require database_path('migrations/2026_11_03_000001_promociones_varios_productos.php');
+        $migracion->down();
+        $id = DB::table('promociones')->insertGetId([
+            'producto_id' => 10, 'config_id' => 100, 'tipo' => 'porcentaje', 'valor' => 15,
+            'fecha_inicio' => '2026-10-01', 'fecha_fin' => '2026-10-31', 'activa' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('promocion_tienda')->insert(['promocion_id' => $id, 'tienda_id' => 1]);
+        $migracion->up();
+
+        $this->actingAs($this->vendedora())->getJson('/api/promociones/vigentes?tienda_id=1')
+            ->assertJsonCount(1)->assertJsonPath('0.id', $id)->assertJsonPath('0.config_id', 100);
+        // Correrla otra vez no la copia dos veces.
+        (require database_path('migrations/2026_11_03_000001_promociones_varios_productos.php'))->up();
+        $this->assertSame(1, DB::table('promocion_productos')->count());
+    }
+
+    public function test_borrar_un_producto_no_se_lleva_la_promocion_de_los_demas(): void
+    {
+        DB::statement('PRAGMA foreign_keys = ON');
+        $id = $this->crearVarios([['producto_id' => 20], ['producto_id' => 10]])->assertCreated()->json('id');
+        // El comedor es el primero: el que queda copiado en las columnas de antes.
+        $this->assertSame(20, (int) DB::table('promociones')->where('id', $id)->value('producto_id'));
+
+        DB::table('productos')->where('id', 20)->delete();
+
+        $this->assertSame(1, Promocion::count());
+        $this->assertSame([10], DB::table('promocion_productos')->pluck('producto_id')->map(fn ($v) => (int) $v)->all());
     }
 }

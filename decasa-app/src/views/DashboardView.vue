@@ -40,6 +40,7 @@ import {
   Cog6ToothIcon,
   ShoppingCartIcon,
   BriefcaseIcon,
+  QueueListIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -170,6 +171,11 @@ const accesos = computed(() => {
   // Producción va por permiso, no por cargo: un operario al que se le active
   // entra a mirar en qué va el taller.
   if (auth.puedeProduccion) items.push({ modulo: 'produccion', label: 'Producción', icon: WrenchScrewdriverIcon, to: { name: 'produccion' } })
+  // Cuánto trabajo hay en órdenes y en el taller. Sin clave de módulo a
+  // propósito: si apagaran Producción, el supervisor igual necesita la cuenta.
+  if (auth.isSupervisor || auth.puedeProduccion) {
+    items.push({ label: 'Carga de trabajo', icon: QueueListIcon, to: { name: 'carga-trabajo' } })
+  }
   items.push({ modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon,      to: { name: 'cotizaciones' } })
   items.push({ modulo: 'consultas', label: 'Consultar costo', icon: CurrencyDollarIcon,    to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ modulo: 'mis-stats', label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })

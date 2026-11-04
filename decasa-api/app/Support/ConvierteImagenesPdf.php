@@ -12,6 +12,12 @@ trait ConvierteImagenesPdf
     {
         if (! $url) return null;
 
+        // Un comprobante o un anexo puede ser un PDF (raw de Cloudinary): no
+        // es una imagen y DomPDF no lo puede pintar. Quien lo muestre, que
+        // ponga el enlace.
+        $ruta = strtolower(parse_url($url, PHP_URL_PATH) ?? '');
+        if (str_ends_with($ruta, '.pdf') || str_contains($ruta, '/raw/upload/')) return null;
+
         // Solo permitir URLs de dominios de almacenamiento confiables
         $dominiosPermitidos = ['res.cloudinary.com', 'cloudinary.com', 'amazonaws.com', 's3.'];
         $host = parse_url($url, PHP_URL_HOST) ?? '';

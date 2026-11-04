@@ -29,7 +29,7 @@ export function guardarBorradorNubeAlSalir(clave, cuerpo) {
 /** Sube una foto del borrador a Cloudinary y devuelve su enlace. */
 export async function subirFotoBorrador(blob) {
   const tipo = blob.type || 'image/jpeg'
-  const ext = tipo.includes('png') ? 'png' : tipo.includes('webp') ? 'webp' : 'jpg'
+  const ext = tipo === 'application/pdf' ? 'pdf' : tipo.includes('png') ? 'png' : tipo.includes('webp') ? 'webp' : 'jpg'
   const fd = new FormData()
   fd.append('foto', blob, blob.name || `borrador.${ext}`)
   fd.append('folder', 'borradores')

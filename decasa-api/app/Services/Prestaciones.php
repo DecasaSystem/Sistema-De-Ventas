@@ -163,14 +163,17 @@ class Prestaciones
     /**
      * Los ciclos devengados que todavía no se pagan: los cerrados sin cobrar
      * y lo que lleva el ciclo en curso (hasta hoy).
+     *
+     * Finanzas pasa los trabajadores y los ciclos pendientes que ya cargó en
+     * la petición (FuenteNomina::sinPagar): son ~9 consultas a Aiven.
      */
-    public static function sinPagar(?int $usuarioId = null): array
+    public static function sinPagar(?int $usuarioId = null, ?\Illuminate\Support\Collection $empleados = null, ?array $pendientes = null): array
     {
         $hoy = CicloNomina::hoy();
         $out = [];
         // Los mismos trabajadores para los dos recorridos: una consulta, no dos.
-        $empleados = NominaLiquidador::empleadosLiquidables();
-        foreach (NominaLiquidador::pendientes($hoy, $empleados) as $l) {
+        $empleados ??= NominaLiquidador::empleadosLiquidables();
+        foreach ($pendientes ?? NominaLiquidador::pendientes($hoy, $empleados) as $l) {
             if ($usuarioId && $l['usuario_id'] !== $usuarioId) continue;
             $out[] = $l + ['fecha_corte' => $l['fecha_fin']];
         }
@@ -220,10 +223,13 @@ class Prestaciones
     /**
      * Lo de un periodo para todos: cuánto se provisionó, cuánto se pagó y
      * cuánto se debe, persona por persona.
+     *
+     * @param array|null $sinPagar  lo de sinPagar() ya calculado (vencimientos()
+     *                              pide varios periodos y es lo mismo para todos)
      */
-    public static function resumen(string $tipo, Carbon $desde, Carbon $hasta): array
+    public static function resumen(string $tipo, Carbon $desde, Carbon $hasta, ?array $sinPagar = null): array
     {
-        $causado = self::causado($tipo, $desde, $hasta);
+        $causado = self::causado($tipo, $desde, $hasta, null, $sinPagar);
         $pagado  = self::pagado($tipo, $desde, $hasta);
         $ids = array_unique(array_merge(array_keys($causado), array_keys($pagado)));
         $gente = Usuario::with('rolAsignado:id,nombre')->whereIn('id', $ids ?: [0])->get()->keyBy('id');
@@ -325,17 +331,25 @@ class Prestaciones
      * los intereses de enero, las cesantías de febrero. Para el calendario de
      * Finanzas y el flujo de caja.
      *
+     * Lo sin pagar es lo mismo para todos los periodos: se arma una vez y solo
+     * si algo vence en la ventana. Antes cada periodo volvía a cargar los
+     * trabajadores y sus ciclos (~9 consultas): en diciembre a febrero, con la
+     * prima, los intereses y las cesantías en la ventana, eran ~27 de más.
+     * `$sinPagar` deja que Finanzas pase lo que ya tiene cargado.
+     *
+     * @param \Closure(): array|null $sinPagar
      * @return array<int, array{tipo: string, nombre: string, fecha: string, monto: float, desde: string, hasta: string}>
      */
-    public static function vencimientos(Carbon $desde, Carbon $hasta): array
+    public static function vencimientos(Carbon $desde, Carbon $hasta, ?\Closure $sinPagar = null): array
     {
-        return self::hayTabla() ? self::calcularVencimientos($desde, $hasta) : [];
+        return self::hayTabla() ? self::calcularVencimientos($desde, $hasta, $sinPagar ?? fn () => self::sinPagar()) : [];
     }
 
-    private static function calcularVencimientos(Carbon $desde, Carbon $hasta): array
+    private static function calcularVencimientos(Carbon $desde, Carbon $hasta, \Closure $sinPagar): array
     {
         $out = [];
         $hoy = CicloNomina::hoy();
+        $lista = null;
         foreach ([$hoy->year - 1, $hoy->year, $hoy->year + 1] as $anio) {
             $candidatos = [
                 ['prima', CicloNomina::fecha("{$anio}-01-01"), CicloNomina::fecha("{$anio}-06-30")],
@@ -348,7 +362,7 @@ class Prestaciones
                 if ($limite->lessThan($desde) || $limite->greaterThan($hasta)) continue;
                 // Lo provisionado hasta hoy y lo que falta del periodo, proyectado
                 // con el ritmo de lo que va (los ciclos que vienen no existen aún).
-                $r = self::resumen($tipo, $pIni, $pFin);
+                $r = self::resumen($tipo, $pIni, $pFin, $lista ??= $sinPagar());
                 $corte = $hoy->lessThan($pFin) ? $hoy : $pFin;
                 $transcurrido = max(1, $pIni->diffInDays($corte) + 1);
                 $total = $pIni->diffInDays($pFin) + 1;

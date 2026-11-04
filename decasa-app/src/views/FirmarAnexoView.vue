@@ -29,6 +29,9 @@ const datos    = ref(null)
 const enviando = ref(false)
 const errorFirma = ref('')
 const listo    = ref(false)
+// "Revisé mi pedido, todo está bien": sin eso no se firma (con esa firma se
+// confirma la orden y, si el asesor lo escogió, se crea sola).
+const pedidoRevisado = ref(false)
 
 const resumen = computed(() => datos.value?.resumen ?? null)
 const { abrirFoto } = useVisorFoto()
@@ -145,6 +148,7 @@ async function firmar(payload) {
       secciones: payload.secciones,
       checklist: payload.checklist,
       declaracion_aprobados: payload.declaracion_aprobados,
+      orden_revisada: resumen.value ? pedidoRevisado.value : undefined,
       nombre:    payload.nombre,
       documento: payload.documento,
       firma:     payload.firma,
@@ -354,9 +358,36 @@ async function firmar(payload) {
             </dl>
           </section>
 
-          <p class="text-[0.85em] text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-3" :style="{ fontSize: `${14 * escala}px` }">
-            Si algo no está bien —tus datos, un producto, el valor o la entrega—, no firmes y escríbele a tu asesor.
-          </p>
+          <!-- Las notas de la orden y cómo se paga el anticipo -->
+          <section v-if="resumen.notas || resumen.abonos?.length" class="bg-white border border-gray-200 rounded-xl overflow-hidden" :style="{ fontSize: `${14 * escala}px` }">
+            <p class="px-4 py-3 border-b border-gray-100 text-[1.05em] font-bold text-gray-800">Otros detalles</p>
+            <dl class="px-4 py-3 space-y-1.5 text-[1em]">
+              <div v-for="(a, i) in resumen.abonos ?? []" :key="i" class="flex justify-between gap-3">
+                <dt class="text-gray-500">Pago del anticipo</dt><dd class="text-gray-800 text-right">{{ pesos(a.monto) }} · {{ a.metodo }}</dd>
+              </div>
+              <div v-if="resumen.notas">
+                <dt class="text-gray-500">Notas</dt>
+                <dd class="text-gray-800 whitespace-pre-wrap break-words">{{ resumen.notas }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <!-- Confirmar que lo revisó: sin esto no se firma. -->
+          <section
+            data-pendiente="pedido"
+            :class="['rounded-xl border px-4 py-3 space-y-2 transition-colors', pedidoRevisado ? 'border-green-200 bg-white' : 'border-gray-200 bg-white']"
+            :style="{ fontSize: `${14 * escala}px` }"
+          >
+            <p class="text-[0.9em] text-gray-600">
+              Revisa con calma todo lo de arriba: tus datos, cada producto, el valor y la entrega.
+              Si algo no está bien, no lo marques: escríbele a tu asesor con el botón de abajo.
+            </p>
+            <button
+              type="button" @click="pedidoRevisado = !pedidoRevisado"
+              :class="['w-full rounded-lg py-2.5 text-[1em] font-semibold border transition-colors',
+                pedidoRevisado ? 'bg-white border-gray-300 text-gray-600' : 'bg-green-600 border-green-600 text-white hover:bg-green-700']"
+            >{{ pedidoRevisado ? 'Revisado ✓ (tocar para quitar la marca)' : 'Revisé mi pedido, todo está bien ✓' }}</button>
+          </section>
         </template>
 
         <!-- Ya le pidió un cambio al asesor: que lo vea y sepa qué sigue. -->
@@ -372,6 +403,8 @@ async function firmar(payload) {
           :contenido="datos.contenido"
           :declaracion="datos.declaracion"
           :puede-pedir-cambio="true"
+          :revisar-pedido="!!resumen"
+          :pedido-revisado="pedidoRevisado"
           :nombre="datos.cliente?.nombre ?? ''"
           :documento="datos.cliente?.cedula ?? ''"
           :enviando="enviando"

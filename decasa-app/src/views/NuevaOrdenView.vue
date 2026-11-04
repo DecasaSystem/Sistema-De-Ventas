@@ -13,9 +13,10 @@ import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion,
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
-import { cloudinaryOpt } from '@/utils/cloudinary'
+import { cloudinaryOpt, esUrlDePdf } from '@/utils/cloudinary'
+import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import { useVisorFoto } from '@/composables/useVisorFoto'
-import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida, esPdf, nombreParaSubir } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
@@ -28,7 +29,7 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { useTextosNegocio, cargarTextosNegocio, rellenar, datosEmpresa, FABRICA } from '@/utils/textosNegocio'
 import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabajoTexto } from '@/utils/resumenParaFirma'
-import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo, pdfDeclaracion } from '@/api/anexos'
+import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo, pdfDeclaracion, anexosSinOrden, crearOrdenDeAnexo, cambiarCrearAlFirmar } from '@/api/anexos'
 import FichaEspecialEditor from '@/components/anexo/FichaEspecialEditor.vue'
 import { useAjustesDeclaracion, aplicaDeclaracion, limpiarFicha, faltaEnFicha } from '@/utils/declaracionEspeciales'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
@@ -1651,8 +1652,14 @@ function toggleRetapizar(item) {
  */
 const TRABAJOS_FABRICA = [
   { k: 'tela',    label: 'Cambio de tela',  icono: '🧵' },
-  { k: 'color',   label: 'Cambio de color', icono: '🎨' },
-  { k: 'arreglo', label: 'Arreglo',         icono: '🔧' },
+  { k: 'color',   label: 'Cambio de color', icono: '🎨',
+    pregunta: '¿Qué color lleva?', ejemplo: 'Ej: lacar en nogal oscuro, patas en negro mate…' },
+  { k: 'arreglo', label: 'Arreglo',         icono: '🔧',
+    pregunta: '¿Qué hay que arreglarle?', ejemplo: 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…' },
+  // Agregarle o cambiarle algo que no está roto: el comedor de la tienda con
+  // cubierta de madera en vez de vidrio.
+  { k: 'modificacion', label: 'Modificación', icono: '🪚',
+    pregunta: '¿Qué se le agrega o se le cambia?', ejemplo: 'Ej: cubierta de madera en vez de vidrio, agregarle un cajón, otras patas…' },
 ]
 function trabajoDe(item) { return item._trabajoFabrica || 'tela' }
 function trabajoInfo(item) { return TRABAJOS_FABRICA.find(t => t.k === trabajoDe(item)) }
@@ -1949,6 +1956,9 @@ function resumenParaCliente() {
       ciudad:       ciudadEnvio.value || null,
       direccion:    direccionEnvio.value || null,
     },
+    // Lo demás que dice la orden: sus notas y cómo se paga el anticipo.
+    notas:              notas.value.trim() || null,
+    abonos:             resumenOrden.value.abonos.map(a => ({ monto: Math.round(a.monto), metodo: a.metodo })),
     lineas:             lineasDeLaOrden(),
   }
 }
@@ -2130,26 +2140,119 @@ async function guardarAnexoAqui(payload) {
   }
 }
 
+// Al mandar el enlace, el vendedor escoge (pedido del usuario, 2026-10-28):
+// que la orden se cree sola apenas el cliente firme, o esperar la firma y
+// crearla él. En los dos casos la orden completa viaja con el enlace, así que
+// se puede crear aunque este formulario ya no esté (ver OrdenDelAnexo). Con
+// precio por consultar no se crea sola: hay que pedir la consulta de costo.
+const crearAlFirmar = ref(true)
+const puedeCrearSola = computed(() => !hayItemsCotizar.value)
+
 async function enviarAnexoAlCliente() {
   if (!clienteSeleccionado.value?.id || preparandoAnexo.value) return
   if (!items.value.length) { toast.error('Agrega los productos antes de enviárselo al cliente.'); return }
   if (avisarFichaIncompleta()) return
+  // La orden se va a crear con lo que se manda: tiene que estar completa,
+  // igual que al darle "Crear orden" (menos la firma, que es lo que falta).
+  modoGuardarBorrador.value = false
+  if (!(await validarParaCrear({ paraFirmaRemota: true }))) return
   preparandoAnexo.value = true
   try {
+    await subirComprobantesPendientes()
     await subirBocetosPendientes()
     const lo_que_vio = huellaLocal()
     const lo_que_vio_decl = huellaDeclaracionLocal()
     const { data } = await crearAnexo({
       cliente_id: clienteSeleccionado.value.id, modo: 'remoto', resumen: resumenParaCliente(),
       especiales: especialesParaCliente(),
+      orden: armarPayload(),
+      crear_al_firmar: puedeCrearSola.value && crearAlFirmar.value,
     })
     anexo.value = { ...data, lo_que_vio, lo_que_vio_decl }
     emailAnexo.value = clienteSeleccionado.value?.email ?? ''
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo preparar el enlace.')
+    toast.error(e.fotoPerdida ? e.message : (e.response?.data?.message ?? 'No se pudo preparar el enlace.'))
   } finally {
     preparandoAnexo.value = false
   }
+}
+
+/** Cambiar de idea mientras el cliente no ha firmado. */
+async function alternarCrearAlFirmar() {
+  if (!anexo.value?.id) return
+  try {
+    const { data } = await cambiarCrearAlFirmar(anexo.value.id, !anexo.value.crear_al_firmar)
+    ponerAnexo(data)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo cambiar.')
+  }
+}
+
+// La orden ya se creó con la firma (sola, o desde la lista de arriba): el
+// formulario sobra. Se borra el respaldo y se va a la orden, para que nadie
+// le dé "Crear orden" a algo que ya existe.
+let _yaSeFueALaOrden = false
+async function irALaOrdenCreada(ordenId, mensaje) {
+  if (_yaSeFueALaOrden) return
+  _yaSeFueALaOrden = true
+  await borradorLocal.borrar().catch(() => {})
+  toast.success(mensaje)
+  router.push({ name: 'orden-detalle', params: { id: ordenId } })
+}
+
+/** "Crear la orden" con lo que viajó en el enlace (esperó la firma, o no se pudo crear sola). */
+const creandoDeAnexo = ref(null)
+async function crearOrdenDelEnlace(a) {
+  if (creandoDeAnexo.value) return
+  creandoDeAnexo.value = a.id
+  try {
+    const { data } = await crearOrdenDeAnexo(a.id)
+    if (a.id === anexo.value?.id) {
+      await irALaOrdenCreada(data.orden_id, `Orden ${data.referencia ?? ''} creada.`)
+    } else {
+      toast.success(`Orden ${data.referencia ?? ''} creada.`)
+      router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
+    }
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo crear la orden.')
+    if (e.response?.data?.anexo) {
+      if (a.id === anexo.value?.id) ponerAnexo(e.response.data.anexo)
+      enlacesSinOrden.value = enlacesSinOrden.value.map(x => x.id === a.id ? e.response.data.anexo : x)
+    }
+  } finally {
+    creandoDeAnexo.value = null
+  }
+}
+
+// ── Los enlaces que se mandaron con la orden y siguen sin orden ──────────────
+// Esperando la firma, o firmados y por crear. Salen arriba de Nueva orden
+// aunque el formulario ya se haya vencido o se esté armando otra orden: así
+// la firma de un cliente que se demoró nunca se queda sin su orden.
+const enlacesSinOrden = ref([])
+async function cargarEnlacesSinOrden() {
+  if (modoCotizacion.value) return
+  try {
+    const { data } = await anexosSinOrden()
+    enlacesSinOrden.value = Array.isArray(data) ? data : []
+  } catch { /* sin conexión: no se muestra la lista */ }
+}
+onMounted(cargarEnlacesSinOrden)
+// El que se está siguiendo en este formulario ya se ve abajo.
+const otrosEnlaces = computed(() => enlacesSinOrden.value.filter(a => a.id !== anexo.value?.id))
+async function quitarEnlaceDeLaLista(a) {
+  const firmado = a.estado === 'firmado'
+  if (!confirm(firmado
+    ? `¿Quitar el pedido de ${a.cliente_nombre ?? 'este cliente'} de la lista? Su firma queda guardada, pero la orden no se crea.`
+    : `¿Cancelar el envío a ${a.cliente_nombre ?? 'este cliente'}? El enlace deja de servir.`)) return
+  try {
+    await anularAnexo(a.id)
+    enlacesSinOrden.value = enlacesSinOrden.value.filter(x => x.id !== a.id)
+  } catch {
+    toast.error('No se pudo. Revisa tu conexión.')
+  }
+}
+async function copiarEnlaceDe(a) {
+  try { await navigator.clipboard.writeText(a.url); toast.success('Enlace copiado.') } catch { toast.info(a.url) }
 }
 
 function ponerAnexo(data) {
@@ -2230,22 +2333,34 @@ async function refrescarAnexo() {
   if (!anexo.value?.id) return
   try {
     const { data } = await getAnexo(anexo.value.id)
-    const yaEstaba = anexo.value?.estado === 'firmado'
+    const antes = anexo.value
     ponerAnexo(data)
-    if (!yaEstaba && data.estado === 'firmado') {
-      toast.success(`${data.nombre_firmante ?? 'El cliente'} firmó ✓`)
+    // Se creó sola al firmar: a la orden.
+    if (data.orden_id && data.estado === 'firmado') {
+      return irALaOrdenCreada(data.orden_id, `${data.nombre_firmante ?? 'El cliente'} firmó y se creó la orden ✓`)
+    }
+    if (antes?.estado !== 'firmado' && data.estado === 'firmado') {
+      toast.success(`${data.nombre_firmante ?? 'El cliente'} firmó ✓${data.crear_al_firmar ? ' Creando la orden…' : ''}`)
+    }
+    if (data.orden_auto_estado === 'fallo' && antes?.orden_auto_estado !== 'fallo') {
+      toast.error(`La orden no se pudo crear sola: ${data.orden_auto_error ?? ''}`)
     }
   } catch { /* se vuelve a intentar en el siguiente sondeo */ }
 }
+// Firmado y creándose sola (está en la cola): se sigue preguntando hasta
+// que aparezca la orden o el motivo por el que no se pudo.
+const esperandoOrdenSola = computed(() =>
+  anexo.value?.estado === 'firmado' && !!anexo.value.crear_al_firmar && !anexo.value.orden_id && !anexo.value.orden_auto_estado
+)
 function dejarDeEsperarAnexo() {
   if (_canalAnexo && window.Echo) window.Echo.leave(_canalAnexo)
   _canalAnexo = null
   clearInterval(_sondeoAnexo)
   _sondeoAnexo = null
 }
-watch(() => [anexo.value?.id, anexo.value?.estado], ([id, estado]) => {
+watch(() => [anexo.value?.id, anexo.value?.estado, esperandoOrdenSola.value], ([id, estado, creandose]) => {
   dejarDeEsperarAnexo()
-  if (!id || estado !== 'pendiente') return
+  if (!id || (estado !== 'pendiente' && !creandose)) return
   if (window.Echo) {
     _canalAnexo = `anexo.${id}`
     window.Echo.channel(_canalAnexo).listen('.anexo.firmado', refrescarAnexo)
@@ -2542,7 +2657,12 @@ watch(hayItemsCotizar, (hay) => {
  * al vendedor que revise algo que igual no se va a poder crear.
  * Devuelve false (y avisa por qué) si algo falta.
  */
-async function validarParaCrear() {
+/**
+ * `paraFirmaRemota`: se va a mandar la orden con el enlace de firma (se crea
+ * cuando el cliente firme). Se revisa todo lo mismo que al crearla, menos el
+ * anexo y la declaración: eso es justamente lo que va a firmar.
+ */
+async function validarParaCrear({ paraFirmaRemota = false } = {}) {
   if (clienteRequiereCompletar.value && !modoGuardarBorrador.value) {
     toast.error('Completa los datos del cliente antes de crear la orden.')
     return false
@@ -2578,11 +2698,11 @@ async function validarParaCrear() {
     return false
   }
 
-  if (!modoGuardarBorrador.value && exigeAnexo.value && !tieneAnexo.value) {
+  if (!paraFirmaRemota && !modoGuardarBorrador.value && exigeAnexo.value && !tieneAnexo.value) {
     toast.error('Falta el anexo de garantías: que el cliente lo firme aquí en el sistema o sube la foto del anexo firmado en papel.')
     return false
   }
-  if (!modoGuardarBorrador.value && exigeDeclaracion.value && !tieneDeclaracion.value) {
+  if (!paraFirmaRemota && !modoGuardarBorrador.value && exigeDeclaracion.value && !tieneDeclaracion.value) {
     toast.error(declaracionDesactualizada.value
       ? 'Cambiaron los productos especiales después de que el cliente firmó: que firme otra vez o sube la foto de la declaración en papel.'
       : 'Falta la declaración de diseños especiales: que el cliente la firme con el anexo o sube la foto de la declaración en papel.')
@@ -2769,31 +2889,7 @@ async function submit() {
 
   submitting.value = true
   try {
-    // Subir las fotos del comprobante que falten. También al guardar como
-    // borrador: antes se saltaban, la foto se quedaba solo en el teléfono y
-    // al seguir el borrador ya no estaba (había que tomarla otra vez). Lo que
-    // ya se haya tomado se guarda; lo que falte se pide al confirmar.
-    // Una por una: si se cae la red a mitad, las que ya subieron se quedan.
-    if (facturaFotos.value.some(f => !f.url)) {
-      subiendoFactura.value = true
-      for (const f of [...facturaFotos.value]) {
-        if (f.url) continue
-        // Ya no está en el teléfono: se quita y se pide otra vez (ver
-        // comprimirAlTomar). Reintentar con la misma nunca funcionaría.
-        if (!(await fotoSigueAhi(f.file))) {
-          removeFacturaFoto(facturaFotos.value.indexOf(f))
-          throw errorFotoPerdida('del comprobante')
-        }
-        const fd = new FormData()
-        fd.append('foto', await comprimirImagen(f.file), 'factura.jpg')
-        fd.append('folder', 'facturas')
-        const { data: uploadData } = await api.post('/upload/foto', fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        f.url = uploadData.url
-      }
-      subiendoFactura.value = false
-    }
+    await subirComprobantesPendientes()
 
     // Bocetos/fotos de ítems personalizados (y del que se retapiza): subir
     // los que tengan blob pendiente
@@ -2808,7 +2904,7 @@ async function submit() {
       }
       subiendoAnexo.value = true
       const fd = new FormData()
-      fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
+      fd.append('foto', await comprimirImagen(anexoFotoFile.value), nombreParaSubir(anexoFotoFile.value, 'anexo'))
       fd.append('folder', 'facturas')
       const { data: uploadData } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -2845,93 +2941,7 @@ async function submit() {
       firmaUrl.value = uploadData.url
     }
 
-    const payload = {
-      clave_envio:          claveEnvio,
-      borrador_id:          borradorServidor.value?.id || undefined,
-      cliente_id:           clienteSeleccionado.value.id,
-      tienda_id:            tiendaId.value,
-      canal:                canal.value,
-      tipo:                 tipoOrden.value,
-      anticipo_pct:         anticipo_pct.value,
-      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
-      anticipo_metodo:      anticipo_metodo.value,
-      anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
-      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
-        anticipo_pagos: [
-          { monto: anticipo_monto1_input.value,                                                      metodo: anticipo_metodo.value,  referencia: anticipo_referencia.value  || undefined },
-          { monto: Math.max(0, anticipo_monto.value - anticipo_monto1_input.value), metodo: anticipo_metodo2.value, referencia: anticipo_referencia2.value || undefined },
-        ].filter(p => p.monto > 0)
-      } : {}),
-      guardar_borrador:     modoGuardarBorrador.value || undefined,
-      es_fv2:               esFv2.value || undefined,
-      motivo_serie:         esFv2.value ? (motivoSerie.value.trim() || undefined) : undefined,
-      fv2_sin_iva:          (esFv2.value && auth.usuario?.puede_fv2_sin_iva && fv2SinIva.value) || undefined,
-      // Se manda el monto, no el %: si el vendedor escribió "100.000" el backend
-      // debe guardar esos 100.000 exactos, no recalcularlos desde un % redondeado.
-      descuento_condicionado_monto: Number(descuentoCondicionado.value) > 0
-        ? Number(descuentoCondicionado.value)
-        : undefined,
-      // Solo cuando se lo lleva TODO (la marca vieja de toda la orden); lo
-      // demás va producto por producto en `llevar_ahora`.
-      entrega_inmediata:    seLlevaTodo.value || undefined,
-      descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
-      notas:                notas.value || undefined,
-      fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
-      es_compartida:        esCompartida.value || undefined,
-      tienda_abonada_id:    (auth.isIndependiente && tiendaAbonadaId.value) ? tiendaAbonadaId.value : undefined,
-      covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
-      factura_foto_url:     facturaFotoUrl.value  || undefined,
-      factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
-      firma_url:            firmaUrl.value        || undefined,
-      anexo_foto_url:       anexoFotoUrl.value    || undefined,
-      declaracion_foto_url: declaracionFotoUrl.value || undefined,
-      anexo_id:             anexo.value?.estado === 'firmado' ? anexo.value.id : undefined,
-      departamento_envio:   departamentoEnvio.value || undefined,
-      ciudad_envio:         ciudadEnvio.value || undefined,
-      direccion_envio:      direccionEnvio.value || undefined,
-      items: items.value.map((i) => ({
-        // El que ya estaba en el borrador se actualiza en su sitio.
-        id:                      (borradorServidor.value && i.id) || undefined,
-        producto_id:             i.producto_id || undefined,
-        nombre_custom:           i.nombre_custom || undefined,
-        categoria_custom:        i.categoria_custom || undefined,
-        variante_id:             i.variante_id || undefined,
-        combo_config_id:         i._config_id  || undefined,
-        // Qué se eligió, escrito: la medida de la cama, la tela. Sin esto la
-        // orden y el PDF salían con el nombre del mueble a secas.
-        variante_detalle:        i.variante_label || undefined,
-        // Se sabe la medida, la tela se define después desde la orden.
-        tela_por_definir:        (!i.variante_id && i._tela_por_definir) || undefined,
-        tienda_origen_id:        i.tienda_origen_id || undefined,
-        // En piezas si va en juego: así se cuenta el stock (ver lineaParaEnviar).
-        ...lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i)),
-        es_personalizado:        i.es_personalizado,
-        fabricar_pedido:         i._fabricar_pedido || undefined,
-        es_restauracion:         i._es_restauracion || undefined,
-        // Ya está hecho: el backend lo guarda sin crearle producción.
-        producto_unico:          i._producto_unico || undefined,
-        // De stock, pero se va a la fábrica a cambiarle la tela: el backend
-        // lo aparta como catálogo y además le crea producción.
-        retapizar:               (sePuedeRetapizar(i) && i._retapizar) || undefined,
-        // Sale con el cliente hoy. Por producto: el reloj sí, el comedor no.
-        llevar_ahora:            (sePuedeLlevar(i) && i._llevar_ahora) || undefined,
-        // El obsequio se manda, no se deduce del precio: en $0 tambien esta
-        // lo que todavia espera cotizacion, y son cosas distintas.
-        es_regalo:               i._regalo || undefined,
-        // Con qué promoción salió el precio (ya va rebajado arriba). La del
-        // borrador se conserva: su precio ya la traía.
-        promocion_id:            (promoDe(i)?.id ?? i._promocion_id) || undefined,
-        fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
-        specs_personalizacion:   specsParaGuardar(i),
-        // Lo que el cliente aprueba en la declaración de diseños especiales.
-        ficha_especial:          pideDeclaracion(i) ? (limpiarFicha(i.ficha_especial) ?? undefined) : undefined,
-        boceto_urls:             (i.es_personalizado || i._retapizar) && i.boceto_urls.some(Boolean)
-          ? i.boceto_urls.filter(Boolean)
-          : undefined,
-      })),
-    }
-
-    const { data } = await api.post('/ordenes', payload)
+    const { data } = await api.post('/ordenes', armarPayload())
     // Ya está en el servidor: el respaldo del teléfono sobra.
     await borradorLocal.borrar()
 
@@ -3035,6 +3045,134 @@ async function submit() {
     subiendoDeclaracion.value = false
     modoGuardarBorrador.value = false
     enviarPdfAlGuardarBorrador.value = false
+  }
+}
+
+/**
+ * Sube las fotos del comprobante que falten. También al guardar como
+ * borrador: antes se saltaban, la foto se quedaba solo en el teléfono y al
+ * seguir el borrador ya no estaba (había que tomarla otra vez). Lo que ya se
+ * haya tomado se guarda; lo que falte se pide al confirmar. Una por una: si
+ * se cae la red a mitad, las que ya subieron se quedan. Lo usa crear la orden
+ * y también mandarla a firmar (la orden viaja con el enlace).
+ */
+async function subirComprobantesPendientes() {
+  if (!facturaFotos.value.some(f => !f.url)) return
+  subiendoFactura.value = true
+  try {
+    for (const f of [...facturaFotos.value]) {
+      if (f.url) continue
+      // Ya no está en el teléfono: se quita y se pide otra vez (ver
+      // comprimirAlTomar). Reintentar con la misma nunca funcionaría.
+      if (!(await fotoSigueAhi(f.file))) {
+        removeFacturaFoto(facturaFotos.value.indexOf(f))
+        throw errorFotoPerdida('del comprobante')
+      }
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(f.file), nombreParaSubir(f.file, 'factura'))
+      fd.append('folder', 'facturas')
+      const { data: uploadData } = await api.post('/upload/foto', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      f.url = uploadData.url
+    }
+  } finally {
+    subiendoFactura.value = false
+  }
+}
+
+/**
+ * La orden tal como va a POST /ordenes. La misma para crearla aquí y para
+ * guardarla con el enlace de firma (el servidor la crea cuando el cliente
+ * firme, ver OrdenDelAnexo): si fueran dos armados distintos, la orden que se
+ * crea sola podría no ser la que se ve aquí. Las fotos ya tienen que estar
+ * subidas.
+ */
+function armarPayload() {
+  return {
+      clave_envio:          claveEnvio,
+      borrador_id:          borradorServidor.value?.id || undefined,
+      cliente_id:           clienteSeleccionado.value.id,
+      tienda_id:            tiendaId.value,
+      canal:                canal.value,
+      tipo:                 tipoOrden.value,
+      anticipo_pct:         anticipo_pct.value,
+      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
+      anticipo_metodo:      anticipo_metodo.value,
+      anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
+      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
+        anticipo_pagos: [
+          { monto: anticipo_monto1_input.value,                                                      metodo: anticipo_metodo.value,  referencia: anticipo_referencia.value  || undefined },
+          { monto: Math.max(0, anticipo_monto.value - anticipo_monto1_input.value), metodo: anticipo_metodo2.value, referencia: anticipo_referencia2.value || undefined },
+        ].filter(p => p.monto > 0)
+      } : {}),
+      guardar_borrador:     modoGuardarBorrador.value || undefined,
+      es_fv2:               esFv2.value || undefined,
+      motivo_serie:         esFv2.value ? (motivoSerie.value.trim() || undefined) : undefined,
+      fv2_sin_iva:          (esFv2.value && auth.usuario?.puede_fv2_sin_iva && fv2SinIva.value) || undefined,
+      // Se manda el monto, no el %: si el vendedor escribió "100.000" el backend
+      // debe guardar esos 100.000 exactos, no recalcularlos desde un % redondeado.
+      descuento_condicionado_monto: Number(descuentoCondicionado.value) > 0
+        ? Number(descuentoCondicionado.value)
+        : undefined,
+      // Solo cuando se lo lleva TODO (la marca vieja de toda la orden); lo
+      // demás va producto por producto en `llevar_ahora`.
+      entrega_inmediata:    seLlevaTodo.value || undefined,
+      descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
+      notas:                notas.value || undefined,
+      fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
+      es_compartida:        esCompartida.value || undefined,
+      tienda_abonada_id:    (auth.isIndependiente && tiendaAbonadaId.value) ? tiendaAbonadaId.value : undefined,
+      covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
+      factura_foto_url:     facturaFotoUrl.value  || undefined,
+      factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
+      firma_url:            firmaUrl.value        || undefined,
+      anexo_foto_url:       anexoFotoUrl.value    || undefined,
+      declaracion_foto_url: declaracionFotoUrl.value || undefined,
+      anexo_id:             anexo.value?.estado === 'firmado' ? anexo.value.id : undefined,
+      departamento_envio:   departamentoEnvio.value || undefined,
+      ciudad_envio:         ciudadEnvio.value || undefined,
+      direccion_envio:      direccionEnvio.value || undefined,
+      items: items.value.map((i) => ({
+        // El que ya estaba en el borrador se actualiza en su sitio.
+        id:                      (borradorServidor.value && i.id) || undefined,
+        producto_id:             i.producto_id || undefined,
+        nombre_custom:           i.nombre_custom || undefined,
+        categoria_custom:        i.categoria_custom || undefined,
+        variante_id:             i.variante_id || undefined,
+        combo_config_id:         i._config_id  || undefined,
+        // Qué se eligió, escrito: la medida de la cama, la tela. Sin esto la
+        // orden y el PDF salían con el nombre del mueble a secas.
+        variante_detalle:        i.variante_label || undefined,
+        // Se sabe la medida, la tela se define después desde la orden.
+        tela_por_definir:        (!i.variante_id && i._tela_por_definir) || undefined,
+        tienda_origen_id:        i.tienda_origen_id || undefined,
+        // En piezas si va en juego: así se cuenta el stock (ver lineaParaEnviar).
+        ...lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i)),
+        es_personalizado:        i.es_personalizado,
+        fabricar_pedido:         i._fabricar_pedido || undefined,
+        es_restauracion:         i._es_restauracion || undefined,
+        // Ya está hecho: el backend lo guarda sin crearle producción.
+        producto_unico:          i._producto_unico || undefined,
+        // De stock, pero se va a la fábrica a cambiarle la tela: el backend
+        // lo aparta como catálogo y además le crea producción.
+        retapizar:               (sePuedeRetapizar(i) && i._retapizar) || undefined,
+        // Sale con el cliente hoy. Por producto: el reloj sí, el comedor no.
+        llevar_ahora:            (sePuedeLlevar(i) && i._llevar_ahora) || undefined,
+        // El obsequio se manda, no se deduce del precio: en $0 tambien esta
+        // lo que todavia espera cotizacion, y son cosas distintas.
+        es_regalo:               i._regalo || undefined,
+        // Con qué promoción salió el precio (ya va rebajado arriba). La del
+        // borrador se conserva: su precio ya la traía.
+        promocion_id:            (promoDe(i)?.id ?? i._promocion_id) || undefined,
+        fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
+        specs_personalizacion:   specsParaGuardar(i),
+        // Lo que el cliente aprueba en la declaración de diseños especiales.
+        ficha_especial:          pideDeclaracion(i) ? (limpiarFicha(i.ficha_especial) ?? undefined) : undefined,
+        boceto_urls:             (i.es_personalizado || i._retapizar) && i.boceto_urls.some(Boolean)
+          ? i.boceto_urls.filter(Boolean)
+          : undefined,
+      })),
   }
 }
 
@@ -3315,6 +3453,25 @@ async function soltarBorrador() {
   router.replace({ name: modoCotizacion.value ? 'cotizaciones' : 'ordenes' })
 }
 
+/**
+ * Lo guardado, con la forma que espera la pantalla: donde ella tiene un texto
+ * y llega null, vuelve a ser ''. Los respaldos que se guardaron en la cuenta
+ * antes del 2026-10-27 traen null en vez de '' (el servidor convertía los
+ * textos vacíos) y Nueva orden quedaba en blanco al hacer .trim() sobre las
+ * notas, el motivo o la dirección. Entra en objetos (nuevo cliente, formularios);
+ * lo que en la pantalla ya es null (cliente escogido, anexo) llega tal cual.
+ */
+function sinNulos(actual, entrante) {
+  if (entrante === null && typeof actual === 'string') return ''
+  const esObjeto = (v) => v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Blob)
+  if (esObjeto(actual) && esObjeto(entrante)) {
+    const out = { ...entrante }
+    for (const k of Object.keys(actual)) if (k in out) out[k] = sinNulos(actual[k], out[k])
+    return out
+  }
+  return entrante
+}
+
 async function restaurarBorrador(d) {
   if (d.claveEnvio) claveEnvio = d.claveEnvio
 
@@ -3343,7 +3500,7 @@ async function restaurarBorrador(d) {
     .map(f => ({ ...f, preview: f.file ? URL.createObjectURL(f.file) : f.url }))
 
   const poner = () => {
-    for (const [k, r] of Object.entries(camposBorrador)) if (k in d) r.value = d[k]
+    for (const [k, r] of Object.entries(camposBorrador)) if (k in d) r.value = sinNulos(r.value, d[k])
   }
   poner()
   // Algunos watchers reaccionan a lo que se acaba de poner y pisan otros
@@ -3355,8 +3512,9 @@ async function restaurarBorrador(d) {
 
   if (step.value === 3 && hayItemsCotizar.value) cargarReceptoresCotizar()
   // Si se le mandó el enlace al cliente, pudo firmar mientras la app estaba
-  // cerrada: se pregunta ya, sin esperar el siguiente sondeo.
-  if (anexo.value?.estado === 'pendiente') refrescarAnexo()
+  // cerrada: se pregunta ya, sin esperar el siguiente sondeo. Y si firmó,
+  // la orden pudo crearse sola mientras tanto.
+  if (anexo.value?.estado === 'pendiente' || (anexo.value?.modo === 'remoto' && anexo.value?.estado === 'firmado')) refrescarAnexo()
   toast.success('Recuperamos la orden que llevabas.')
 }
 
@@ -3730,6 +3888,43 @@ onBeforeUnmount(() => {
       >
         Ir a Mi Perfil → Registrar firma
       </button>
+    </div>
+
+    <!-- Pedidos mandados a firmar que siguen sin orden: esperando la firma,
+         o firmados y por crear. Viven en el servidor, no en este formulario. -->
+    <div v-if="otrosEnlaces.length && !modoCotizacion" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <p class="text-sm font-semibold text-gray-800">Pedidos enviados a firmar</p>
+      <div v-for="a in otrosEnlaces" :key="a.id" class="rounded-lg border border-gray-200 px-3 py-2.5 space-y-2">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-800 truncate">{{ a.cliente_nombre ?? 'Cliente' }}</p>
+            <p class="text-xs text-gray-500">
+              <template v-if="a.total">${{ new Intl.NumberFormat('es-CO').format(Math.round(a.total)) }} · </template>
+              {{ a.estado === 'firmado'
+                ? `Firmó el ${new Date(a.firmado_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`
+                : (a.crear_al_firmar ? 'Se crea sola al firmar' : 'Tú la creas al firmar') }}
+            </p>
+          </div>
+          <span :class="['text-[11px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap',
+            a.estado !== 'firmado' ? 'text-amber-700 bg-amber-50 border border-amber-200'
+            : a.orden_auto_estado === 'fallo' ? 'text-red-700 bg-red-50 border border-red-200'
+            : 'text-green-700 bg-green-50 border border-green-200']">
+            {{ a.estado !== 'firmado' ? 'Esperando firma' : a.orden_auto_estado === 'fallo' ? 'No se pudo crear' : 'Por crear' }}
+          </span>
+        </div>
+        <p v-if="a.estado === 'firmado' && a.orden_auto_estado === 'fallo'" class="text-xs text-red-700">{{ a.orden_auto_error }}</p>
+        <p v-if="a.cambio_pedido && a.estado !== 'firmado'" class="text-xs text-amber-800">Pidió un cambio: "{{ a.cambio_pedido }}"</p>
+        <div class="flex items-center gap-3">
+          <button
+            v-if="a.estado === 'firmado'" type="button" @click="crearOrdenDelEnlace(a)" :disabled="!!creandoDeAnexo"
+            class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-1.5 disabled:opacity-40"
+          >{{ creandoDeAnexo === a.id ? 'Creando…' : 'Crear la orden' }}</button>
+          <button v-else type="button" @click="copiarEnlaceDe(a)" class="text-xs font-semibold text-blue-600">Copiar enlace</button>
+          <button type="button" @click="quitarEnlaceDeLaLista(a)" class="text-xs text-gray-500 hover:text-red-600 ml-auto">
+            {{ a.estado === 'firmado' ? 'Quitar' : 'Cancelar envío' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════ PASO 1 ══ -->
@@ -4134,7 +4329,7 @@ onBeforeUnmount(() => {
               <!-- Para que el vendedor sepa que puede ofrecerla: "1.40 −15 %". -->
               <p v-if="promosDelProducto(promocionesVigentes, p.id).length" class="flex flex-wrap gap-1 mt-0.5">
                 <span
-                  v-for="pr in promosDelProducto(promocionesVigentes, p.id)" :key="pr.id"
+                  v-for="pr in promosDelProducto(promocionesVigentes, p.id)" :key="pr.clave ?? pr.id"
                   class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full text-xs font-semibold"
                 >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
               </p>
@@ -4930,11 +5125,11 @@ onBeforeUnmount(() => {
             <span class="text-gray-400">— arreglo o cambio; se aparta y entra a producción</span>
           </label>
 
-          <div v-if="item._retapizar" class="flex gap-1.5">
+          <div v-if="item._retapizar" class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             <button
               v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
               @click="elegirTrabajo(item, t.k)"
-              :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+              :class="['rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
                 trabajoDe(item) === t.k
                   ? 'bg-orange-600 border-orange-600 text-white'
                   : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
@@ -5017,7 +5212,7 @@ onBeforeUnmount(() => {
           <div v-if="item._retapizar && !esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
             <div>
               <p class="text-xs font-semibold text-orange-800">
-                {{ trabajoDe(item) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                {{ trabajoInfo(item).pregunta }}
                 <span class="text-red-500">*</span>
               </p>
               <p class="text-xs text-gray-500 mt-0.5">
@@ -5028,9 +5223,7 @@ onBeforeUnmount(() => {
             </div>
             <textarea
               v-model="item.specs_notas"
-              :placeholder="trabajoDe(item) === 'color'
-                ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
-                : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…'"
+              :placeholder="trabajoInfo(item).ejemplo"
               rows="2"
               class="input text-sm resize-none"
             />
@@ -6076,6 +6269,22 @@ onBeforeUnmount(() => {
             Con la declaración de diseños especiales: aprobó
             {{ anexo.productos_declarados?.length ? anexo.productos_declarados.join(', ') : 'los productos especiales' }}.
           </p>
+          <!-- La orden que viajó con el enlace: creándose sola, o por crear -->
+          <p v-if="esperandoOrdenSola" class="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-2">
+            <IconoS class="w-4 h-4" /> Creando la orden… aparece aquí sola en unos segundos.
+          </p>
+          <div v-else-if="anexo.orden_guardada && !anexo.orden_id" class="text-xs rounded-lg px-3 py-2 space-y-2"
+            :class="anexo.orden_auto_estado === 'fallo' ? 'text-red-600 border border-red-200' : 'text-gray-700 bg-gray-50 border border-gray-200'">
+            <p v-if="anexo.orden_auto_estado === 'fallo'">
+              <strong>No se pudo crear sola:</strong> {{ anexo.orden_auto_error }}
+              Corrige lo que dice y créala desde aquí, o con "Crear orden" abajo.
+            </p>
+            <p v-else>Firmó la orden que le mandaste. Créala cuando quieras: queda guardada con su firma por 30 días.</p>
+            <button
+              type="button" @click="crearOrdenDelEnlace(anexo)" :disabled="!!creandoDeAnexo || anexoDesactualizado"
+              class="w-full rounded-lg py-2 text-xs font-semibold bg-blue-600 text-white disabled:opacity-40"
+            >{{ creandoDeAnexo === anexo.id ? 'Creando…' : 'Crear la orden que firmó' }}</button>
+          </div>
           <div v-if="anexoDesactualizado" class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-2">
             <p v-if="declaracionDesactualizada && anexo.declaracion">Cambiaste la ficha de un producto especial después de que el cliente la aprobó: lo que firmó ya no es lo que se va a fabricar.</p>
             <p v-else-if="declaracionDesactualizada">El cliente firmó sin la declaración de los productos especiales que tiene la orden: tiene que aprobarlos y firmar otra vez.</p>
@@ -6100,6 +6309,19 @@ onBeforeUnmount(() => {
           </p>
           <p v-if="anexo.declaracion" class="text-xs text-gray-500">
             Incluye la declaración de diseños especiales: {{ anexo.productos_declarados?.join(', ') }}.
+          </p>
+          <!-- Qué pasa cuando firme: se puede cambiar mientras espera. -->
+          <div v-if="anexo.orden_guardada" class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+            <p class="text-xs text-gray-700">
+              {{ anexo.crear_al_firmar ? 'La orden se crea sola apenas firme.' : 'Cuando firme, tú creas la orden (tienes 30 días).' }}
+            </p>
+            <button
+              v-if="puedeCrearSola" type="button" @click="alternarCrearAlFirmar"
+              class="text-xs font-semibold text-blue-600 whitespace-nowrap"
+            >{{ anexo.crear_al_firmar ? 'Mejor la creo yo' : 'Que se cree sola' }}</button>
+          </div>
+          <p v-if="anexo.vence_at" class="text-[11px] text-gray-400">
+            El enlace sirve hasta el {{ new Date(anexo.vence_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' }) }}.
           </p>
           <!-- El cliente revisó y pidió un cambio en vez de firmar -->
           <div v-if="anexo.cambio_pedido" class="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
@@ -6157,6 +6379,27 @@ onBeforeUnmount(() => {
               ? 'Hazlo aquí en la tienda, o mándaselo si se fue: desde su teléfono ve toda la orden antes de firmar.'
               : 'Mándaselo: desde su teléfono ve toda la orden (productos, valor, entrega y sus datos) antes de firmar.' }}
           </p>
+          <!-- Antes de mandarlo: ¿la orden se crea sola cuando firme? -->
+          <div class="rounded-lg border border-gray-200 px-3 py-2.5 space-y-1.5">
+            <p class="text-xs font-semibold text-gray-700">Si se lo mandas, cuando el cliente firme:</p>
+            <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+              <button
+                type="button" @click="crearAlFirmar = true" :disabled="!puedeCrearSola"
+                :class="['flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors disabled:opacity-40',
+                  crearAlFirmar && puedeCrearSola ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500']"
+              >Crear la orden sola</button>
+              <button
+                type="button" @click="crearAlFirmar = false"
+                :class="['flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors',
+                  !crearAlFirmar || !puedeCrearSola ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500']"
+              >Esperar y crearla yo</button>
+            </div>
+            <p class="text-[11px] text-gray-500">
+              <template v-if="!puedeCrearSola">Con precio por consultar la creas tú (hay que pedir la consulta de costo).</template>
+              <template v-else-if="crearAlFirmar">Apenas firme se crea con todo lo que tienes aquí (anticipo, entrega, notas) y te avisa. Si algo no deja crearla, te dice qué.</template>
+              <template v-else>La orden queda guardada con su firma: la creas cuando quieras, dentro de 30 días, aunque cierres esta pantalla.</template>
+            </p>
+          </div>
           <div :class="['grid gap-2', canal === 'fisica' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1']">
             <button
               v-if="canal === 'fisica'"
@@ -6179,15 +6422,22 @@ onBeforeUnmount(() => {
       <!-- Foto del anexo en papel — sigue siendo posible en la tienda -->
       <div v-if="canal === 'fisica' && anexo?.estado !== 'firmado'">
         <label class="label">
-          ¿Lo firmó en papel? Foto del anexo
+          ¿Lo firmó en papel? Foto o PDF del anexo
           <span v-if="!exigeAnexo" class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
         </label>
-        <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto.</p>
+        <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto o el PDF escaneado.</p>
 
         <!-- También la que ya estaba subida en el borrador (sin archivo en el teléfono). -->
         <div v-if="anexoFotoFile || anexoFotoUrl" class="space-y-2">
           <div class="relative">
+            <TarjetaPdf
+              v-if="anexoFotoUrl ? esUrlDePdf(anexoFotoUrl) : esPdf(anexoFotoFile)"
+              :href="anexoFotoUrl || anexoFotoPreview"
+              :nombre="anexoFotoFile?.name || 'Anexo firmado'"
+              class="pr-12"
+            />
             <img
+              v-else
               :src="anexoFotoUrl || anexoFotoPreview"
               alt="Vista previa anexo"
               class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
@@ -6200,16 +6450,16 @@ onBeforeUnmount(() => {
               <XMarkIcon class="w-4 h-4" />
             </button>
           </div>
-          <p class="text-xs text-gray-400 truncate">{{ anexoFotoFile.name }}</p>
-          <p v-if="subiendoAnexo" class="text-xs text-blue-600">Subiendo imagen...</p>
+          <p v-if="anexoFotoFile" class="text-xs text-gray-400 truncate">{{ anexoFotoFile.name }}</p>
+          <p v-if="subiendoAnexo" class="text-xs text-blue-600">Subiendo anexo...</p>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <PhotoIcon class="w-7 h-7 text-gray-300" />
-          <span class="text-sm text-gray-500">Toca para adjuntar foto del anexo</span>
-          <span class="text-xs text-gray-400">JPG, PNG — máx 5 MB</span>
+          <span class="text-sm text-gray-500">Toca para adjuntar foto o PDF del anexo</span>
+          <span class="text-xs text-gray-400">JPG, PNG o PDF — máx 10 MB</span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             @change="onAnexoFotoChange"
             class="hidden"
           />
@@ -6247,7 +6497,7 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
-      <!-- Foto del comprobante -->
+      <!-- Foto o PDF del comprobante -->
       <div>
         <label class="label">
           {{ pagosDivididos ? 'Fotos de los comprobantes (una por cada pago)' : 'Foto del comprobante' }}
@@ -6256,7 +6506,15 @@ onBeforeUnmount(() => {
         <div v-if="facturaFotos.length" class="space-y-2">
           <div :class="facturaFotos.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
             <div v-for="(f, i) in facturaFotos" :key="f.preview" class="relative">
+              <TarjetaPdf
+                v-if="f.file ? esPdf(f.file) : esUrlDePdf(f.url)"
+                :href="f.url || f.preview"
+                :nombre="f.file?.name || `Comprobante ${i + 1}`"
+                :compacta="facturaFotos.length > 1"
+                :class="facturaFotos.length > 1 ? '' : 'pr-12'"
+              />
               <img
+                v-else
                 :src="f.url || f.preview"
                 :alt="`Comprobante ${i + 1}`"
                 :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', facturaFotos.length > 1 ? 'h-32 object-cover' : 'object-contain']"
@@ -6273,17 +6531,17 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imágenes...</p>
+          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo comprobantes...</p>
           <!-- Falta el del segundo pago: se pide en grande, igual que el primero -->
           <label v-if="pagoSinComprobante" class="flex flex-col items-center gap-1 border-2 border-dashed border-amber-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
             <PhotoIcon class="w-7 h-7 text-amber-300" />
             <span class="text-sm font-medium text-gray-600">Toca para adjuntar el comprobante del pago {{ pagoSinComprobante.n }}</span>
             <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
-            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+            <input type="file" accept="image/*,application/pdf" multiple @change="onFacturaFotoChange" class="hidden" />
           </label>
           <label v-else-if="facturaFotos.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-2 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
-            <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto del comprobante
-            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+            <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto o PDF del comprobante
+            <input type="file" accept="image/*,application/pdf" multiple @change="onFacturaFotoChange" class="hidden" />
           </label>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
@@ -6293,12 +6551,12 @@ onBeforeUnmount(() => {
             <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
           </template>
           <template v-else>
-            <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
+            <span class="text-sm text-gray-500">Toca para adjuntar foto o PDF del comprobante</span>
           </template>
-          <span class="text-xs text-gray-400">JPG, PNG — puedes subir varias</span>
+          <span class="text-xs text-gray-400">JPG, PNG o PDF — puedes subir varios</span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             multiple
             @change="onFacturaFotoChange"
             class="hidden"

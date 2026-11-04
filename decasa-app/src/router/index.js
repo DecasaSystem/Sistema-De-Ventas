@@ -33,6 +33,9 @@ const routes = [
   { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/inventario', name: 'inventario', component: () => import('@/views/InventarioView.vue'), meta: { requiresAuth: true } },
   { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresProduccion: true } },
+  // Cuánto trabajo hay: supervisor o quien ve producción (el backend lo vuelve a mirar).
+  { path: '/carga-trabajo', name: 'carga-trabajo', component: () => import('@/views/CargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
+  { path: '/carga-trabajo/ayuda', name: 'carga-trabajo-ayuda', component: () => import('@/views/AyudaCargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
   { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true } },
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
@@ -59,6 +62,9 @@ const routes = [
   // Cómo funcionan las comisiones: solo reglas y ejemplos, sin plata de nadie,
   // así que la puede leer cualquiera (los vendedores también la necesitan).
   { path: '/comisiones/ayuda', name: 'comisiones-ayuda', component: () => import('@/views/AyudaComisionesView.vue'), meta: { requiresAuth: true } },
+  // Las reglas del cálculo (porcentajes, día de pago, 50 %…): las ve quien
+  // tiene Comisiones; cambiarlas pide el permiso "Reglas de comisión".
+  { path: '/comisiones/reglas', name: 'comisiones-reglas', component: () => import('@/views/ReglasComisionView.vue'), meta: { requiresAuth: true, requiresComisiones: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true } },
   { path: '/cotizaciones/:id', name: 'cotizacion-detalle', component: () => import('@/views/CotizacionDetalleView.vue'), meta: { requiresAuth: true } },
@@ -163,6 +169,7 @@ router.beforeEach((to) => {
   // Producción se activa por trabajador, sea cual sea su cargo. El vendedor
   // entra igual: ahí ve sus propios pedidos.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return { name: 'dashboard' }
+  if (to.meta.requiresCargaTrabajo && !(auth.isSupervisor || auth.puedeProduccion)) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }

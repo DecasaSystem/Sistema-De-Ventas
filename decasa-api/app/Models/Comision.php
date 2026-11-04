@@ -12,7 +12,14 @@ class Comision extends Model
         'orden_id', 'vendedor_id', 'tienda_id', 'origen', 'clave_unica', 'mes_venta',
         'valor_orden', 'fecha_venta', 'fecha_disponible',
         'estado', 'forma_pago_pagada', 'monto_comision', 'fecha_pago', 'pagada_por', 'notificado_lista',
+        'reglas_usadas',
     ];
+
+    /**
+     * La foto de las reglas con que se pagó (ReglasComision::foto) es para
+     * auditar, no para las pantallas de siempre: no viaja en cada renglón.
+     */
+    protected $hidden = ['reglas_usadas'];
 
     protected function casts(): array
     {
@@ -21,6 +28,7 @@ class Comision extends Model
             'monto_comision'   => 'decimal:2',
             'notificado_lista' => 'boolean',
             'fecha_pago'       => 'datetime',
+            'reglas_usadas'    => 'array',
         ];
     }
 
