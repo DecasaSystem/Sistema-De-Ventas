@@ -11,7 +11,7 @@
  */
 
 import { pesos, n, fecha, mesEnPalabras } from './excelComisiones'
-import { num, divisor, cuentaPool, cuentaVenta, laParte, partePagada } from './reglasComision'
+import { num, divisor, cuentaPool, cuentaVenta, laParte, partePagada, mediosConFranquicia, restauracionYMeta } from './reglasComision'
 
 /**
  * Las líneas que explican lo listo de un bloque (una persona, un mes, una tienda).
@@ -83,6 +83,32 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
       }
       lineas.push(...movimientosTexto(p, b))
     }
+    lineas.push(...otrosCaminos(b, r, ordenes))
+  }
+
+  lineas.push(...otrasTexto(ordenes))
+  lineas.push(...fueraDelPoolTexto(b))
+
+  lineas.push(`Listo para pagar de ${mesEnPalabras(b.mes)}: ${pesos(b.lista)}. `
+    + (b.atrasada ? `ATRASADA: se debía pagar el ${fecha(b.se_cobra_el)}.` : `Se paga el ${fecha(b.se_cobra_el)}.`))
+  lineas.push(...pendientesTexto(b, r))
+  if (n(b.se_descuenta) > 0 || n(b.debe_al_corte) > 0) {
+    lineas.push(`Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
+      + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta comisión ya entregados)` : '')
+      + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
+  }
+  return lineas
+}
+
+/**
+ * Lo que no es pool: restauraciones, individual, lo cubierto, lo de los
+ * independientes y lo que no sabemos nombrar. Lo usan Listas y el Excel de la
+ * tienda (explicacionDelMes), para que digan lo mismo.
+ */
+function otrosCaminos(b, r, ordenes) {
+  const suma = formas => ordenes.filter(o => formas.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0)
+  const lineas = []
+  {
     const rest = suma(['restauracion_5', 'restauracion_equipo'])
     if (rest > 0) lineas.push(`Restauraciones: ${pesos(rest)} (${num(r.pct_restauracion)}% de su valor${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}${suma(['restauracion_equipo']) > 0 ? '; las de la tienda se parten entre los que estaban ese día' : ''}).`)
     const ind = suma(['sin_meta_5'])
@@ -106,27 +132,21 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
         + `el independiente cobra su ${num(r.indep_pct_bolson)}% aparte, en su bolsón.`)
     }
   }
-
-  // Lo que no sabemos explicar no se calla: sale con su nombre y su plata
-  // (si aparece una forma nueva, la prueba ExplicarListasCubreTodoTest avisa).
-  const otras = ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago))
-  if (otras.length) {
-    lineas.push(`Otros renglones (${[...new Set(otras.map(o => o.forma_pago))].join(', ')}): ${pesos(otras.reduce((s, o) => s + n(o.monto_comision), 0))}.`)
-  }
-
-  for (const f of b.ordenes_fuera_del_pool ?? []) {
-    lineas.push(`${f.referencia ?? 'Una orden'} (${pesos(f.valor)}) la sacó un supervisor del pool: no suma a la meta ni paga comisión${f.motivo ? ` (motivo: ${f.motivo})` : ''}.`)
-  }
-
-  lineas.push(`Listo para pagar de ${mesEnPalabras(b.mes)}: ${pesos(b.lista)}. `
-    + (b.atrasada ? `ATRASADA: se debía pagar el ${fecha(b.se_cobra_el)}.` : `Se paga el ${fecha(b.se_cobra_el)}.`))
-  lineas.push(...pendientesTexto(b, r))
-  if (n(b.se_descuenta) > 0 || n(b.debe_al_corte) > 0) {
-    lineas.push(`Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
-      + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta comisión ya entregados)` : '')
-      + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
-  }
   return lineas
+}
+
+// Lo que no sabemos explicar no se calla: sale con su nombre y su plata
+// (si aparece una forma nueva, la prueba ExplicarListasCubreTodoTest avisa).
+function otrasTexto(ordenes) {
+  const otras = ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago))
+  return otras.length
+    ? [`Otros renglones (${[...new Set(otras.map(o => o.forma_pago))].join(', ')}): ${pesos(otras.reduce((s, o) => s + n(o.monto_comision), 0))}.`]
+    : []
+}
+
+function fueraDelPoolTexto(b) {
+  return (b.ordenes_fuera_del_pool ?? []).map(f =>
+    `${f.referencia ?? 'Una orden'} (${pesos(f.valor)}) la sacó un supervisor del pool: no suma a la meta ni paga comisión${f.motivo ? ` (motivo: ${f.motivo})` : ''}.`)
 }
 
 /**
@@ -281,6 +301,268 @@ export function porQueNoComisiona(t, r, mesQueToca = null) {
   }
   if (n(pool.sin_mitad) > 0) {
     lineas.push(`Hay ${pesos(pool.sin_mitad)} vendidos (${pool.ordenes_sin_mitad} orden${pool.ordenes_sin_mitad !== 1 ? 'es' : ''}) que no cuentan porque el cliente no ha pagado ${laParte(r.meta_req_pagado_pct)}. Si los pagan, ${meta > 0 && cuenta + n(pool.sin_mitad) >= meta ? 'llegaría a la meta' : 'se acerca a la meta'}.`)
+  }
+  return lineas
+}
+
+// ── El Excel de una tienda en un mes (utils/excelTienda.js) ───────────────────
+//
+// Para mandárselo a los vendedores (dueño, 2026-11-05: "un Excel de agosto de
+// El Edén y se lo envío a Sebastián y Gladys"). A diferencia de Listas, un mes
+// puede estar ya pagado, listo, a medias o sin llegar al día de pago: cada
+// persona tiene que poder leer qué le toca, en qué va y por qué. Sale de
+// GET /comisiones/libro-tienda (la misma cuenta del resumen y del pago).
+
+/**
+ * Las líneas que explican el mes de una persona en la tienda.
+ *
+ * @param {Object} d  la respuesta de /comisiones/libro-tienda
+ * @param {Object} p  la persona (d.personas[i])
+ * @param {Object} r  las reglas de ese mes, tienda y persona
+ */
+/** 26 → "26", 4,5 → "4,5": los días no son una fracción como los porcentajes. */
+const diasTexto = v => Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })
+
+export function explicacionDelMes(d, p, r) {
+  const c = p.cuenta ?? {}
+  const ordenes = p.ordenes ?? []
+  const suma = formas => ordenes.filter(o => formas.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0)
+  const mes = mesEnPalabras(d.mes)
+  const tienda = d.tienda_nombre
+  const pool = d.tienda?.pool ?? null
+  const trimestral = (p.periodicidad ?? d.periodicidad) === 'trimestral'
+  const b = { ...p, mes: d.mes, tienda_id: d.tienda_id, tienda_nombre: tienda, periodicidad: p.periodicidad ?? d.periodicidad }
+  const lineas = []
+
+  // 1. Cuánto le da el mes y de qué está hecho.
+  const partes = desgloseDelBloque({ ordenes_listas: ordenes })
+  lineas.push(partes.length > 1
+    ? `Comisión de ${mes}: ${pesos(p.comision_mes)} = ${partes.map(x => `${x.nombre.toLowerCase()} ${pesos(x.monto)}`).join(' + ')}.`
+    : `Comisión de ${mes}: ${pesos(p.comision_mes)}${partes.length ? ` (${partes[0].nombre.toLowerCase()})` : ''}.`)
+
+  // 2. En qué va: pagado, listo, pendiente o sin llegar el día.
+  lineas.push(...estadoDelMes(d, p))
+
+  // 3. Sus días: el pool se parte por los días que estuvo cada uno.
+  if (c.por_pool && p.dias != null) {
+    const iguales = r.reparto_pool === 'iguales'
+    if (n(p.dias) >= n(d.dias_del_mes)) {
+      lineas.push(`Estuvo en ${tienda} todo el mes (${diasTexto(p.dias)} días).`)
+    } else {
+      lineas.push(`Estuvo en ${tienda} ${diasTexto(p.dias)} de los ${d.dias_del_mes} días del mes`
+        + (iguales ? ' (en esta tienda el pool se parte en partes iguales, no por días).' : ': el pool se parte por los días que estuvo cada uno, así que le toca la parte de esos días.'))
+      if (d.cerrada_en && String(d.cerrada_en).slice(0, 7) === d.mes) {
+        lineas.push(`${tienda} cerró el ${fecha(d.cerrada_en)}: desde ese día ya nadie suma días en ella.`)
+      } else if (!(p.movimientos ?? []).length) {
+        lineas.push('Los días salen del equipo de la tienda (desde qué fecha está en él) y de los reemplazos registrados en Comisiones.')
+      }
+    }
+  }
+  lineas.push(...movimientosTexto(p, b))
+
+  // 4. El pool de la tienda.
+  if (c.por_pool) {
+    if (trimestral) {
+      const q = pool?.trimestre
+      if (n(c.comision_pool) > 0) {
+        lineas.push(`${tienda} es trimestral (${c.trimestre ?? ''}): los tres meses se juntan en un solo pool: ${pesos(c.comision_pool)}.`)
+        lineas.push(...trimestreTexto(b, r, q, c))
+        lineas.push(`Su pedazo de ${mes}: ${c.parte_dias} días de ${c.partes_dias} días de todo el equipo en el trimestre = ${pesos(c.comision_asesor)}.`)
+      } else {
+        lineas.push(q?.en_curso
+          ? `${tienda} es trimestral (${c.trimestre ?? ''}): el pool se calcula al cerrar el trimestre (${fecha(q.se_liquida_el)}). Por ahora no hay pool.`
+          : `${tienda} es trimestral (${c.trimestre ?? ''}) y el trimestre no pasó de la meta: no hay pool.`)
+        lineas.push(...trimestreTexto(b, r, q, { comision_pool: 0 }))
+      }
+    } else if (c.meta_cumplida) {
+      lineas.push(`${tienda} llegó a la meta de ${mes}: con ${partePagada(r.meta_req_pagado_pct)} vendió ${pesos(c.total_tienda_mes)} y la meta era ${pesos(c.meta_tienda)}.`)
+      lineas.push(`Pool de la tienda = (${pesos(c.total_tienda_mes)} − ${pesos(c.meta_tienda)}) ${cuentaPool(r)} = ${pesos(c.comision_pool)}.`)
+      lineas.push(r.reparto_pool === 'iguales'
+        ? `Su parte: partes iguales entre el equipo = ${pesos(c.comision_asesor)}.`
+        : `Su parte: ${pesos(c.comision_pool)} × ${c.parte_dias} días suyos ÷ ${c.partes_dias} días de todo el equipo = ${pesos(c.comision_asesor)}.`)
+      if (suma(['parte_pool']) > 0 && suma(['pool']) === 0) {
+        lineas.push('No tiene ventas propias que cuenten este mes, pero es del equipo: su parte del pool se le paga entera, en un renglón sin orden.')
+      }
+    } else {
+      const falta = Math.max(0, n(c.meta_tienda) - n(c.total_tienda_mes))
+      lineas.push(`${tienda} no llegó a la meta de ${mes}: con ${partePagada(r.meta_req_pagado_pct)} lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} (le faltan ${pesos(falta)}). Sin meta no hay pool`
+        + (d.llego_el_dia ? '.' : '; todavía puede llegar antes del día de pago.'))
+    }
+    if (!trimestral && n(pool?.sin_mitad) > 0) {
+      lineas.push(`No cuentan todavía ${pesos(pool.sin_mitad)} de ventas de la tienda (${pool.ordenes_sin_mitad} orden${pool.ordenes_sin_mitad !== 1 ? 'es' : ''}) porque el cliente no ha pagado ${laParte(r.meta_req_pagado_pct)}: `
+        + (c.meta_cumplida ? 'cuando las paguen, el pool crece.' : 'cuando las paguen, la tienda se acerca a la meta.'))
+    }
+    const restEnPool = ordenes.filter(o => o.forma_pago === 'pool' && (o.tipo_orden === 'restauracion' || String(o.orden_referencia ?? '').startsWith('R-')))
+    if (restEnPool.length && r.restauracion_ayuda_meta && !r.restauracion_suma_meta) {
+      lineas.push(`${restEnPool.map(o => o.orden_referencia).join(', ')}: las ventas solas no llegaban a la meta y con las restauraciones sí, así que este mes cuentan como ventas: entran al pool con el IVA quitado y no se pagan aparte.`)
+    }
+  }
+
+  // 5. Lo demás: restauraciones, individual, lo cubierto, lo de los independientes.
+  lineas.push(...otrosCaminos(b, r, ordenes))
+  const restSinMeta = ordenes.filter(o => o.es_restauracion && o.estado === 'pendiente' && o.req_50_pct && c.por_pool && c.meta_cumplida === false && !trimestral)
+  if (restSinMeta.length && d.llego_el_dia) {
+    lineas.push(`${restSinMeta.map(o => o.orden_referencia ?? 'Una restauración').join(', ')}: las restauraciones ${restauracionYMeta(r)}. Como la tienda no llegó a la meta, no se pagan.`)
+  }
+  lineas.push(...otrasTexto(ordenes))
+  lineas.push(...fueraDelPoolTexto(b))
+
+  // 6. La tarjeta.
+  const ds = p.desglose ?? {}
+  if (n(ds.costo_datafono) > 0) {
+    lineas.push(`En sus órdenes se pagaron ${pesos(ds.pagado_tarjeta)} con ${mediosConFranquicia(r)}: la franquicia se queda con el ${num(r.franquicia_pct)}% (${pesos(ds.costo_datafono)}) y sobre eso nadie comisiona. Por eso a esas órdenes se les resta antes de calcular (columna "¿Por qué se resta o no la tarjeta?").`)
+  } else if (ordenes.some(o => o.forma_pago !== 'parte_pool' && n(o.pagado) > 0)) {
+    lineas.push(`Ninguna de sus órdenes se pagó con ${mediosConFranquicia(r)}: no se les resta nada por la franquicia.`)
+  }
+
+  // 7. Las órdenes que todavía no entran, una por una.
+  lineas.push(...pendientesDelMes(d, p, r))
+
+  // 8. Anticipos y abonos.
+  if (p.pago && (n(p.pago.se_descuenta) > 0 || n(p.pago.debe_al_corte) > 0)) {
+    lineas.push(`Anticipos y abonos: debía ${pesos(p.pago.debe_al_corte)} a este corte. Al pagar se descuentan ${pesos(p.pago.se_descuenta)} → se le entregan ${pesos(p.pago.entregar)}.`)
+    if (n(p.pago.sigue_debiendo) > 0) lineas.push(`Después de pagarle sigue debiendo ${pesos(p.pago.sigue_debiendo)}: se descuenta en el próximo pago.`)
+  } else if (n(p.abonos_del_mes) > 0) {
+    lineas.push(`De esta comisión ya se le dio un abono de ${pesos(p.abonos_del_mes)}: se descuenta al pagarla.`)
+  }
+  return lineas
+}
+
+/** Pagado, listo, pendiente o el día de pago que no llega: lo primero que pregunta cada uno. */
+export function estadoDelMes(d, p) {
+  const lineas = []
+  if (!d.llego_el_dia) {
+    lineas.push(`Todavía no llega el día de pago (${fecha(d.se_cobra_el)}): esto es cómo va. Puede cambiar si los clientes pagan lo que deben o si la tienda vende más.`)
+    return lineas
+  }
+  if (n(p.lista) > 0) {
+    lineas.push(`LISTO PARA PAGAR: ${pesos(p.lista)}. ` + (p.pago?.atrasada
+      ? `Está atrasado: se debía pagar el ${fecha(d.se_cobra_el)}.`
+      : `Se paga el ${fecha(d.se_cobra_el)}.`))
+    if (n(p.pago?.otros_meses) > 0) {
+      lineas.push(`Tiene ${p.pago.otros_meses} mes(es) más por pagar en Listas: se pagan del más viejo al más nuevo.`)
+    }
+  }
+  const { espera, noSePaga } = partesDelMes(d, p)
+  if (n(p.pagado) > 0) {
+    lineas.push(n(p.lista) > 0 || espera > 0
+      ? `Ya se le pagaron ${pesos(p.pagado)} de este mes.`
+      : `YA SE PAGÓ: ${pesos(p.pagado)}. No queda nada de este mes por pagarle.`)
+  }
+  if (espera > 0) {
+    lineas.push(`Todavía no se puede pagar: ${pesos(espera)} (el porqué va abajo, orden por orden).`)
+  }
+  if (noSePaga > 0) {
+    lineas.push(`No se paga: ${pesos(noSePaga)}. ${porQueNoSePaga(d, p)}`)
+  }
+  if (n(p.comision_mes) <= 0) {
+    lineas.push('Este mes no le da comisión en esta tienda (el porqué va abajo).')
+  }
+  return lineas
+}
+
+/**
+ * Si una orden que espera ya no se va a pagar nunca: el día de pago pasó, el
+ * cliente ya pagó la mitad y lo que falta es la meta, que en un mes cerrado ya
+ * no va a llegar (o el trimestre cerró sin pool). Unicentro agosto 2026: la
+ * R-1100 salía "todavía no se puede pagar" y no se iba a pagar.
+ */
+function yaNoSePaga(o, p, d) {
+  if (!d.llego_el_dia || o.estado !== 'pendiente') return false
+  if (o.forma_pago !== 'parte_pool' && !o.req_50_pct) return false
+  const c = p.cuenta ?? {}
+  if (!c.por_pool) return false
+  if ((p.periodicidad ?? d.periodicidad) === 'trimestral') {
+    const q = d.tienda?.pool?.trimestre
+    return !!q && !q.en_curso && n(c.comision_pool) <= 0
+  }
+  return c.meta_cumplida === false
+}
+
+function porQueNoSePaga(d, p) {
+  return (p.periodicidad ?? d.periodicidad) === 'trimestral'
+    ? 'El trimestre cerró sin pasar de la meta.'
+    : `La tienda no llegó a la meta de ${mesEnPalabras(d.mes)} y el mes ya cerró.`
+}
+
+/**
+ * Lo del mes partido en lo que ya se pagó, lo listo, lo que espera (el
+ * cliente no ha pagado la mitad o no llega el día) y lo que ya no se va a
+ * pagar. Suma la comisión del mes.
+ */
+export function partesDelMes(d, p) {
+  const noSePaga = Math.round((p.ordenes ?? []).filter(o => yaNoSePaga(o, p, d)).reduce((s, o) => s + n(o.monto_comision), 0))
+  return {
+    pagado: n(p.pagado),
+    lista: n(p.lista),
+    espera: Math.max(0, n(p.pendiente) - noSePaga),
+    noSePaga,
+  }
+}
+
+/** Una palabra para la tabla: Pagado, Listo, A medias, Pendiente, Cómo va, Sin comisión. */
+export function estadoCorto(d, p) {
+  const { espera, noSePaga } = partesDelMes(d, p)
+  if (!d.llego_el_dia) return n(p.comision_mes) > 0 ? 'Cómo va (no ha llegado el día)' : 'Sin comisión por ahora'
+  if (n(p.comision_mes) <= 0 || (noSePaga > 0 && noSePaga >= n(p.comision_mes))) return 'Sin comisión'
+  if (n(p.lista) > 0) return p.pago?.atrasada ? 'Listo para pagar (atrasado)' : 'Listo para pagar'
+  if (n(p.pagado) > 0 && espera <= 0) return 'Ya se pagó'
+  if (n(p.pagado) > 0) return 'Pagado en parte; falta'
+  return 'Pendiente'
+}
+
+/** Por qué una orden está pagada, lista o esperando: la columna "Estado" del Excel de la tienda. */
+export function estadoDeOrden(o, p, d, r) {
+  if (o.forma_pago === 'fuera_del_pool') return 'Fuera del pool: no comisiona'
+  if (o.estado === 'pagada') return 'Pagada'
+  if (o.estado === 'lista') return 'Lista para pagar'
+  const trimestral = (p.periodicidad ?? d.periodicidad) === 'trimestral'
+  if (o.forma_pago !== 'parte_pool' && !o.req_50_pct) {
+    const falta = Math.max(0, Math.ceil(n(o.valor_total_orden) * n(r.req_pagado_pct) - n(o.pagado)))
+    return `Falta que el cliente pague ${laParte(r.req_pagado_pct)}: le faltan ${pesos(falta)}`
+  }
+  if (!d.llego_el_dia) return `Se paga el ${fecha(d.se_cobra_el)}`
+  if (o.fecha_disponible && o.fecha_disponible > d.hoy) return `Se paga el ${fecha(o.fecha_disponible)}`
+  if (yaNoSePaga(o, p, d)) return trimestral ? 'El trimestre no pasó de la meta: no se paga' : 'La tienda no llegó a la meta: no se paga'
+  if (trimestral) return 'Espera el cierre del trimestre'
+  return 'Pendiente'
+}
+
+/**
+ * Las órdenes del mes que todavía no entran. Las que esperan que el cliente
+ * pague la mitad van una por una con lo que les falta; las que ya la tienen
+ * van juntas en una línea (en octubre de El Edén eran 15 renglones iguales).
+ */
+function pendientesDelMes(d, p, r) {
+  const lista = p.ordenes_pendientes ?? []
+  if (!lista.length) return []
+  const c = p.cuenta ?? {}
+  const trimestral = (p.periodicidad ?? d.periodicidad) === 'trimestral'
+  const q = d.tienda?.pool?.trimestre
+  const refs = os => os.map(o => o.referencia ?? 'orden').join(', ')
+  const lineas = []
+
+  const sinMitad = lista.filter(o => !o.cumple_pago)
+  if (sinMitad.length) {
+    lineas.push(`${sinMitad.length} orden(es) suyas esperan que el cliente pague ${laParte(r.req_pagado_pct)}: hasta entonces no suman a la meta ni comisionan; cuando la paguen, entran en el próximo pago.`)
+    for (const o of sinMitad) {
+      const falta = Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado)))
+      lineas.push(`   ${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}: ha pagado ${pesos(o.pagado)} de ${pesos(o.valor_total)}; le faltan ${pesos(falta)}.`)
+    }
+  }
+
+  const conMitad = lista.filter(o => o.cumple_pago)
+  if (conMitad.length) {
+    const cuantas = `${conMitad.length} orden(es) suyas ya tienen ${laParte(r.req_pagado_pct)} pagada (${refs(conMitad)})`
+    if (!d.llego_el_dia) {
+      lineas.push(trimestral && q?.en_curso
+        ? `${cuantas}: se pagan al cerrar el trimestre (${fecha(q.se_liquida_el)}) si el trimestre pasa de la meta.`
+        : `${cuantas}: se pagan el ${fecha(d.se_cobra_el)}${c.por_pool && !c.meta_cumplida ? ' si la tienda llega a la meta' : ''}.`)
+    } else if (c.por_pool && (trimestral ? (q && !q.en_curso && n(c.comision_pool) <= 0) : c.meta_cumplida === false)) {
+      lineas.push(`${cuantas}, pero no comisionan: ${porQueNoSePaga(d, p).toLowerCase()}`)
+    } else {
+      lineas.push(`${cuantas}: esperan ${trimestral ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
+    }
   }
   return lineas
 }

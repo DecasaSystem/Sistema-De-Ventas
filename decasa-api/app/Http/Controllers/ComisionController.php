@@ -3067,25 +3067,9 @@ class ComisionController extends Controller
             $movs = TiendaReemplazo::with(['usuario:id,nombre', 'reemplazaA:id,nombre'])
                 ->where(fn ($q) => $q->whereIn('usuario_id', $ids)->orWhereIn('reemplaza_a_id', $ids))
                 ->get();
-            $bloques = $bloques->map(function ($b) use ($movs) {
-                // Los del mes del bloque, también en trimestral: el traslado del
-                // 27 de agosto no explica los días de septiembre.
-                $inicio = $b['mes'] . '-01';
-                $fin    = Carbon::parse($inicio)->endOfMonth()->toDateString();
-                $suyos = $movs->filter(fn ($r) => (int) $r->tienda_id === (int) $b['tienda_id']
-                    && ((int) $r->usuario_id === (int) $b['vendedor_id'] || (int) $r->reemplaza_a_id === (int) $b['vendedor_id'])
-                    && $r->desde?->toDateString() <= $fin && ($r->hasta === null || $r->hasta->toDateString() >= $inicio));
-
-                return $b + ['movimientos' => $suyos->sortBy('desde')->map(fn ($r) => [
-                    'tipo'      => $r->tipo,
-                    'quien'     => $r->usuario?->nombre,
-                    'reemplaza' => $r->reemplazaA?->nombre,
-                    'es_quien_cubre' => (int) $r->usuario_id === (int) $b['vendedor_id'],
-                    'desde'     => $r->desde?->toDateString(),
-                    'hasta'     => $r->hasta?->toDateString(),
-                    'nota'      => $r->nota,
-                ])->values()->all()];
-            });
+            $bloques = $bloques->map(fn ($b) => $b + [
+                'movimientos' => self::movimientosEn($movs, (int) $b['tienda_id'], (int) $b['vendedor_id'], $b['mes']),
+            ]);
         }
 
         $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) use ($conDetalle) {
@@ -3167,6 +3151,158 @@ class ComisionController extends Controller
             'tiendas'          => array_values($tiendas),
             'tiendas_sin_pago' => $sinPago,
         ] : []);
+    }
+
+    /**
+     * Los traslados y reemplazos de una persona en una tienda que tocan un mes.
+     * Los del mes, también en trimestral: el traslado del 27 de agosto no
+     * explica los días de septiembre.
+     */
+    private static function movimientosEn(\Illuminate\Support\Collection $movs, int $tiendaId, int $vendedorId, string $mes): array
+    {
+        $inicio = $mes . '-01';
+        $fin    = Carbon::parse($inicio)->endOfMonth()->toDateString();
+
+        return $movs->filter(fn ($r) => (int) $r->tienda_id === $tiendaId
+                && ((int) $r->usuario_id === $vendedorId || (int) $r->reemplaza_a_id === $vendedorId)
+                && $r->desde?->toDateString() <= $fin && ($r->hasta === null || $r->hasta->toDateString() >= $inicio))
+            ->sortBy('desde')->map(fn ($r) => [
+                'tipo'      => $r->tipo,
+                'quien'     => $r->usuario?->nombre,
+                'reemplaza' => $r->reemplazaA?->nombre,
+                'es_quien_cubre' => (int) $r->usuario_id === $vendedorId,
+                'desde'     => $r->desde?->toDateString(),
+                'hasta'     => $r->hasta?->toDateString(),
+                'nota'      => $r->nota,
+            ])->values()->all();
+    }
+
+    /**
+     * GET /api/comisiones/libro-tienda?mes=YYYY-MM[&tienda_id=N]
+     *
+     * El Excel de una tienda en un mes, para mandárselo a los vendedores
+     * (dueño, 2026-11-05: "un Excel de agosto de El Edén y se lo envío a
+     * Sebastián y Gladys"): qué se le paga a cada uno, si ya está listo, si ya
+     * se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la
+     * cuenta del pool). No calcula nada aparte: las cifras son las del resumen
+     * del mes (la misma cuenta de Listas y del pago) y, para lo que se
+     * descuenta de anticipos, los bloques de Listas.
+     *
+     * Sin tienda_id devuelve las tiendas con comisiones ese mes (para escoger).
+     */
+    public function libroTienda(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        $mes = self::mesPedido($request);
+        if ($mes === null) return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
+
+        if (! $request->filled('tienda_id')) {
+            // Las que tienen comisiones de alguien que no es independiente: lo
+            // de los independientes va en su propio bloque, no es una tienda
+            // (en producción su sede no tiene la marca es_independientes).
+            $ids = Comision::where('mes_venta', $mes)->whereNotNull('tienda_id')
+                ->whereIn('vendedor_id', Usuario::where(fn ($q) => $q->where('independiente', false)->orWhereNull('independiente'))->select('id'))
+                ->distinct()->pluck('tienda_id')->all();
+
+            return response()->json(Tienda::whereIn('id', $ids)->orderBy('nombre')->get(['id', 'nombre'])
+                ->map(fn ($t) => ['id' => $t->id, 'nombre' => $t->nombre])->values());
+        }
+
+        $tiendaId = (int) $request->query('tienda_id');
+        $tienda   = Tienda::find($tiendaId);
+        if (! $tienda) return response()->json(['message' => 'Tienda no encontrada.'], 404);
+
+        $tarjetas = $this->resumenDelMes($mes, true)
+            ->filter(fn ($t) => (int) $t['tienda_id'] === $tiendaId && empty($t['es_independiente']))
+            ->values();
+
+        $hoy        = self::hoy();
+        $diaDePago  = self::ultimoDiaDePago($hoy);
+        $mesQueToca = $diaDePago->copy()->subMonthsNoOverflow((int) ReglasComision::valor('meses_espera', $diaDePago->format('Y-m')))->format('Y-m');
+        $seCobra    = self::calcularFechaDisponible(Carbon::parse($mes . '-01'), $tiendaId);
+
+        // Lo que se descuenta al pagar sale de Listas, que reparte los
+        // anticipos del mes más viejo al más nuevo: mirado solo, este mes
+        // descontaría también lo de un mes anterior que no se ha pagado.
+        $bloquesListas = collect();
+        if ($mes <= $mesQueToca && $tarjetas->contains(fn ($t) => round(self::loListoDe($t)) > 0)) {
+            foreach ($this->loQueHayPorPagar(null, true)['personas'] as $p) {
+                foreach ($p['bloques'] as $b) {
+                    if ($b['mes'] === $mes && (int) $b['tienda_id'] === $tiendaId) {
+                        $bloquesListas[(int) $p['vendedor_id']] = $b + ['sigue_debiendo' => $p['sigue_debiendo'], 'meses_en_listas' => count($p['bloques'])];
+                    }
+                }
+            }
+        }
+
+        $ids  = $tarjetas->pluck('vendedor_id')->map(fn ($v) => (int) $v)->all();
+        $movs = TiendaReemplazo::with(['usuario:id,nombre', 'reemplazaA:id,nombre'])
+            ->where('tienda_id', $tiendaId)
+            ->where(fn ($q) => $q->whereIn('usuario_id', $ids)->orWhereIn('reemplaza_a_id', $ids))
+            ->get();
+        $dias  = $this->diasDe($mes, $tiendaId);
+        $abonos = AnticiposComision::abonosPorMes($ids);
+
+        $resumenTienda = $tarjetas->first()['resumen_tienda'] ?? null;
+
+        $personas = $tarjetas->map(function ($t) use ($mes, $tiendaId, $movs, $dias, $bloquesListas, $abonos) {
+            $vid     = (int) $t['vendedor_id'];
+            $ordenes = collect($t['ordenes'] ?? []);
+            $sumaEstado = fn (string $e) => round((float) $ordenes->where('estado', $e)->sum('monto_comision'));
+            $listas  = $bloquesListas[$vid] ?? null;
+
+            return [
+                'vendedor_id'     => $vid,
+                'vendedor_nombre' => $t['vendedor_nombre'],
+                'dias'            => isset($dias[$vid]) ? round((float) $dias[$vid], 1) : null,
+                'comision_mes'    => round((float) $t['comision_total']),
+                'pagado'          => $sumaEstado('pagada'),
+                'lista'           => round(self::loListoDe($t)),
+                'pendiente'       => $sumaEstado('pendiente'),
+                'total_ordenes'   => (int) $t['total_ordenes'],
+                'total_ventas'    => round((float) $t['total_ventas']),
+                'periodicidad'    => $t['periodicidad'] ?? 'mensual',
+                'cuenta'          => $t['cuenta'] ?? null,
+                'desglose'        => $t['desglose'] ?? null,
+                'ordenes'         => $ordenes->values()->all(),
+                'movimientos'     => self::movimientosEn($movs, $tiendaId, $vid, $mes),
+                'abonos_del_mes'  => (float) ($abonos[$vid][$mes] ?? 0),
+                // Con algo listo: lo que se le descuenta al pagarlo (de Listas).
+                'pago'            => $listas ? [
+                    'se_descuenta'   => (float) $listas['se_descuenta'],
+                    'entregar'       => (float) $listas['entregar'],
+                    'debe_al_corte'  => (float) ($listas['debe_al_corte'] ?? 0),
+                    'atrasada'       => (bool) $listas['atrasada'],
+                    'sigue_debiendo' => (float) $listas['sigue_debiendo'],
+                    'otros_meses'    => (int) $listas['meses_en_listas'] - 1,
+                ] : null,
+                'anticipos_detalle' => $listas ? AnticiposComision::pendientesDeDescontar($vid, $mes) : [],
+            ] + self::porQueDelBloque($t, $mes);
+        })
+            // Primero los del equipo (más días), después quien vino a cubrir.
+            ->sortBy(fn ($p) => [-(float) ($p['dias'] ?? -1), $p['vendedor_nombre']])
+            ->values();
+
+        return response()->json([
+            'mes'           => $mes,
+            'tienda_id'     => $tiendaId,
+            'tienda_nombre' => $tienda->nombre,
+            'cerrada_en'    => Tienda::fechaDeCierre($tiendaId),
+            'periodicidad'  => $resumenTienda['pool']['periodicidad'] ?? ($tarjetas->first()['periodicidad'] ?? 'mensual'),
+            'se_cobra_el'   => $seCobra,
+            'llego_el_dia'  => $hoy->toDateString() >= $seCobra,
+            'hoy'           => $hoy->toDateString(),
+            'mes_en_curso'  => $mes >= $hoy->format('Y-m'),
+            'dias_del_mes'  => Carbon::parse($mes . '-01')->daysInMonth,
+            'tienda'        => $resumenTienda,
+            'personas'      => $personas->all(),
+            'comision_mes'  => $personas->sum('comision_mes'),
+            'pagado'        => $personas->sum('pagado'),
+            'lista'         => $personas->sum('lista'),
+            'pendiente'     => $personas->sum('pendiente'),
+        ]);
     }
 
     /**

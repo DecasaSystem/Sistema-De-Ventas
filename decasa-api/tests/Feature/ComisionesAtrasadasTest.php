@@ -528,4 +528,71 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertEquals(10_000_000, $con['tiendas'][0]['pool']['meta']);
         $this->assertArrayNotHasKey('detalle', $con['tiendas'][0]);
     }
+
+    // ── El Excel de una tienda en un mes (para mandárselo al equipo) ─────────
+
+    public function test_el_libro_de_la_tienda_dice_lo_mismo_que_listas(): void
+    {
+        $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09')->assertOk()
+            ->assertJsonPath('0.id', self::EDEN)->assertJsonPath('0.nombre', 'Decasa El Edén');
+
+        $listas = $this->jefe()->getJson('/api/comisiones/por-pagar?detalle=1')->json('personas.0.bloques.0');
+        $l = $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09&tienda_id=' . self::EDEN)->assertOk()->json();
+
+        $this->assertSame('2026-10-20', $l['se_cobra_el']);
+        $this->assertTrue($l['llego_el_dia']);
+        $this->assertEquals(10_000_000, $l['tienda']['pool']['meta']);
+        $this->assertNotEmpty($l['tienda']['detalle'], 'trae todas las órdenes de la tienda');
+        $juan = $l['personas'][0];
+        $this->assertSame(self::JUAN, $juan['vendedor_id']);
+        $this->assertEquals(30, $juan['dias']);
+        $this->assertEquals($listas['lista'], $juan['lista']);
+        $this->assertEquals($juan['comision_mes'], $juan['pagado'] + $juan['lista'] + $juan['pendiente']);
+        // Lo que se descuenta es lo mismo que en Listas (del mes más viejo al más nuevo).
+        $this->assertEquals($listas['se_descuenta'], $juan['pago']['se_descuenta']);
+        $this->assertEquals($listas['entregar'], $juan['pago']['entregar']);
+        $this->assertTrue($juan['pago']['atrasada']);
+        $this->assertSame(1, $juan['pago']['otros_meses'], 'octubre también está en Listas');
+        $this->assertEquals(200_000, collect($juan['anticipos_detalle'])->sum('monto'));
+    }
+
+    public function test_el_libro_de_un_mes_ya_pagado_dice_pagado_y_nada_listo(): void
+    {
+        $this->jefe()->postJson('/api/comisiones/pagar-listas', [
+            'vendedor_id' => self::JUAN, 'mes' => '2026-09', 'tienda_id' => self::EDEN,
+        ])->assertOk();
+
+        $juan = $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09&tienda_id=' . self::EDEN)->json('personas.0');
+        $this->assertEqualsWithDelta(420_168, $juan['pagado'], 2);
+        $this->assertEquals(0, $juan['lista']);
+        $this->assertNull($juan['pago']);
+    }
+
+    public function test_el_libro_dice_cuales_ordenes_esperan_la_mitad_y_el_mes_en_curso(): void
+    {
+        // Noviembre, sin la mitad pagada: no cuenta y el día de pago no ha llegado.
+        $orden = Orden::create(['tienda_id' => self::EDEN, 'vendedor_id' => self::JUAN,
+            'estado' => 'entregado', 'valor_total' => 4_000_000]);
+        DB::table('ordenes')->where('id', $orden->id)->update(['created_at' => '2026-11-05 15:00:00']);
+        DB::table('orden_items')->insert(['orden_id' => $orden->id, 'precio_unitario' => 4_000_000]);
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 1_000_000, 'metodo' => 'efectivo', 'created_at' => '2026-11-05 15:00:00']);
+        ComisionController::crearParaOrden($orden->fresh());
+
+        $l = $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-11&tienda_id=' . self::EDEN)->assertOk()->json();
+        $this->assertFalse($l['llego_el_dia']);
+        $this->assertTrue($l['mes_en_curso']);
+        $pend = collect($l['personas'][0]['ordenes_pendientes'])->firstWhere('orden_id', $orden->id);
+        $this->assertNotNull($pend);
+        $this->assertFalse($pend['cumple_pago']);
+        $this->assertEquals(1_000_000, $pend['pagado']);
+        $this->assertNull($l['personas'][0]['pago']);
+    }
+
+    public function test_sin_acceso_a_comisiones_no_se_ve_el_libro_de_la_tienda(): void
+    {
+        $this->actingAs(Usuario::find(self::JUAN))
+            ->getJson('/api/comisiones/libro-tienda?mes=2026-09&tienda_id=' . self::EDEN)->assertForbidden();
+        $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-9')->assertStatus(422);
+        $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09&tienda_id=999')->assertNotFound();
+    }
 }

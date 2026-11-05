@@ -35,7 +35,7 @@ const R = (mes, tiendaId = null, usuarioId = null) => reglasPara(REGLAS[mes] ?? 
 // ── Cada orden, en palabras ───────────────────────────────────────────────────
 
 /** Qué es el renglón: venta, restauración, compartida, parte del equipo… */
-function tipoDe(o, b) {
+export function tipoDe(o, b) {
   if (o.forma_pago === 'parte_pool') return 'Parte del equipo (sin orden)'
   if (o.forma_pago === 'abono_almacen') return `${o.es_restauracion ? 'Restauración' : 'Venta'} de un independiente con la tienda`
   if (o.forma_pago === 'restauracion_equipo') return 'Restauración repartida en la tienda'
@@ -45,7 +45,7 @@ function tipoDe(o, b) {
   return t
 }
 
-function mediosTexto(o) {
+export function mediosTexto(o) {
   const m = o.medios_de_pago ?? {}
   const partes = Object.entries(m).filter(([, v]) => n(v) !== 0).map(([k, v]) => `${MEDIO[k] ?? k} ${pesos(v)}`)
   if (partes.length || o.forma_pago === 'parte_pool') return partes.join(' · ')
@@ -57,7 +57,7 @@ function mediosTexto(o) {
 }
 
 /** Por qué se le restó (o no) la franquicia de la tarjeta. */
-function porQueTarjeta(o, r) {
+export function porQueTarjeta(o, r) {
   if (o.forma_pago === 'parte_pool') return ''
   const medios = mediosConFranquicia(r)
   if (n(o.costo_datafono) > 0) {
@@ -69,7 +69,7 @@ function porQueTarjeta(o, r) {
 }
 
 /** La base que comisiona: orden − franquicia, y la parte de cada uno si se comparte. */
-function baseTexto(o, b, r) {
+export function baseTexto(o, b, r) {
   if (o.forma_pago === 'parte_pool') return ''
   const entera = n(o.valor_total_orden)
   const base = entera - n(o.costo_datafono)
@@ -86,7 +86,7 @@ function baseTexto(o, b, r) {
 }
 
 /** Si a esta comisión se le quita el IVA (÷ 1,19) y dónde. */
-function ivaTexto(o, b, r) {
+export function ivaTexto(o, b, r) {
   const dv = divisor(r.iva_divisor)
   if (o.forma_pago === 'parte_pool' || o.forma_pago === 'pool') {
     return `En el pool: (ventas − meta) ÷ ${dv}, no orden por orden`
@@ -101,7 +101,7 @@ function ivaTexto(o, b, r) {
 }
 
 /** De dónde sale el monto de este renglón. */
-function comoSale(o, b, r) {
+export function comoSale(o, b, r) {
   const v = pesos(o.valor_orden), m = pesos(o.monto_comision)
   switch (o.forma_pago) {
     case 'pool':

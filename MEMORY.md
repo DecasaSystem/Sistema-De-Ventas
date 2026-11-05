@@ -494,6 +494,14 @@ escribiendo precios (Fase 1b).
   Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
   mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
   "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
+- **Excel de una tienda para los vendedores** (2026-11-05, **sin subir**, sin migración). Pedido
+  del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
+  con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en
+  `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla ni cifra. Revisado con una copia de
+  producción del 2026-11-05: El Edén ago da Gladys $301.019, Sebastián $257.709 (26 días: Manuela
+  lo cubrió 18–22), Manuela $11.033 (ya se le pagaron $32.277); igual que Listas. Por defecto mío
+  (**falta que el dueño confirme**): cada hoja de persona trae sus anticipos y abonos, y el
+  archivo es uno solo para todo el equipo (cada uno ve lo de los compañeros, como en la tienda).
 - **Listas explica cada pago y por qué una tienda no comisiona** (2026-11-04, **sin subir**,
   sin migración). Pedido del dueño con el caso de Génesis (Unicentro, agosto $58.991 "por estar
   unos pocos días"; trimestral): que Listas, no solo el Excel, diga de dónde sale lo que se

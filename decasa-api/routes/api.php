@@ -940,6 +940,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Todo lo que hay por pagar, un bloque por mes (los meses que se juntan
         // por pagar tarde), y pagar varios meses del más viejo al más nuevo.
         Route::get('/por-pagar',                 [ComisionController::class, 'porPagar']);
+        // El Excel de una tienda en un mes, para mandárselo a sus vendedores.
+        Route::get('/libro-tienda',              [ComisionController::class, 'libroTienda']);
         Route::post('/pagar-meses',              [ComisionController::class, 'pagarMeses'])->middleware('role:supervisor');
         Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor')->whereNumber('id');
         // Un pago marcado por error se puede deshacer (queda en la bitácora).

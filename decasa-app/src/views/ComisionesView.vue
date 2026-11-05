@@ -1161,12 +1161,13 @@ function resumenEstadoLabel(r) {
 // el mes completo sale entero, sin los filtros de la pantalla.
 //   · Lo que se va a pagar → utils/excelListas.js
 //   · Un mes completo      → utils/excelComisiones.js
+//   · Una tienda           → utils/excelTienda.js (para mandárselo al equipo)
 //   · Cómo va el mes       → utils/excelComoVa.js (el mes en curso, estimado)
 // Los datos se piden frescos al servidor: el archivo no depende de lo que la
 // pantalla haya cargado antes.
 const exportando = ref(false)
 const hojaExcel  = ref(false)
-const excelOpcion    = ref('listas')   // listas | mes | como_va
+const excelOpcion    = ref('listas')   // listas | mes | tienda | como_va
 const excelMesListas = ref('')         // '' = todo lo que hay por pagar
 const excelMes       = ref(mesDeHoy())
 const excelVendedor  = ref('')         // '' = todas las personas
@@ -1190,8 +1191,10 @@ function abrirExcel() {
   excelMesListas.value = mesListas.value
   excelMes.value       = mesActual.value
   excelVendedor.value  = vistaTab.value === 'vendedor' && vendedorSel.value ? vendedorSel.value : ''
+  excelMesTienda.value = mesListas.value || mesActual.value
   hojaExcel.value = true
   cargarPersonasExcel()
+  cargarTiendasExcel()
 }
 
 async function exportarExcelListas(mes) {
@@ -1246,6 +1249,36 @@ async function exportarExcelDelMes(mes, vendedorId) {
   return true
 }
 
+// Una tienda en un mes, para mandárselo a sus vendedores (dueño, 2026-11-05:
+// "un Excel de agosto de El Edén y se lo envío a Sebastián y Gladys").
+const excelMesTienda = ref('')
+const excelTienda    = ref('')
+const excelTiendas   = ref([])
+
+async function cargarTiendasExcel() {
+  excelTiendas.value = []
+  if (!excelMesTienda.value) return
+  try {
+    const { data } = await api.get('/comisiones/libro-tienda', { params: { mes: excelMesTienda.value }, silencioso: true })
+    excelTiendas.value = data ?? []
+    if (!excelTiendas.value.some(t => t.id === excelTienda.value)) excelTienda.value = ''
+  } catch { /* se escoge de nuevo */ }
+}
+
+async function exportarExcelTienda() {
+  const [{ data }, reglas] = await Promise.all([
+    api.get('/comisiones/libro-tienda', { params: { mes: excelMesTienda.value, tienda_id: excelTienda.value } }),
+    cargarReglasVigentes(excelMesTienda.value),
+  ])
+  if (!data.personas?.length) {
+    toast.error(`${data.tienda_nombre} no tiene comisiones en ${nombreMes(excelMesTienda.value)}.`)
+    return false
+  }
+  const { exportarTiendaExcel } = await import('@/utils/excelTienda')
+  await exportarTiendaExcel({ libro: data, reglas, generadoPor: auth.usuario?.nombre })
+  return true
+}
+
 async function exportarExcelComoVa() {
   const mes = mesDeHoy()
   const [cRes, iRes, mRes, reglas] = await Promise.all([
@@ -1271,10 +1304,15 @@ async function descargarExcel() {
     toast.error('Escoge el mes.')
     return
   }
+  if (excelOpcion.value === 'tienda' && (!excelMesTienda.value || !excelTienda.value)) {
+    toast.error('Escoge el mes y la tienda.')
+    return
+  }
   exportando.value = true
   try {
     const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
       : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
+      : excelOpcion.value === 'tienda' ? await exportarExcelTienda()
       : await exportarExcelComoVa()
     if (listo) hojaExcel.value = false
   } catch {
@@ -2883,7 +2921,33 @@ onMounted(async () => {
           </div>
         </label>
 
-        <!-- 3. Cómo va el mes -->
+        <!-- 3. Una tienda, para mandárselo a sus vendedores -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'tienda' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="tienda" v-model="excelOpcion" @change="cargarTiendasExcel" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Una tienda, para los vendedores</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Una tienda en un mes, para mandárselo al equipo: qué se le paga a cada uno, si ya está listo o ya se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la cuenta del pool). Una hoja por persona.</p>
+              <div v-if="excelOpcion === 'tienda'" class="mt-2 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600">Mes</p>
+                  <input type="month" v-model="excelMesTienda" @change="cargarTiendasExcel" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600 shrink-0">Tienda</p>
+                  <select v-model="excelTienda" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="">{{ excelTiendas.length ? 'Escoge la tienda' : 'Sin comisiones ese mes' }}</option>
+                    <option v-for="t in excelTiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                  </select>
+                </div>
+                <p class="text-[10px] text-gray-500">Trae lo de todo el equipo de la tienda, con anticipos y abonos de cada uno.</p>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 4. Cómo va el mes -->
         <label class="block rounded-xl border p-3 cursor-pointer"
           :class="excelOpcion === 'como_va' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
           <div class="flex items-start gap-2">

@@ -587,6 +587,22 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   era un solo botón que bajaba uno u otro según la pestaña. "Cómo va" usa
   `GET /comisiones/metas?avance=1` (vendido y lo que cuenta: `avanceDeMetas`, solo cuando se
   pide) y los campos `pagado_orden` / `valor_orden_entera` de cada renglón; no calcula plata.
+- **Excel de una tienda** (2026-11-05, sin migración): cuarta opción del botón Excel, "Una
+  tienda, para los vendedores" (`utils/excelTienda.js`). Pedido del dueño: escoger tienda y mes
+  y mandárselo al equipo ("agosto de El Edén para Sebastián y Gladys"). Hojas: **La tienda**
+  (lo vendido, tarjeta y franquicia, meta, pool, reparto por días con los reemplazos, tabla por
+  persona: comisión del mes = ya pagado + listo + todavía no + no se paga, anticipos y lo que se
+  entrega), **una hoja por persona** (en qué va y por qué, sus órdenes con tarjeta, base, IVA,
+  comisión y estado de cada una), **Órdenes de la tienda**, **Por cobrar** y **Cómo se
+  calcula**. Sale de `GET /comisiones/libro-tienda?mes=&tienda_id=` (`libroTienda`; sin
+  `tienda_id` lista las tiendas con comisiones ese mes, sin la sede de independientes): las
+  tarjetas de `resumenDelMes($mes, true)` de esa tienda + lo que se descuenta sacado de los
+  bloques de `loQueHayPorPagar(null, true)` (los anticipos van del mes más viejo al más nuevo:
+  mirado solo, el mes descontaría lo de otro). No calcula plata. Los textos están en
+  `utils/explicarListas.js` (`explicacionDelMes`, `partesDelMes`, `estadoDeOrden`), junto a
+  los de Listas y compartiendo `otrosCaminos` / `fueraDelPoolTexto`. "No se paga" = lo que
+  espera solo la meta en un mes ya cerrado que no llegó (o un trimestre cerrado sin pool).
+  Tests en `ComisionesAtrasadasTest` (sección libro de la tienda).
 - **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
   "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
   `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →
