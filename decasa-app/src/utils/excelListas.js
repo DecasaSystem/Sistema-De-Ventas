@@ -62,7 +62,7 @@ export function porQueTarjeta(o, r) {
   const medios = mediosConFranquicia(r)
   if (n(o.costo_datafono) > 0) {
     return `Pagó ${pesos(o.pagado_tarjeta)} con ${medios}: la franquicia se queda con el ${num(r.franquicia_pct)}% `
-      + `(${pesos(o.costo_datafono)}) y sobre eso nadie comisiona. Se le resta a la base.`
+      + `(${pesos(o.costo_datafono)}) y sobre eso nadie bonifica. Se le resta a la base.`
   }
   if (n(o.pagado) <= 0) return 'No se resta nada: el cliente todavía no ha pagado.'
   return `No se resta nada: no pagó con ${medios} (solo esos medios cobran franquicia).`
@@ -223,10 +223,10 @@ function columnasOrdenes({ conPersona = false } = {}) {
     { titulo: 'Con tarjeta o Addi', campo: 'tarjeta', fmt: 'pesos', ancho: 14 },
     { titulo: 'Franquicia restada', campo: 'franquicia', fmt: 'pesos', ancho: 13, total: 'suma' },
     { titulo: '¿Por qué se resta o no la tarjeta?', campo: 'por_que_tarjeta', ancho: 40 },
-    { titulo: 'Base que comisiona', campo: 'base', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Base que bonifica', campo: 'base', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Cómo sale la base', campo: 'base_texto', ancho: 34 },
     { titulo: 'IVA (÷ 1,19)', campo: 'iva', ancho: 26 },
-    { titulo: 'COMISIÓN A PAGAR', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN A PAGAR', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'De dónde sale', campo: 'como_sale', ancho: 60 },
   ]
 }
@@ -239,14 +239,14 @@ function hojaResumen(wb, ctx) {
   ws.getColumn(1).width = 34
   ws.getColumn(2).width = 22
 
-  titulo(ws, 'Comisiones por pagar',
+  titulo(ws, 'Bonificaciones por pagar',
     `${d.solo_mes ? `Solo ${mesEnPalabras(d.solo_mes)}` : 'Todo lo que hay por pagar'} · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
 
   fichas(ws, [
     ['Último día de pago', fecha(d.dia_de_pago)],
     ['Mes que toca pagar', mesEnPalabras(d.mes_que_toca)],
     ['Personas', d.personas.length, 'entero'],
-    ['Comisión lista para pagar', n(d.lista), 'pesos'],
+    ['Bonificación lista para pagar', n(d.lista), 'pesos'],
     ['   Anticipos y abonos que se descuentan', n(d.se_descuenta), 'pesos'],
     ['   SE ENTREGA', n(d.entregar), 'pesos'],
   ])
@@ -257,7 +257,7 @@ function hojaResumen(wb, ctx) {
       { titulo: 'Mes de venta', campo: a => mesEnPalabras(a.mes), ancho: 34 },
       { titulo: 'Se debía pagar el', campo: a => fecha(a.se_cobra_el), ancho: 22 },
       { titulo: 'Personas', campo: 'personas', fmt: 'entero', ancho: 12 },
-      { titulo: 'Comisión', campo: 'lista', fmt: 'pesos', ancho: 16, total: 'suma' },
+      { titulo: 'Bonificación', campo: 'lista', fmt: 'pesos', ancho: 16, total: 'suma' },
     ], d.atrasados, { totales: true, filtro: false })
   }
 
@@ -266,7 +266,7 @@ function hojaResumen(wb, ctx) {
     { titulo: 'Persona', campo: 'vendedor_nombre', ancho: 34 },
     { titulo: 'Tienda(s)', campo: p => [...new Set(p.bloques.map(b => b.tienda_nombre))].join(', '), ancho: 22 },
     { titulo: 'Meses', campo: p => p.bloques.map(b => mesEnPalabras(b.mes)).filter((m, i, a) => a.indexOf(m) === i).join(', '), ancho: 26 },
-    { titulo: 'Comisión lista', campo: p => n(p.lista), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Bonificación lista', campo: p => n(p.lista), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Anticipos y abonos que se descuentan', campo: p => n(p.se_descuenta), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'SE ENTREGA', campo: p => n(p.entregar), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Sigue debiendo de anticipos', campo: p => n(p.sigue_debiendo), fmt: 'pesos', ancho: 15, total: 'suma' },
@@ -291,7 +291,7 @@ function hojaResumen(wb, ctx) {
     { titulo: 'Mes de venta', campo: t => mesEnPalabras(t.mes), ancho: 22 },
     { titulo: 'Personas', campo: 'personas', fmt: 'entero', ancho: 12 },
     { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 16, total: 'suma' },
-    { titulo: 'Comisión lista', campo: 'lista', fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Bonificación lista', campo: 'lista', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Se descuenta', campo: 'se_descuenta', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'SE ENTREGA', campo: 'entregar', fmt: 'pesos', ancho: 15, total: 'suma', color: () => VERDE_CLARO },
   ], filasTienda, { totales: true, etiquetaTotal: 'TOTAL GENERAL', filtro: false })
@@ -302,7 +302,7 @@ function hojaResumen(wb, ctx) {
     ['Por persona', 'Cada persona, mes por mes: de dónde sale lo que cobra y las órdenes que entran.'],
     ['Por cobrar', 'Las órdenes que no entran porque el cliente no ha pagado lo necesario, con cuánto les falta: para salir a cobrar.'],
     ['Por tienda', 'Cada tienda: meta, lo que cuenta, el pool y cómo se reparte entre el equipo.'],
-    ['Sin comisión', 'Las tiendas donde nadie cobra en este pago y por qué (meta, trimestre, cierre), con quién vendió ahí.'],
+    ['Sin bonificación', 'Las tiendas donde nadie cobra en este pago y por qué (meta, trimestre, cierre), con quién vendió ahí.'],
     ['Todas las órdenes', 'Una fila por orden, con filtro, para buscar o sumar a gusto.'],
     ['Cómo se calcula', 'Las reglas en palabras.'],
   ])
@@ -326,12 +326,12 @@ function hojaPorPersona(wb, ctx) {
     // Lo que vendió en una tienda donde no hubo comisión (Génesis en Circunvalar):
     // también hay que poder decírselo, aunque sea $0.
     for (const v of p.en_tiendas_sin_pago ?? []) {
-      seccion(ws, `${v.tienda_nombre} · ${v.meses.map(mesEnPalabras).join(' y ')} · sin comisión`)
+      seccion(ws, `${v.tienda_nombre} · ${v.meses.map(mesEnPalabras).join(' y ')} · sin bonificación`)
       const t = (ctx.datos.tiendas_sin_pago ?? []).find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
       explicar(ws, [
-        `• También vendió aquí: ${v.ordenes} orden(es) por ${pesos(v.ventas)}. No le da comisión en este pago: ${pesos(0)}.`,
+        `• También vendió aquí: ${v.ordenes} orden(es) por ${pesos(v.ventas)}. No le da bonificación en este pago: ${pesos(0)}.`,
         ...(t ? porQueNoComisiona(t, R(t.mes, t.tienda_id), ctx.datos.mes_que_toca).map(l => `• ${l}`) : []),
-        '• Ver hoja "Sin comisión".',
+        '• Ver hoja "Sin bonificación".',
       ])
     }
     if ((p.anticipos_detalle ?? []).length) {
@@ -351,7 +351,7 @@ function hojaPorPersona(wb, ctx) {
   fin.getCell(col).value = n(ctx.datos.lista)
   fin.getCell(col).numFmt = '"$"#,##0'
   fin.font = { bold: true, size: 12 }
-  explicar(ws, [`Comisión ${pesos(ctx.datos.lista)} − anticipos y abonos ${pesos(ctx.datos.se_descuenta)} = se entregan ${pesos(ctx.datos.entregar)}.`])
+  explicar(ws, [`Bonificación ${pesos(ctx.datos.lista)} − anticipos y abonos ${pesos(ctx.datos.se_descuenta)} = se entregan ${pesos(ctx.datos.entregar)}.`])
 }
 
 // ── Por tienda ────────────────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ function hojaPorTienda(wb, ctx) {
   const columnasPago = (conMes) => [
     ...(conMes ? [{ titulo: 'Mes de las ventas', campo: 'mes', ancho: 36 }] : []),
     { titulo: 'Persona', campo: 'nombre', ancho: conMes ? 18 : 36 },
-    { titulo: 'Comisión lista', campo: 'lista', fmt: 'pesos', ancho: conMes ? 16 : 18, total: 'suma' },
+    { titulo: 'Bonificación lista', campo: 'lista', fmt: 'pesos', ancho: conMes ? 16 : 18, total: 'suma' },
     { titulo: 'Se descuenta', campo: 'se_descuenta', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'SE ENTREGA', campo: 'entregar', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
   ]
@@ -492,7 +492,7 @@ function hojaPorTienda(wb, ctx) {
       explicar(ws, [
         `• Pool = (${pesos(pool.ventas_cuentan)} − ${pesos(pool.meta)}) ${cuentaPool(r)} = ${pesos(pool.pool)}.`
           + ' "Ventas que cuentan" ya va sin la franquicia de la tarjeta y con lo que abonaron los independientes; sin restauraciones.',
-        `• Lo pagado con ${mediosConFranquicia(r)} en la tienda: ${pesos(t.tarjeta)}; la franquicia (${num(r.franquicia_pct)}%) se llevó ${pesos(t.datafono)} y eso no comisiona.`,
+        `• Lo pagado con ${mediosConFranquicia(r)} en la tienda: ${pesos(t.tarjeta)}; la franquicia (${num(r.franquicia_pct)}%) se llevó ${pesos(t.datafono)} y eso no bonifica.`,
       ])
       for (const l of pool.cuenta?.lineas ?? []) {
         explicar(ws, [`   ${l.tipo === 'bono' ? 'Bono' : 'Tramo'}: ${pesos(l.base)} → ${pesos(l.monto)}`])
@@ -549,7 +549,7 @@ function bloqueIndependientes(ws, parte, columnasPago, pagoDe) {
     { titulo: 'Independiente', campo: x => x.p.vendedor_nombre, ancho: 36 },
     { titulo: 'De sus ventas', campo: x => n(x.b.independiente?.por_pagar_ventas), fmt: 'pesos', ancho: 18, total: 'suma' },
     { titulo: 'Del bolsón', campo: x => n(x.b.independiente?.por_pagar_bolson), fmt: 'pesos', ancho: 16, total: 'suma' },
-    { titulo: 'Comisión lista', campo: x => n(x.b.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'Bonificación lista', campo: x => n(x.b.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
   ], del, { totales: true, filtro: false })
   seccion(ws, `Lo que se paga de ${parte.mes}`)
   tabla(ws, columnasPago(false), del.map(pagoDe), { totales: true, filtro: false })
@@ -562,8 +562,8 @@ function bloqueIndependientes(ws, parte, columnasPago, pagoDe) {
  */
 function hojaSinComision(wb, ctx) {
   const d = ctx.datos
-  const ws = wb.addWorksheet('Sin comisión')
-  titulo(ws, 'Tiendas sin comisión en este pago', 'Nadie cobra aquí en este pago. Esto es lo que hay que decirle a quien vendió.')
+  const ws = wb.addWorksheet('Sin bonificación')
+  titulo(ws, 'Tiendas sin bonificación en este pago', 'Nadie cobra aquí en este pago. Esto es lo que hay que decirle a quien vendió.')
   const tiendas = d.tiendas_sin_pago ?? []
   if (!tiendas.length) {
     ws.addRow(['Todas las tiendas con pool tienen algo que pagar en este pago.'])
@@ -572,7 +572,7 @@ function hojaSinComision(wb, ctx) {
   for (const t of tiendas) {
     const q = t.pool?.periodicidad === 'trimestral' ? t.pool.trimestre : null
     franja(ws, `${t.tienda_nombre} — ${q ? `trimestre ${q.trimestre}` : mesEnPalabras(t.mes)}`,
-      t.cerrada_en ? `Cerró el ${fecha(t.cerrada_en)}.` : 'Sin comisión en este pago.')
+      t.cerrada_en ? `Cerró el ${fecha(t.cerrada_en)}.` : 'Sin bonificación en este pago.')
     explicar(ws, porQueNoComisiona(t, R(t.mes, t.tienda_id), ctx.datos.mes_que_toca).map(l => `• ${l}`))
     if (q) {
       seccion(ws, 'Meta y ventas de cada mes del trimestre')
@@ -622,11 +622,11 @@ function hojaComoSeCalcula(wb, ctx) {
   const r = R(ctx.datos.mes_que_toca)
   const lineas = [
     '1. Qué entra en Listas',
-    `• Una comisión está lista cuando: el cliente pagó al menos ${laParte(r.req_pagado_pct)} de la orden, ya llegó la fecha (${cuandoSePaga(r)} a la venta; en las trimestrales, después del cierre del trimestre) y, si va por pool, la tienda llegó a la meta.`,
+    `• Una bonificación está lista cuando: el cliente pagó al menos ${laParte(r.req_pagado_pct)} de la orden, ya llegó la fecha (${cuandoSePaga(r)} a la venta; en las trimestrales, después del cierre del trimestre) y, si va por pool, la tienda llegó a la meta.`,
     '• Si un mes no se pagó a tiempo, sigue aquí como ATRASADO y se paga primero.',
     '',
     '2. La tarjeta',
-    `• Lo pagado con ${mediosConFranquicia(r)} no comisiona completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso. Se resta a la base de la orden.`,
+    `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso. Se resta a la base de la orden.`,
     '• Solo se resta sobre lo que de verdad se pagó con esos medios: en un pago mixto, solo ese pedazo. Lo pagado en efectivo o transferencia no se toca.',
     '',
     '3. El IVA',
@@ -645,14 +645,14 @@ function hojaComoSeCalcula(wb, ctx) {
     `• Independientes: ${num(r.indep_pct_venta)}% de sus ventas y su parte del bolsón de restauraciones.`,
     '',
     '6. Anticipos y abonos',
-    '• Lo que se le adelantó (anticipo fijo del mes o un abono de esta comisión) se descuenta al pagar. Si la comisión no alcanza, sigue debiendo y se descuenta en el próximo pago.',
+    '• Lo que se le adelantó (anticipo fijo del mes o un abono de esta bonificación) se descuenta al pagar. Si la bonificación no alcanza, sigue debiendo y se descuenta en el próximo pago.',
   ]
   for (const l of lineas) {
     const row = ws.addRow([l])
     row.font = l && !l.startsWith('•') ? { size: 10, bold: true } : { size: 10 }
     row.alignment = { wrapText: true, vertical: 'top' }
   }
-  const nota = ws.addRow(['Las cifras salen de la misma cuenta que muestra Comisiones → Listas y que se paga.'])
+  const nota = ws.addRow(['Las cifras salen de la misma cuenta que muestra Bonificaciones → Listas y que se paga.'])
   nota.font = { italic: true, size: 9, color: { argb: GRIS_TEXTO } }
 }
 
@@ -689,7 +689,7 @@ export async function armarLibroListas({ porPagar, reglas = {}, generadoPor }) {
   hojaSinComision(wb, ctx)
   hojaTodas(wb, ctx)
   hojaComoSeCalcula(wb, ctx)
-  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: 'Comisiones por pagar', generadoEl: ctx.generadoEl, vertical: ws.name === 'Comprobantes' }))
+  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: 'Bonificaciones por pagar', generadoEl: ctx.generadoEl, vertical: ws.name === 'Comprobantes' }))
   return wb
 }
 
@@ -713,7 +713,7 @@ function hojaComprobantes(wb, ctx) {
   ws.getColumn(5).width = 16
 
   ctx.datos.personas.forEach((p, i) => {
-    const r1 = ws.addRow(['Comprobante de pago de comisiones'])
+    const r1 = ws.addRow(['Comprobante de pago de bonificaciones'])
     r1.font = { size: 15, bold: true, color: { argb: 'FF166534' } }
     const r2 = ws.addRow([`Generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`])
     r2.font = { size: 9, color: { argb: GRIS_TEXTO } }
@@ -727,7 +727,7 @@ function hojaComprobantes(wb, ctx) {
     tabla(ws, [
       { titulo: 'Mes de las ventas', campo: b => mesEnPalabras(b.mes), ancho: 30 },
       { titulo: 'Tienda', campo: 'tienda_nombre', ancho: 22 },
-      { titulo: 'Comisión', campo: b => n(b.lista), fmt: 'pesos', ancho: 16, total: 'suma' },
+      { titulo: 'Bonificación', campo: b => n(b.lista), fmt: 'pesos', ancho: 16, total: 'suma' },
       { titulo: 'Se descuenta', campo: b => n(b.se_descuenta), fmt: 'pesos', ancho: 16, total: 'suma' },
       { titulo: 'Se entrega', campo: b => n(b.entregar), fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
     ], p.bloques, { totales: true, filtro: false })
@@ -737,11 +737,11 @@ function hojaComprobantes(wb, ctx) {
       // Sin la lista de órdenes (va en "Por cobrar"): el encabezado se cierra solo.
       const lineas = explicacionDe(p, b, ctx.tiendaDe).filter(l => !l.startsWith('•    '))
         .map(l => l.endsWith('no entran en este pago:') ? l.replace(/:$/, ' (ver la hoja "Por cobrar").')
-          : l.endsWith('no comisionan:') ? l.replace(/:$/, ': ya pagaron, pero la tienda no llegó a la meta.') : l)
+          : l.endsWith('no bonifican:') ? l.replace(/:$/, ': ya pagaron, pero la tienda no llegó a la meta.') : l)
       explicar(ws, [`${mesEnPalabras(b.mes)} · ${b.tienda_nombre}`, ...lineas])
     }
     for (const v of p.en_tiendas_sin_pago ?? []) {
-      explicar(ws, [`• También vendió en ${v.tienda_nombre} (${v.meses.map(mesEnPalabras).join(' y ')}): ${pesos(v.ventas)}. Ahí no hubo comisión en este pago.`])
+      explicar(ws, [`• También vendió en ${v.tienda_nombre} (${v.meses.map(mesEnPalabras).join(' y ')}): ${pesos(v.ventas)}. Ahí no hubo bonificación en este pago.`])
     }
 
     if ((p.anticipos_detalle ?? []).length || n(p.se_descuenta) > 0) {
@@ -817,7 +817,7 @@ export async function exportarListasExcel(datos) {
   const a = document.createElement('a')
   const hoy = new Date().toISOString().slice(0, 10)
   a.href = url
-  a.download = `comisiones_por_pagar_${datos.porPagar.solo_mes ?? hoy}.xlsx`
+  a.download = `bonificaciones_por_pagar_${datos.porPagar.solo_mes ?? hoy}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

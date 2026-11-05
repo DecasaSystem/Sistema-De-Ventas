@@ -226,7 +226,7 @@ class RevisarRestauraciones extends Command
         });
 
         $this->info("\n✓ " . $ordenes->count() . ' orden(es) cuadradas.');
-        $this->warn('Ojo: esto cambia lo que esas órdenes comisionan. Hay que recalcular '
-                  . 'las comisiones de los meses en que caen, desde el módulo de Comisiones.');
+        $this->warn('Ojo: esto cambia lo que esas órdenes bonifican. Hay que recalcular '
+                  . 'las bonificaciones de los meses en que caen, desde el módulo de Bonificaciones.');
     }
 }

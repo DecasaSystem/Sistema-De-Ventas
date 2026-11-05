@@ -225,10 +225,10 @@ async function submitEdit() {
     if (data?.traslado_comisiones) {
       const t = data.traslado_comisiones
       toast.info(!t.hasta
-        ? 'Salió de ventas: desde el próximo mes ya no está en el equipo de comisiones de su tienda.'
+        ? 'Salió de ventas: desde el próximo mes ya no está en el equipo de bonificaciones de su tienda.'
         : t.traslado
-          ? 'Cambió de tienda: quedó trasladado en Comisiones (este mes por días, y desde el próximo en el equipo de la nueva tienda).'
-          : 'Cambió de tienda: desde el próximo mes queda en el equipo de la nueva tienda en Comisiones. Este mes ya tenía un traslado registrado y no se tocó.')
+          ? 'Cambió de tienda: quedó trasladado en Bonificaciones (este mes por días, y desde el próximo en el equipo de la nueva tienda).'
+          : 'Cambió de tienda: desde el próximo mes queda en el equipo de la nueva tienda en Bonificaciones. Este mes ya tenía un traslado registrado y no se tocó.')
     }
     showEditModal.value = false
     await cargarUsuario()
@@ -725,8 +725,8 @@ onMounted(async () => {
                 class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
               <div>
-                <label for="edit-acceso-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
-                <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
+                <label for="edit-acceso-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de bonificaciones</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las bonificaciones de los vendedores.</p>
               </div>
             </div>
             <div v-if="editArquetipo === 'supervisor' && editForm.acceso_comisiones" class="flex items-start gap-3 py-1 pl-6">
@@ -737,9 +737,9 @@ onMounted(async () => {
                 class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
               <div>
-                <label for="edit-acceso-reglas-comision" class="text-sm font-medium text-gray-700 cursor-pointer">Reglas de comisión</label>
+                <label for="edit-acceso-reglas-comision" class="text-sm font-medium text-gray-700 cursor-pointer">Reglas de bonificación</label>
                 <p class="text-xs text-gray-500 mt-0.5">
-                  Podrá cambiar los porcentajes, el día de pago y demás reglas con que se calculan las comisiones de todos.
+                  Podrá cambiar los porcentajes, el día de pago y demás reglas con que se calculan las bonificaciones de todos.
                   Este permiso solo lo da o lo quita quien ya lo tiene.
                 </p>
               </div>
@@ -752,8 +752,8 @@ onMounted(async () => {
                 class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
               <div>
-                <label for="edit-apto-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para comisiones</label>
-                <p class="text-xs text-gray-500 mt-0.5">Hace ventas, así que le corresponde comisión.</p>
+                <label for="edit-apto-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para bonificaciones</label>
+                <p class="text-xs text-gray-500 mt-0.5">Hace ventas, así que le corresponde bonificación.</p>
               </div>
             </div>
             <div class="flex items-start gap-3 py-1">
@@ -945,7 +945,7 @@ onMounted(async () => {
               />
               <div>
                 <label for="edit-puede-fv2-sin-iva" class="text-sm font-medium text-gray-700 cursor-pointer">FV2 sin restar el IVA</label>
-                <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la comisión de esa orden se saca sobre el valor completo.</p>
+                <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la bonificación de esa orden se saca sobre el valor completo.</p>
               </div>
             </div>
             <template v-if="editArquetipo === 'supervisor'">
@@ -1021,13 +1021,13 @@ onMounted(async () => {
                 <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
               <p v-if="editArquetipo === 'supervisor'" class="text-xs text-gray-500 mt-1">
-                "Sin tienda" es para un jefe que no pertenece a ninguna en particular — no le toca el reparto de comisiones de ninguna tienda.
+                "Sin tienda" es para un jefe que no pertenece a ninguna en particular — no le toca el reparto de bonificaciones de ninguna tienda.
               </p>
               <!-- Cambiar la tienda es un traslado: si se cubre a alguien
-                   unos días, eso se registra en Comisiones → Reemplazos. -->
+                   unos días, eso se registra en Bonificaciones → Reemplazos. -->
               <p v-else-if="usuario && Number(editForm.tienda_default_id) !== Number(usuario.tienda_default_id)" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1">
-                Cambiar la tienda es un <strong>traslado definitivo</strong>: si está en el equipo de comisiones, desde hoy cuenta en la nueva y desde el próximo mes pasa a su equipo.
-                Si solo va a cubrir a alguien unos días, no cambies la tienda: regístralo en Comisiones → Reemplazos.
+                Cambiar la tienda es un <strong>traslado definitivo</strong>: si está en el equipo de bonificaciones, desde hoy cuenta en la nueva y desde el próximo mes pasa a su equipo.
+                Si solo va a cubrir a alguien unos días, no cambies la tienda: regístralo en Bonificaciones → Reemplazos.
               </p>
             </div>
             <p v-else-if="editEsIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">

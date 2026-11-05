@@ -245,7 +245,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
               <template v-else>
                 <p class="text-[11px] text-red-800 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
                   No cubrió los 3 meses<template v-if="tri.deuda_en_ventas > 0"> y la deuda que traía</template>: este trimestre
-                  no comisiona. Pasan <strong>{{ cop(tri.deuda_en_ventas_final) }}</strong> de deuda al siguiente trimestre.
+                  no bonifica. Pasan <strong>{{ cop(tri.deuda_en_ventas_final) }}</strong> de deuda al siguiente trimestre.
                 </p>
               </template>
             </template>
@@ -263,7 +263,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
           <!-- Lo que falta -->
           <p v-if="!tri.cerrado && tri.meses_restantes && tri.falta_para_cobrar > 0"
              class="text-[11px] text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5">
-            Para que el trimestre dé comisión, en lo que queda hay que vender (con el {{ pctMeta }} pagado)
+            Para que el trimestre dé bonificación, en lo que queda hay que vender (con el {{ pctMeta }} pagado)
             <strong>{{ cop(tri.falta_para_cobrar) }}</strong>: las metas que faltan,
             lo que va por debajo<template v-if="tri.deficit_inicial > 0"> y la deuda que arrastra</template>.
           </p>
@@ -370,7 +370,7 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
 
       <!-- Lo que se paga en total -->
       <div class="flex justify-between border-t border-indigo-100 pt-1.5">
-        <span class="font-semibold text-gray-700">Comisión de toda la tienda</span>
+        <span class="font-semibold text-gray-700">Bonificación de toda la tienda</span>
         <span class="font-bold text-green-700 tabular-nums">{{ cop(resumen.comision) }}</span>
       </div>
       <div v-if="resumen.comision_lista > 0" class="flex justify-between -mt-2">

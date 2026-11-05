@@ -369,7 +369,7 @@ async function aplicarConversion() {
   // la orden paga de comisión y lo que le suma a la meta. Va en el aviso.
   const m = numPrevia.value?.items_a_tocar ?? 0
   const porItems = m
-    ? `\n\n${m} mueble(s) ${numSerie.value === 'R' ? 'pasan a ser del cliente' : 'dejan de ser restauración'}: cambia cómo se comisiona esta orden.`
+    ? `\n\n${m} mueble(s) ${numSerie.value === 'R' ? 'pasan a ser del cliente' : 'dejan de ser restauración'}: cambia cómo se bonifica esta orden.`
     : ''
   const aviso = (n
     ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).`
@@ -954,8 +954,8 @@ async function cambiarFueraDelPool(fuera) {
     formPool.value = false
     motivoPool.value = ''
     toast.success(fuera
-      ? 'Listo: esta orden ya no suma al pool. Las comisiones se recalculan en unos minutos.'
-      : 'Listo: la orden vuelve a sumar al pool. Las comisiones se recalculan en unos minutos.', 6000)
+      ? 'Listo: esta orden ya no suma al pool. Las bonificaciones se recalculan en unos minutos.'
+      : 'Listo: la orden vuelve a sumar al pool. Las bonificaciones se recalculan en unos minutos.', 6000)
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo guardar')
   } finally {
@@ -3297,15 +3297,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
-      <!-- Comisión: dejar la orden por fuera del pool de la tienda (con motivo). -->
+      <!-- Bonificación: dejar la orden por fuera del pool de la tienda (con motivo). -->
       <div v-if="puedeMarcarPool" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
-        <p class="text-xs font-semibold text-gray-500 uppercase">Comisión</p>
+        <p class="text-xs font-semibold text-gray-500 uppercase">Bonificación</p>
 
         <template v-if="orden.fuera_del_pool">
           <div class="border border-amber-200 rounded-lg p-3 space-y-1">
             <p class="text-xs font-semibold text-amber-700">No suma al pool</p>
             <p class="text-xs text-gray-700">
-              No cuenta para la meta ni para el pool de la tienda y no paga comisión. Sigue siendo una venta para todo lo demás.
+              No cuenta para la meta ni para el pool de la tienda y no paga bonificación. Sigue siendo una venta para todo lo demás.
             </p>
             <p v-if="orden.fuera_del_pool_motivo" class="text-xs text-gray-600">
               Motivo: <span class="font-medium">{{ orden.fuera_del_pool_motivo }}</span>
@@ -3484,7 +3484,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <div class="min-w-0">
           <p class="text-xs font-semibold text-red-700 uppercase">Eliminar orden</p>
           <p class="text-[11px] text-gray-500 leading-snug">
-            Si se subió dos veces o era de prueba. Se borra con sus pagos y comisiones, y queda constancia.
+            Si se subió dos veces o era de prueba. Se borra con sus pagos y bonificaciones, y queda constancia.
           </p>
         </div>
         <button
@@ -4109,7 +4109,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             el motivo y una foto de soporte. Hasta que lo apruebe, el pago sigue como está.
           </p>
           <p v-else class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Al guardar, la caja de la tienda, el saldo y la comisión se ajustan solos.
+            Al guardar, la caja de la tienda, el saldo y la bonificación se ajustan solos.
             No necesitas registrar ningún egreso.
           </p>
 
@@ -4590,7 +4590,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             <div>
               <p class="text-sm font-bold text-gray-900">Eliminar la orden {{ orden?.referencia }}</p>
               <p class="text-xs text-gray-600 mt-1">
-                Desaparece de órdenes, reportes y comisiones. No se puede deshacer.
+                Desaparece de órdenes, reportes y bonificaciones. No se puede deshacer.
               </p>
             </div>
           </div>
@@ -4795,7 +4795,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 No se corre ninguna otra orden<span v-if="numPrevia.hueco">: queda libre el {{ numPrefijoActual }}{{ numPrevia.hueco }}</span>.
               </p>
 
-              <!-- Lo que mueve plata, no solo el número: comisiones y reportes
+              <!-- Lo que mueve plata, no solo el número: bonificaciones y reportes
                    no miran la serie, miran si los muebles son del cliente. -->
               <p v-if="numPrevia.items_a_tocar" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-snug">
                 <template v-if="numSerie === 'R'">
@@ -4804,7 +4804,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </template>
                 <template v-else>
                   {{ numPrevia.items_a_tocar }} mueble(s) dejan de estar marcados como restauración:
-                  la orden pasa a comisionar como venta normal, le suma a la meta de la tienda y en el
+                  la orden pasa a bonificar como venta normal, le suma a la meta de la tienda y en el
                   taller entra por la línea de mueble nuevo.
                 </template>
               </p>

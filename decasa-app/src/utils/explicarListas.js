@@ -94,7 +94,7 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
   lineas.push(...pendientesTexto(b, r))
   if (n(b.se_descuenta) > 0 || n(b.debe_al_corte) > 0) {
     lineas.push(`Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
-      + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta comisión ya entregados)` : '')
+      + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta bonificación ya entregados)` : '')
       + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
   }
   return lineas
@@ -146,7 +146,7 @@ function otrasTexto(ordenes) {
 
 function fueraDelPoolTexto(b) {
   return (b.ordenes_fuera_del_pool ?? []).map(f =>
-    `${f.referencia ?? 'Una orden'} (${pesos(f.valor)}) la sacó un supervisor del pool: no suma a la meta ni paga comisión${f.motivo ? ` (motivo: ${f.motivo})` : ''}.`)
+    `${f.referencia ?? 'Una orden'} (${pesos(f.valor)}) la sacó un supervisor del pool: no suma a la meta ni paga bonificación${f.motivo ? ` (motivo: ${f.motivo})` : ''}.`)
 }
 
 /**
@@ -197,7 +197,7 @@ function pendientesTexto(b, r) {
   // "Todavía" solo si pueden entrar después: las de un mes que no llegó a la meta ya no.
   const sinMetaMes = b.cuenta?.por_pool && b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
   const lineas = [sinMetaMes && lista.every(o => o.cumple_pago)
-    ? `${lista.length} orden(es) de este mes no comisionan:`
+    ? `${lista.length} orden(es) de este mes no bonifican:`
     : `${lista.length} orden(es) de este mes no entran en este pago:`]
   for (const o of lista) {
     const quien = `${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}`
@@ -205,7 +205,7 @@ function pendientesTexto(b, r) {
       // Los meses de Listas ya terminaron: si la tienda no llegó, ya no va a llegar.
       const sinMeta = b.cuenta?.por_pool && b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
       lineas.push(sinMeta
-        ? `   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}, pero la tienda no llegó a la meta de ${mesEnPalabras(b.mes)}: no comisiona.`
+        ? `   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}, pero la tienda no llegó a la meta de ${mesEnPalabras(b.mes)}: no bonifica.`
         : `   ${quien}: ya pagó ${laParte(r.req_pagado_pct)}; espera ${b.periodicidad === 'trimestral' ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
     } else {
       const falta = Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado)))
@@ -337,8 +337,8 @@ export function explicacionDelMes(d, p, r) {
   // 1. Cuánto le da el mes y de qué está hecho.
   const partes = desgloseDelBloque({ ordenes_listas: ordenes })
   lineas.push(partes.length > 1
-    ? `Comisión de ${mes}: ${pesos(p.comision_mes)} = ${partes.map(x => `${x.nombre.toLowerCase()} ${pesos(x.monto)}`).join(' + ')}.`
-    : `Comisión de ${mes}: ${pesos(p.comision_mes)}${partes.length ? ` (${partes[0].nombre.toLowerCase()})` : ''}.`)
+    ? `Bonificación de ${mes}: ${pesos(p.comision_mes)} = ${partes.map(x => `${x.nombre.toLowerCase()} ${pesos(x.monto)}`).join(' + ')}.`
+    : `Bonificación de ${mes}: ${pesos(p.comision_mes)}${partes.length ? ` (${partes[0].nombre.toLowerCase()})` : ''}.`)
 
   // 2. En qué va: pagado, listo, pendiente o sin llegar el día.
   lineas.push(...estadoDelMes(d, p))
@@ -354,7 +354,7 @@ export function explicacionDelMes(d, p, r) {
       if (d.cerrada_en && String(d.cerrada_en).slice(0, 7) === d.mes) {
         lineas.push(`${tienda} cerró el ${fecha(d.cerrada_en)}: desde ese día ya nadie suma días en ella.`)
       } else if (!(p.movimientos ?? []).length) {
-        lineas.push('Los días salen del equipo de la tienda (desde qué fecha está en él) y de los reemplazos registrados en Comisiones.')
+        lineas.push('Los días salen del equipo de la tienda (desde qué fecha está en él) y de los reemplazos registrados en Bonificaciones.')
       }
     }
   }
@@ -410,7 +410,7 @@ export function explicacionDelMes(d, p, r) {
   // 6. La tarjeta.
   const ds = p.desglose ?? {}
   if (n(ds.costo_datafono) > 0) {
-    lineas.push(`En sus órdenes se pagaron ${pesos(ds.pagado_tarjeta)} con ${mediosConFranquicia(r)}: la franquicia se queda con el ${num(r.franquicia_pct)}% (${pesos(ds.costo_datafono)}) y sobre eso nadie comisiona. Por eso a esas órdenes se les resta antes de calcular (columna "¿Por qué se resta o no la tarjeta?").`)
+    lineas.push(`En sus órdenes se pagaron ${pesos(ds.pagado_tarjeta)} con ${mediosConFranquicia(r)}: la franquicia se queda con el ${num(r.franquicia_pct)}% (${pesos(ds.costo_datafono)}) y sobre eso nadie bonifica. Por eso a esas órdenes se les resta antes de calcular (columna "¿Por qué se resta o no la tarjeta?").`)
   } else if (ordenes.some(o => o.forma_pago !== 'parte_pool' && n(o.pagado) > 0)) {
     lineas.push(`Ninguna de sus órdenes se pagó con ${mediosConFranquicia(r)}: no se les resta nada por la franquicia.`)
   }
@@ -423,7 +423,7 @@ export function explicacionDelMes(d, p, r) {
     lineas.push(`Anticipos y abonos: debía ${pesos(p.pago.debe_al_corte)} a este corte. Al pagar se descuentan ${pesos(p.pago.se_descuenta)} → se le entregan ${pesos(p.pago.entregar)}.`)
     if (n(p.pago.sigue_debiendo) > 0) lineas.push(`Después de pagarle sigue debiendo ${pesos(p.pago.sigue_debiendo)}: se descuenta en el próximo pago.`)
   } else if (n(p.abonos_del_mes) > 0) {
-    lineas.push(`De esta comisión ya se le dio un abono de ${pesos(p.abonos_del_mes)}: se descuenta al pagarla.`)
+    lineas.push(`De esta bonificación ya se le dio un abono de ${pesos(p.abonos_del_mes)}: se descuenta al pagarla.`)
   }
   return lineas
 }
@@ -456,7 +456,7 @@ export function estadoDelMes(d, p) {
     lineas.push(`No se paga: ${pesos(noSePaga)}. ${porQueNoSePaga(d, p)}`)
   }
   if (n(p.comision_mes) <= 0) {
-    lineas.push('Este mes no le da comisión en esta tienda (el porqué va abajo).')
+    lineas.push('Este mes no le da bonificación en esta tienda (el porqué va abajo).')
   }
   return lineas
 }
@@ -503,8 +503,8 @@ export function partesDelMes(d, p) {
 /** Una palabra para la tabla: Pagado, Listo, A medias, Pendiente, Cómo va, Sin comisión. */
 export function estadoCorto(d, p) {
   const { espera, noSePaga } = partesDelMes(d, p)
-  if (!d.llego_el_dia) return n(p.comision_mes) > 0 ? 'Cómo va (no ha llegado el día)' : 'Sin comisión por ahora'
-  if (n(p.comision_mes) <= 0 || (noSePaga > 0 && noSePaga >= n(p.comision_mes))) return 'Sin comisión'
+  if (!d.llego_el_dia) return n(p.comision_mes) > 0 ? 'Cómo va (no ha llegado el día)' : 'Sin bonificación por ahora'
+  if (n(p.comision_mes) <= 0 || (noSePaga > 0 && noSePaga >= n(p.comision_mes))) return 'Sin bonificación'
   if (n(p.lista) > 0) return p.pago?.atrasada ? 'Listo para pagar (atrasado)' : 'Listo para pagar'
   if (n(p.pagado) > 0 && espera <= 0) return 'Ya se pagó'
   if (n(p.pagado) > 0) return 'Pagado en parte; falta'
@@ -513,7 +513,7 @@ export function estadoCorto(d, p) {
 
 /** Por qué una orden está pagada, lista o esperando: la columna "Estado" del Excel de la tienda. */
 export function estadoDeOrden(o, p, d, r) {
-  if (o.forma_pago === 'fuera_del_pool') return 'Fuera del pool: no comisiona'
+  if (o.forma_pago === 'fuera_del_pool') return 'Fuera del pool: no bonifica'
   if (o.estado === 'pagada') return 'Pagada'
   if (o.estado === 'lista') return 'Lista para pagar'
   const trimestral = (p.periodicidad ?? d.periodicidad) === 'trimestral'
@@ -544,7 +544,7 @@ function pendientesDelMes(d, p, r) {
 
   const sinMitad = lista.filter(o => !o.cumple_pago)
   if (sinMitad.length) {
-    lineas.push(`${sinMitad.length} orden(es) suyas esperan que el cliente pague ${laParte(r.req_pagado_pct)}: hasta entonces no suman a la meta ni comisionan; cuando la paguen, entran en el próximo pago.`)
+    lineas.push(`${sinMitad.length} orden(es) suyas esperan que el cliente pague ${laParte(r.req_pagado_pct)}: hasta entonces no suman a la meta ni bonifican; cuando la paguen, entran en el próximo pago.`)
     for (const o of sinMitad) {
       const falta = Math.max(0, Math.ceil(n(o.valor_total) * n(r.req_pagado_pct) - n(o.pagado)))
       lineas.push(`   ${o.referencia ?? 'Orden'}${o.cliente ? ` (${o.cliente})` : ''}: ha pagado ${pesos(o.pagado)} de ${pesos(o.valor_total)}; le faltan ${pesos(falta)}.`)
@@ -559,7 +559,7 @@ function pendientesDelMes(d, p, r) {
         ? `${cuantas}: se pagan al cerrar el trimestre (${fecha(q.se_liquida_el)}) si el trimestre pasa de la meta.`
         : `${cuantas}: se pagan el ${fecha(d.se_cobra_el)}${c.por_pool && !c.meta_cumplida ? ' si la tienda llega a la meta' : ''}.`)
     } else if (c.por_pool && (trimestral ? (q && !q.en_curso && n(c.comision_pool) <= 0) : c.meta_cumplida === false)) {
-      lineas.push(`${cuantas}, pero no comisionan: ${porQueNoSePaga(d, p).toLowerCase()}`)
+      lineas.push(`${cuantas}, pero no bonifican: ${porQueNoSePaga(d, p).toLowerCase()}`)
     } else {
       lineas.push(`${cuantas}: esperan ${trimestral ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
     }

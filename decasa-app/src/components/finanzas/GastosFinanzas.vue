@@ -225,7 +225,7 @@ const categoriasPresupuesto = computed(() =>
           </ul>
         </div>
         <p v-if="resumen.ingresos_netos" class="text-[11px] text-gray-400 mt-2">
-          Los gastos son el {{ pct(resumen.margenes.gastos) }} de lo vendido sin IVA (sin contar nómina ni comisiones).
+          Los gastos son el {{ pct(resumen.margenes.gastos) }} de lo vendido sin IVA (sin contar nómina ni bonificaciones).
         </p>
       </template>
       <p v-else class="text-xs text-gray-400 mt-1">Sin gastos registrados este mes.</p>

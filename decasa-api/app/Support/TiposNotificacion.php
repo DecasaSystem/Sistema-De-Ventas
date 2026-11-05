@@ -138,8 +138,8 @@ class TiposNotificacion
             'tipos'       => ['encargo_revision', 'encargo_descuento'],
         ],
         'comisiones' => [
-            'nombre'      => 'Comisiones',
-            'descripcion' => 'El día de pago: cuántas personas y cuánta plata hay en comisiones listas para entregar.',
+            'nombre'      => 'Bonificaciones',
+            'descripcion' => 'El día de pago: cuántas personas y cuánta plata hay en bonificaciones listas para entregar.',
             'tipos'       => ['comisiones'],
         ],
         'finanzas' => [

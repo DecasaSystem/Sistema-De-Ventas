@@ -119,7 +119,7 @@ const filasDesglose = (t) => [
   ['Ventas sin IVA', t.netas, false],
   ['Materiales (est.)', -t.materiales, true],
   ['Nómina de ventas', -t.nomina, true],
-  ['Comisiones', -t.comisiones, true],
+  ['Bonificaciones', -t.comisiones, true],
   ['Gastos de la tienda', -t.gastos, true],
 ]
 </script>

@@ -443,7 +443,7 @@ class GarantiaService
                 . ($destino === 'inventario'
                     ? 'Volvió al inventario de ' . (Tienda::find($tiendaId)?->nombre ?? 'la tienda') . '.'
                     : 'Sale como merma.')
-                . ' Deja de contar como venta; una comisión ya pagada no cambia.');
+                . ' Deja de contar como venta; una bonificación ya pagada no cambia.');
         });
 
         self::avisarFacturacionReembolso($g->fresh(['orden.cliente']));

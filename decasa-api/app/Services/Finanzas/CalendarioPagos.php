@@ -53,7 +53,7 @@ class CalendarioPagos
             if ($vencido && $c['listas'] <= 0) continue;
             $items[] = [
                 'fecha' => $c['fecha'], 'tipo' => 'comisiones', 'vencido' => $vencido, 'estimado' => true,
-                'titulo' => $vencido ? 'Comisiones listas sin pagar' : 'Comisiones',
+                'titulo' => $vencido ? 'Bonificaciones listas sin pagar' : 'Bonificaciones',
                 'detalle' => $vencido ? 'Ya se pueden pagar' : 'Al día de hoy; se mueven hasta que se paguen',
                 'monto' => round($vencido ? $c['listas'] : $c['monto']),
             ];

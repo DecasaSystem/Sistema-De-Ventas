@@ -673,7 +673,7 @@ class ReglasDeComisionTest extends TestCase
         // Las reglas del prompt del chat, con la excepción de Norte.
         $prompt = (fn () => $this->reglasDeComisiones())->call(app(\App\Services\AgentService::class));
         $this->assertStringContainsString('(ventas de la tienda QUE YA TIENEN EL 50% PAGADO − meta) ÷ 1,19 × 5%', $prompt);
-        $this->assertStringContainsString('la franquicia del 5,5% no se comisiona', $prompt);
+        $this->assertStringContainsString('la franquicia del 5,5% no se bonifica', $prompt);
         $this->assertStringContainsString('tienda Decasa Norte: Cómo se reparte el pool = Partes iguales', $prompt);
 
         $this->regla('pct_pool', 0.06, '2026-10');

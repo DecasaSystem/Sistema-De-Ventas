@@ -206,7 +206,7 @@ const accesosAdmin = computed(() => {
     items.push({ modulo: 'metricas-redes', label: 'Métricas', icon: ChartPieIcon, to: { name: 'metricas-redes' } })
   }
   if (auth.tieneAccesoComisiones) {
-    items.push({ modulo: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
+    items.push({ modulo: 'comisiones', label: 'Bonificaciones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
   }
   if (auth.puedeNomina) {
     items.push({ modulo: 'nomina', label: 'Nómina', icon: BanknotesIcon, to: { name: 'nomina' } })

@@ -5869,7 +5869,7 @@ onBeforeUnmount(() => {
             <span class="text-sm font-semibold text-gray-800">Orden con descuento especial (FV2)</span>
             <span class="block text-xs text-gray-500 mt-0.5">
               Lleva numeración propia FV2-N en vez de número de orden, pero es una venta normal:
-              descuenta inventario, cuenta en las estadísticas y genera comisión igual.
+              descuenta inventario, cuenta en las estadísticas y genera bonificación igual.
             </span>
           </span>
         </label>
@@ -5889,7 +5889,7 @@ onBeforeUnmount(() => {
             <span class="min-w-0">
               <span class="text-sm font-semibold text-gray-800">No se resta el IVA</span>
               <span class="block text-xs text-gray-500 mt-0.5">
-                Tu comisión de esta orden se saca sobre el valor completo, sin dividir por {{ divisor(reglasCom.iva_divisor) }}.
+                Tu bonificación de esta orden se saca sobre el valor completo, sin dividir por {{ divisor(reglasCom.iva_divisor) }}.
               </span>
             </span>
           </label>

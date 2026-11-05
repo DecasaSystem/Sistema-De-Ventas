@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
           </span>
         </div>
         <!-- Sigue siendo venta, pero no le suma a la meta hasta que el
-             cliente pague la mitad (igual que en Comisiones y Reportes). -->
+             cliente pague la mitad (igual que en Bonificaciones y Reportes). -->
         <p v-if="stats.meta_mes.sin_mitad > 0" class="mt-1.5 text-xs text-amber-700">
           + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
         </p>
@@ -476,13 +476,13 @@ onBeforeUnmount(() => {
 
         <!-- Mensaje si ya se cumplió -->
         <p v-if="stats.meta_mes.cumplida" class="mt-2 text-xs font-semibold text-green-600 flex items-center gap-1">
-          ✓ ¡Meta alcanzada! La comisión del mes está activa.
+          ✓ ¡Meta alcanzada! La bonificación del mes está activa.
         </p>
         <p v-else class="mt-2 text-xs text-gray-400">
-          Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar comisiones
+          Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar bonificaciones
         </p>
         <button type="button" @click="router.push({ name: 'comisiones-ayuda' })" class="mt-2 text-[11px] font-semibold text-blue-600">
-          ¿Cómo se calcula mi comisión?
+          ¿Cómo se calcula mi bonificación?
         </button>
       </div>
 
@@ -603,12 +603,12 @@ onBeforeUnmount(() => {
                 <span>Meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta) }}</span></span>
               </div>
               <!-- No es el "vendido" de arriba: la meta se mide como en
-                   Comisiones (mes calendario, sin restauraciones ni cancelados,
-                   con la mitad que abonan los independientes y sin la comisión
+                   Bonificaciones (mes calendario, sin restauraciones ni cancelados,
+                   con la mitad que abonan los independientes y sin la bonificación
                    del datáfono), y el período de arriba puede ser otro. -->
               <p class="mt-1 text-[10px] text-gray-300 leading-snug">
-                Es lo del mes calendario que cuenta en Comisiones: solo ventas (sin restauraciones ni canceladas),
-                más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+                Es lo del mes calendario que cuenta en Bonificaciones: solo ventas (sin restauraciones ni canceladas),
+                más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la bonificación del datáfono.
               </p>
               <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>
               <p v-else class="mt-1 text-[11px] text-gray-400">

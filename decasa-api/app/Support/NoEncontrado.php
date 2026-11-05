@@ -22,7 +22,7 @@ class NoEncontrado
         'OrdenItem'           => 'Ese producto de la orden',
         'DespachoItem'        => 'Esa entrega',
         'Despacho'            => 'Esa ruta',
-        'Comision'            => 'Esa comisión',
+        'Comision'            => 'Esa bonificación',
         'Pago'                => 'Ese pago',
         'Cliente'             => 'Ese cliente',
         'Producto'            => 'Ese producto',

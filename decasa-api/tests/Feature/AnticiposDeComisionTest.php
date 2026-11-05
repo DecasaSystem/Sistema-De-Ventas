@@ -340,7 +340,7 @@ class AnticiposDeComisionTest extends TestCase
         $this->assertEqualsWithDelta(660_504, $aviso['entregar'], 3);
         $this->assertSame(1, DB::table('notificaciones')->where('usuario_id', 50)->count());
         // Con la fecha, no "Hoy": el push puede llegar días después.
-        $this->assertSame('Día de pago (20 de octubre): comisiones de septiembre de 2026',
+        $this->assertSame('Día de pago (20 de octubre): bonificaciones de septiembre de 2026',
             DB::table('notificaciones')->value('titulo'));
 
         // Una sola vez: la tarea del día siguiente no lo repite, y el título
@@ -359,6 +359,23 @@ class AnticiposDeComisionTest extends TestCase
         DB::table('notificaciones')->insert([
             'usuario_id' => 50, 'tipo' => 'comisiones', 'leida' => false,
             'titulo' => 'Hoy se pagan las comisiones de septiembre de 2026',
+            'mensaje' => '…', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-27 07:00', 'America/Bogota'));
+        $this->assertNull(app(ComisionController::class)->avisarDiaDePago());
+        $this->assertSame(1, DB::table('notificaciones')->count());
+    }
+
+    public function test_el_aviso_que_salio_diciendo_comisiones_no_se_repite_con_bonificaciones(): void
+    {
+        $this->montarAnticipos();
+        $this->conSupervisor();
+        $this->orden(self::JUAN, '2026-09-10', 20_000_000);
+        // Antes del 2026-11-05 el módulo se llamaba Comisiones.
+        DB::table('notificaciones')->insert([
+            'usuario_id' => 50, 'tipo' => 'comisiones', 'leida' => false,
+            'titulo' => 'Día de pago (20 de octubre): comisiones de septiembre de 2026',
             'mensaje' => '…', 'created_at' => now(), 'updated_at' => now(),
         ]);
 

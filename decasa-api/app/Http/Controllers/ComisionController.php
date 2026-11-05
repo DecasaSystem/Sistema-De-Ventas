@@ -171,7 +171,7 @@ class ComisionController extends Controller
             $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, self::hoy());
 
             if ($enriquecida['estado_calculado'] !== 'lista') {
-                return response()->json(['error' => 'La comisión no está lista para pagar aún.'], 422);
+                return response()->json(['error' => 'La bonificación no está lista para pagar aún.'], 422);
             }
 
             $this->registrarPago($comision, $enriquecida, $usuario);
@@ -220,7 +220,7 @@ class ComisionController extends Controller
         return $this->conCandado($comision->mes_venta, function () use ($id, $data) {
             $c = Comision::with('orden')->lockForUpdate()->find($id);
             if (! $c || $c->estado !== 'pagada') {
-                return response()->json(['error' => 'Esa comisión no está pagada.'], 409);
+                return response()->json(['error' => 'Esa bonificación no está pagada.'], 409);
             }
 
             $antes = ['comision_id' => $c->id, 'vendedor_id' => (int) $c->vendedor_id, 'orden_id' => $c->orden_id,
@@ -318,7 +318,7 @@ class ComisionController extends Controller
             return \Illuminate\Support\Facades\Cache::lock('comisiones:' . $mes, 60)
                 ->block(20, fn () => DB::transaction($fn));
         } catch (\Illuminate\Contracts\Cache\LockTimeoutException $e) {
-            return response()->json(['error' => 'Alguien más está moviendo las comisiones de ' . $mes
+            return response()->json(['error' => 'Alguien más está moviendo las bonificaciones de ' . $mes
                 . ' en este momento. Intenta de nuevo en unos segundos.'], 409);
         }
     }
@@ -1063,7 +1063,7 @@ class ComisionController extends Controller
             ->whereIn('mes_venta', self::mesesDeTrimestre($trimestre))
             ->where('estado', 'pagada')->exists();
         if ($pagadas) {
-            return response()->json(['message' => 'Esta tienda ya tiene comisiones pagadas en este trimestre: '
+            return response()->json(['message' => 'Esta tienda ya tiene bonificaciones pagadas en este trimestre: '
                 . 'cambiarle la periodicidad cambiaría cómo se calculó lo que ya salió. Hazlo al empezar el próximo trimestre.'], 422);
         }
 
@@ -1286,8 +1286,8 @@ class ComisionController extends Controller
             ->where('mes', $data['mes'])->sum('entregar'));
 
         if ($falta <= 0) {
-            return response()->json(['message' => 'No tiene comisión lista sin pagar de ' . self::nombreDelMes($data['mes'])
-                . '. El abono es para una comisión que ya está en Listas.'], 422);
+            return response()->json(['message' => 'No tiene bonificación lista sin pagar de ' . self::nombreDelMes($data['mes'])
+                . '. El abono es para una bonificación que ya está en Listas.'], 422);
         }
         if ($monto > $falta) {
             return response()->json(['message' => 'El abono es más de lo que falta por entregarle de '
@@ -1331,7 +1331,7 @@ class ComisionController extends Controller
         // debe no cuentan (si no, parecía que el abono seguía sin descontarse).
         $debe = AnticiposComision::debeHasta((int) $fila->vendedor_id, $fila->mes);
         if ($debe < round((float) $fila->monto)) {
-            return response()->json(['message' => 'Ese abono ya se descontó al pagar la comisión. '
+            return response()->json(['message' => 'Ese abono ya se descontó al pagar la bonificación. '
                 . 'Para quitarlo, primero deshaz ese pago.'], 422);
         }
 
@@ -1380,7 +1380,7 @@ class ComisionController extends Controller
         }
 
         if (Comision::where('orden_id', $orden->id)->where('estado', 'pagada')->exists()) {
-            return response()->json(['message' => 'Una comisión de esta orden ya se pagó. Para cambiar esto, primero deshaz ese pago.'], 422);
+            return response()->json(['message' => 'Una bonificación de esta orden ya se pagó. Para cambiar esto, primero deshaz ese pago.'], 422);
         }
 
         $mes = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->format('Y-m');
@@ -1427,7 +1427,7 @@ class ComisionController extends Controller
                 'created_at' => now(),
             ]);
         } catch (\Throwable $e) {
-            \Log::warning('[DECASA] No se pudo anotar en la bitácora de comisiones', ['accion' => $accion, 'error' => $e->getMessage()]);
+            \Log::warning('[DECASA] No se pudo anotar en la bitácora de bonificaciones', ['accion' => $accion, 'error' => $e->getMessage()]);
         }
     }
 
@@ -2688,7 +2688,7 @@ class ComisionController extends Controller
                 ->where('estado', 'pagada')->count();
             if ($pagadas) {
                 return response()->json([
-                    'message'   => "Este mes ya tiene {$pagadas} comisión(es) pagada(s) en esta tienda. Si cambias la meta, "
+                    'message'   => "Este mes ya tiene {$pagadas} bonificación(es) pagada(s) en esta tienda. Si cambias la meta, "
                                  . 'lo pendiente se recalcula con la nueva y lo ya pagado se queda como está.',
                     'requiere_confirmacion' => true,
                 ], 409);
@@ -3510,8 +3510,8 @@ class ComisionController extends Controller
         $nombres = implode(', ', array_map(fn ($m) => self::nombreDelMes($m), $antes));
 
         return response()->json([
-            'error' => "Tiene comisiones de {$nombres} sin pagar. Se pagan del mes más viejo al más nuevo: "
-                . 'págalas juntas desde Comisiones → Listas.',
+            'error' => "Tiene bonificaciones de {$nombres} sin pagar. Se pagan del mes más viejo al más nuevo: "
+                . 'págalas juntas desde Bonificaciones → Listas.',
             'meses_anteriores' => $antes,
         ], 409);
     }
@@ -3730,11 +3730,13 @@ class ComisionController extends Controller
         // Con la fecha y no "Hoy": el aviso del 20 de octubre le saltó a alguien
         // en el celular el 26 y parecía que el día de pago era ese día.
         $diaDePago = $hoy->copy()->day($diaPago)->locale('es')->isoFormat('D [de] MMMM');
-        $titulo    = "Día de pago ({$diaDePago}): comisiones de {$nombre}";
+        $titulo    = "Día de pago ({$diaDePago}): bonificaciones de {$nombre}";
 
-        // El título viejo también cuenta como "ya avisado": el de septiembre de
-        // 2026 salió con él y no hay que repetirlo con el nuevo.
-        $titulos = [$titulo, "Hoy se pagan las comisiones de {$nombre}"];
+        // Los títulos viejos también cuentan como "ya avisado": el de septiembre
+        // de 2026 salió con "Hoy se pagan…" y hasta el 2026-11-05 decían
+        // "comisiones" (ahora "bonificaciones"); no hay que repetir el aviso.
+        $titulos = [$titulo, "Día de pago ({$diaDePago}): comisiones de {$nombre}",
+                    "Hoy se pagan las comisiones de {$nombre}"];
 
         $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)
             ->where('acceso_comisiones', true)->get()
@@ -3777,12 +3779,12 @@ class ComisionController extends Controller
 
         $mensaje = ($porPersona->isEmpty() ? 'No hay nada listo de este mes'
                 : "{$porPersona->count()} persona" . ($porPersona->count() === 1 ? '' : 's')
-                . " por {$cop($total)} en comisiones"
+                . " por {$cop($total)} en bonificaciones"
                 . ($anticipos > 0 ? "; menos {$cop($anticipos)} de anticipos, a entregar {$cop($entregar)}" : ''))
             . ($atrasados->isNotEmpty()
                 ? '. Además quedan sin pagar ' . $atrasados->map(fn ($v, $m) => $cop($v) . ' de ' . self::nombreDelMes($m))->implode(', ')
                 : '')
-            . '. Ábrelo en Comisiones → Listas.';
+            . '. Ábrelo en Bonificaciones → Listas.';
 
         foreach ($supervisores as $sup) {
             NotificacionService::crear('comisiones', $titulo, $mensaje, ['mes' => $mes], $sup->id);

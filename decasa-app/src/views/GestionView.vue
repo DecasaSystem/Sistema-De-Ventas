@@ -43,7 +43,7 @@ const TABS = [
 
 // ── Roles (puestos de trabajo) ────────────────────────────────────────────
 const ARQUETIPOS = [
-  { valor: 'vendedor',    etiqueta: 'Vende y genera comisión' },
+  { valor: 'vendedor',    etiqueta: 'Vende y genera bonificación' },
   { valor: 'supervisor',  etiqueta: 'Administra el negocio' },
   { valor: 'conductor',   etiqueta: 'Conduce y entrega' },
   { valor: 'taller',      etiqueta: 'Fabrica y lleva caja propia' },
@@ -349,7 +349,7 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
                     <option v-for="a in ARQUETIPOS" :key="a.valor" :value="a.valor">{{ a.etiqueta }}</option>
                   </select>
                   <p class="text-[11px] text-gray-400 mt-1">
-                    {{ editandoRol ? 'No se puede cambiar después de creado.' : 'Define el cálculo de comisiones, caja y demás — elige el que más se parezca al puesto real.' }}
+                    {{ editandoRol ? 'No se puede cambiar después de creado.' : 'Define el cálculo de bonificaciones, caja y demás — elige el que más se parezca al puesto real.' }}
                   </p>
                 </div>
               </div>

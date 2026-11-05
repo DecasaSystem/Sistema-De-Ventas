@@ -388,7 +388,7 @@ class UsuarioController extends Controller
             $puedeDarlo = $quien->acceso_reglas_comision
                 || ($nadieLoTiene && $quien->rol === 'supervisor' && $quien->acceso_comisiones);
             if (! $puedeDarlo) {
-                return response()->json(['message' => 'El permiso "Reglas de comisión" solo lo da o lo quita quien ya lo tiene.'], 403);
+                return response()->json(['message' => 'El permiso "Reglas de bonificación" solo lo da o lo quita quien ya lo tiene.'], 403);
             }
             $data['acceso_reglas_comision'] = $request->boolean('acceso_reglas_comision');
         }
@@ -510,7 +510,7 @@ class UsuarioController extends Controller
             } catch (\Throwable $e) {
                 // El perfil ya quedó cambiado; lo de comisiones se puede
                 // registrar a mano desde Reemplazos si esto falla.
-                \Log::warning('[DECASA] No se pudo trasladar en comisiones al cambiar de sede', [
+                \Log::warning('[DECASA] No se pudo trasladar en bonificaciones al cambiar de sede', [
                     'usuario' => $usuario->id, 'error' => $e->getMessage(),
                 ]);
             }

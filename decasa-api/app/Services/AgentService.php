@@ -81,7 +81,7 @@ class AgentService
                 'type' => 'function',
                 'function' => [
                     'name' => 'consultar_comisiones',
-                    'description' => 'Consulta comisiones reales: cuánto lleva ganado una persona o una tienda, por qué le da esa cifra, cuándo la puede cobrar y qué le falta. Úsala SIEMPRE que pregunten por plata de comisiones ("¿cuánto llevo?", "¿cuánto le toca a Gladys?", "¿por qué me dio tan poco?", "¿cuándo me pagan?", "¿cómo va la meta del Edén?", "¿cuánto falta para la meta?"). Devuelve el desglose real orden por orden con la forma en que se pagó cada una. NUNCA calcules comisiones a mano: los datos salen de aquí.',
+                    'description' => 'Consulta bonificaciones reales: cuánto lleva ganado una persona o una tienda, por qué le da esa cifra, cuándo la puede cobrar y qué le falta. Úsala SIEMPRE que pregunten por plata de bonificaciones ("¿cuánto llevo?", "¿cuánto le toca a Gladys?", "¿por qué me dio tan poco?", "¿cuándo me pagan?", "¿cómo va la meta del Edén?", "¿cuánto falta para la meta?"). Devuelve el desglose real orden por orden con la forma en que se pagó cada una. NUNCA calcules bonificaciones a mano: los datos salen de aquí.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -483,7 +483,7 @@ class AgentService
                 'type' => 'function',
                 'function' => [
                     'name' => 'resumen_financiero',
-                    'description' => 'Cómo va la empresa en plata: estado de resultados del mes (ventas, IVA, materiales estimados, nómina con lo que pone la empresa, comisiones, gastos, utilidad y márgenes), punto de equilibrio, cartera, caja, alertas y próximos pagos (nómina, prima, cesantías, gastos fijos, comisiones). Úsala ante "¿cómo vamos este mes?", "¿estamos ganando o perdiendo?", "¿cuánto gastamos en nómina?", "¿cuánto falta para no perder?", "¿qué hay que pagar esta semana?". Solo supervisores con acceso a Finanzas.',
+                    'description' => 'Cómo va la empresa en plata: estado de resultados del mes (ventas, IVA, materiales estimados, nómina con lo que pone la empresa, bonificaciones, gastos, utilidad y márgenes), punto de equilibrio, cartera, caja, alertas y próximos pagos (nómina, prima, cesantías, gastos fijos, bonificaciones). Úsala ante "¿cómo vamos este mes?", "¿estamos ganando o perdiendo?", "¿cuánto gastamos en nómina?", "¿cuánto falta para no perder?", "¿qué hay que pagar esta semana?". Solo supervisores con acceso a Finanzas.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -2594,7 +2594,7 @@ class AgentService
             'alertas'            => array_map(fn ($s) => $s['titulo'] . ': ' . $s['texto'], array_filter($ind['semaforo'], fn ($s) => $s['nivel'] !== 'bien')),
             'proximos_pagos'     => array_map(fn ($p) => ['fecha' => $p['fecha'], 'que' => $p['titulo'], 'monto' => $p['monto'], 'vencido' => $p['vencido']],
                 array_slice(\App\Services\Finanzas\CalendarioPagos::proximos(15), 0, 8)),
-            'nota'               => 'Los materiales son una estimación con las fichas técnicas; las comisiones sin pagar están al día de hoy. Detalle en Finanzas.',
+            'nota'               => 'Los materiales son una estimación con las fichas técnicas; las bonificaciones sin pagar están al día de hoy. Detalle en Finanzas.',
         ];
     }
 
@@ -3115,7 +3115,7 @@ class AgentService
         $tiendaSegura = preg_replace('/[\r\n\t\x00-\x1F\x7F]+/', ' ', strip_tags((string) $tiendaInfo));
 
         $sinAcceso = array_keys(array_filter([
-            'Comisiones'                 => ! PermisosAsistente::veComisiones($usuario),
+            'Bonificaciones'             => ! PermisosAsistente::veComisiones($usuario),
             'Finanzas'                   => ! PermisosAsistente::veFinanzas($usuario),
             'Costos (fichas técnicas)'   => ! PermisosAsistente::veCostos($usuario),
             'Interesados y Clientes de redes' => ! PermisosAsistente::veInteresados($usuario),
@@ -3147,7 +3147,7 @@ CÓMO RESPONDER:
 
 ESTADOS DE ÓRDENES: borrador | cotizacion | pendiente_anticipo | en_produccion | listo_entrega | en_camino | entregado | cancelado | devuelto
 - "listas para entregar/despachar" → listo_entrega | "en camino/en ruta/con conductor" → en_camino | "en producción/en taller" → en_produccion | "esperando pago/sin anticipo" → pendiente_anticipo
-- Cotizaciones y borradores NO son ventas: no cuentan en reportes, comisiones ni cartera. Las canceladas tampoco cuentan en reportes.
+- Cotizaciones y borradores NO son ventas: no cuentan en reportes, bonificaciones ni cartera. Las canceladas tampoco cuentan en reportes.
 
 TIENDAS: Filtra por tienda SOLO si el usuario lo menciona. Un supervisor ve TODAS las tiendas aunque tenga una asignada. Usa nombre_tienda (nombre parcial), NUNCA inventes tienda_id. Si necesitas el ID exacto, llama listar_tiendas.
 
@@ -3194,7 +3194,7 @@ CAJA — consultar_caja: balance de la caja de la tienda (efectivo): "**Caja —
 CATÁLOGOS — consultar_catalogos: los catálogos que se le mandan a los clientes, con su enlace. Hay dos clases: los catálogos visuales (páginas con fotos, se arman en Gestión → Catálogos; portada de todos en /c y cada uno en /c/nombre) y el catálogo por categoría que sale solo de Inventario (/catalogo/camas, /catalogo/sofas…, con fotos y precios de los productos activos). Da los enlaces completos tal como los devuelve la herramienta.
 
 DÓNDE ESTÁ CADA COSA (menú del programa; algunas solo aparecen con el permiso o al supervisor):
-Inicio · Órdenes (crear con Nueva orden; pestaña Restauración) · Cotizaciones · Clientes (y Clientes → Redes) · Inventario · Fábrica (Reserva de Fábrica) · Traslado (surtir tiendas) · Telas · Producción · Mis pasos (taller) · Despacho y Entregas · Facturación · Caja · Consultar costo · Costos (fichas técnicas y tarifas) · Comisiones (y su Ayuda) · Estadísticas (Mis estadísticas) · Reportes · Redes (tarjetas de Elena) y Citas · Compras y Proveedores · Encargos (herramientas a cargo) · Nómina · Finanzas · Trabajadores (Usuarios) · Gestión (supervisor): Roles, Tiendas, Módulos, Herramientas, Catálogos, Documentos (anexo, orden de entrega, datos de la empresa, plazos de garantía, mensajes) y Ajustes · Perfil.
+Inicio · Órdenes (crear con Nueva orden; pestaña Restauración) · Cotizaciones · Clientes (y Clientes → Redes) · Inventario · Fábrica (Reserva de Fábrica) · Traslado (surtir tiendas) · Telas · Producción · Mis pasos (taller) · Despacho y Entregas · Facturación · Caja · Consultar costo · Costos (fichas técnicas y tarifas) · Bonificaciones (y su Ayuda) · Estadísticas (Mis estadísticas) · Reportes · Redes (tarjetas de Elena) y Citas · Compras y Proveedores · Encargos (herramientas a cargo) · Nómina · Finanzas · Trabajadores (Usuarios) · Gestión (supervisor): Roles, Tiendas, Módulos, Herramientas, Catálogos, Documentos (anexo, orden de entrega, datos de la empresa, plazos de garantía, mensajes) y Ajustes · Perfil.
 
 CÓMO FUNCIONA EL SISTEMA (para preguntas de "¿cómo hago…?"):
 - Numeración: consecutivo por grupo (Armenia / Pereira). Restauraciones con serie R (R-1093) y descuento especial con serie FV2. Borradores y cotizaciones no gastan número. Los independientes toman el consecutivo de Armenia.
@@ -3304,18 +3304,18 @@ EOT;
             : 'cada trimestre arranca de cero (la deuda no pasa al siguiente)';
 
         $texto = <<<EOT
-COMISIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una comisión a mano ni inventes montos. Estas reglas son para explicar el POR QUÉ:
+BONIFICACIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una bonificación a mano ni inventes montos. Estas reglas son para explicar el POR QUÉ:
 - Para cobrar hacen falta las tres: (1) el cliente pagó al menos el {$pagado} de la orden, (2) llegó {$cuando} (o el pago del trimestre en las trimestrales), (3) la tienda llegó a la meta (si tiene meta).
 - Restauración → {$pctRest} del valor completo ({$restIva}), para quien la hizo. No pasa por el pool, no suma a la meta, pero {$restEspera}.
 - Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor {$iva}{$pctIndiv}, individual.
 - Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira…) → pool de la tienda = (ventas de la tienda QUE YA TIENEN EL {$pagadoMeta} PAGADO − meta) {$cuentaPool}. Si con eso no llega a la meta, el pool es $0.{$soloMensual} Una venta sin ese pago no suma a la meta hasta que lo complete. Todos los del equipo cobran igual, {$repartoPool}.
-- Venta compartida entre dos vendedores: quien la registró comisiona sobre el {$compartida} y el compañero sobre el resto.
-- {$metodos}: la franquicia del {$franquicia} no se comisiona.
-- Un supervisor puede marcar una orden "fuera del pool" (no suma a meta ni pool y no paga comisión), con motivo.
+- Venta compartida entre dos vendedores: quien la registró bonifica sobre el {$compartida} y el compañero sobre el resto.
+- {$metodos}: la franquicia del {$franquicia} no se bonifica.
+- Un supervisor puede marcar una orden "fuera del pool" (no suma a meta ni pool y no paga bonificación), con motivo.
 - A qué tienda le cuenta una venta: lo FÍSICO es de la tienda donde se hizo la orden; lo DIGITAL (WhatsApp, Instagram, página) es de la tienda del vendedor cuando vendió.
 - Trimestrales (Pereira): se suman los tres meses antes de comparar con la meta; los abonos que completan la mitad cuentan hasta el día en que se paga el trimestre; {$deuda}.
-- Anticipos de comisión: se restan al pagar; lo que no alcance se descuenta del siguiente pago. Un "abono" es una parte de una comisión ya lista que se dio antes de pagarla toda. Si se juntan meses atrasados se pagan del más viejo al más nuevo.
-- Si una orden se cancela, su comisión desaparece y deja de contar a la meta.
+- Anticipos de bonificación: se restan al pagar; lo que no alcance se descuenta del siguiente pago. Un "abono" es una parte de una bonificación ya lista que se dio antes de pagarla toda. Si se juntan meses atrasados se pagan del más viejo al más nuevo.
+- Si una orden se cancela, su bonificación desaparece y deja de contar a la meta.
 INDEPENDIENTES (Flabio, Henry): sin tienda ni meta. Venta: {$indepVenta} de lo suyo ({$ivaVenta}). Restauraciones: se juntan TODAS las del mes en un bolsón y {$bolson}. Si comparten con un almacén, el independiente cobra lo suyo igual y el almacén cobra su propio {$almacen}, partido entre su equipo; a la meta del almacén le suma el {$almacenMeta} de la venta (si es venta, no restauración).
 EOT;
 

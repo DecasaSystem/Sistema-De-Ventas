@@ -1395,7 +1395,7 @@ function solicitudEnviada() {
                 <p class="text-xs font-semibold text-amber-800">Esta orden ya salió</p>
                 <p v-if="corrigePrecios" class="text-xs text-amber-700 mt-0.5 leading-snug">
                   Como supervisor puedes corregir los precios y los descuentos: el total,
-                  el saldo y las comisiones que aún no se han pagado se ponen al día solos,
+                  el saldo y las bonificaciones que aún no se han pagado se ponen al día solos,
                   y queda en el historial. La cantidad y los productos no, porque ya
                   descontaron bodega. Para cambiar un producto entregado hay un botón
                   aparte en el detalle de la orden.
@@ -1621,15 +1621,15 @@ function solicitudEnviada() {
             </div>
 
             <!-- Reasignación (solo supervisor). También con la orden ya
-                 entregada: el error de a quién le toca la comisión se nota
+                 entregada: el error de a quién le toca la bonificación se nota
                  casi siempre al liquidar el mes. Ahí la tienda no se cambia,
                  porque de ella salió lo apartado en bodega. -->
             <div v-if="esSupervisor" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-blue-700 uppercase">Reasignar</p>
               <p class="text-[11px] text-blue-700">
                 {{ soloPapeles
-                  ? 'Rehace las comisiones de esta orden en el mes en que se vendió. Si alguna ya se pagó, no se deja cambiar.'
-                  : 'Cambiar el vendedor o la tienda afecta el cálculo de comisiones de esta orden.' }}
+                  ? 'Rehace las bonificaciones de esta orden en el mes en que se vendió. Si alguna ya se pagó, no se deja cambiar.'
+                  : 'Cambiar el vendedor o la tienda afecta el cálculo de bonificaciones de esta orden.' }}
               </p>
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Vendedor</label>
@@ -1690,7 +1690,7 @@ function solicitudEnviada() {
               <p class="text-xs font-semibold text-emerald-700 uppercase">Venta compartida con un almacén</p>
               <p class="text-[11px] text-emerald-700">
                 Si un almacén te pasó el contacto, la mitad de la venta se le abona a esa tienda para su meta.
-                Cambiar esto recalcula la comisión de la orden.
+                Cambiar esto recalcula la bonificación de la orden.
               </p>
               <select
                 v-model.number="tiendaAbonadaId"

@@ -133,7 +133,7 @@ const SECCIONES = [
   { id: 'pago',          titulo: 'Cómo se paga',                       icono: BanknotesIcon },
   { id: 'leer',          titulo: 'Cómo leer Listas y los Excel',       icono: DocumentTextIcon },
   { id: 'atrasados',     titulo: 'Si se atrasa el pago',               icono: ClockIcon },
-  { id: 'anticipos',     titulo: 'Anticipos de comisión',              icono: ReceiptPercentIcon },
+  { id: 'anticipos',     titulo: 'Anticipos de bonificación',              icono: ReceiptPercentIcon },
   { id: 'abonos',        titulo: 'Abonos: pagar una parte',            icono: BanknotesIcon },
   { id: 'fuera',         titulo: 'Órdenes fuera del pool',             icono: ExclamationTriangleIcon },
   { id: 'preguntas',     titulo: 'Preguntas frecuentes',               icono: ExclamationTriangleIcon },
@@ -172,7 +172,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
       </button>
       <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
         <QuestionMarkCircleIcon class="w-6 h-6 text-green-600" />
-        Cómo funcionan las comisiones
+        Cómo funcionan las bonificaciones
       </h2>
     </div>
 
@@ -197,7 +197,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <div class="rounded-lg border border-gray-100 p-3">
           <p class="text-xs font-semibold text-gray-800">Cómo se paga</p>
           <p class="text-[11px] text-gray-500 mt-1 leading-snug">
-            Todo junto por persona, desde <b>Comisiones → Listas</b>. Si se juntan meses, primero el más viejo.
+            Todo junto por persona, desde <b>Bonificaciones → Listas</b>. Si se juntan meses, primero el más viejo.
           </p>
         </div>
       </div>
@@ -205,13 +205,13 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
     <!-- Reglas distintas para una tienda o una persona: la ayuda explica la
          regla general, y sin esto alguien de esa tienda leería una cuenta que
-         no es la suya. Solo le llegan a quien tiene Comisiones. -->
+         no es la suya. Solo le llegan a quien tiene Bonificaciones. -->
     <div v-if="excepciones.length" class="bg-white rounded-xl shadow-sm p-4 space-y-1.5">
       <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Este mes hay reglas distintas para</p>
       <p v-for="(e, i) in excepciones" :key="i" class="text-[12px] text-gray-600">
         <b class="text-gray-800">{{ e.alcance_nombre }}</b> · {{ e.regla }}: <b class="text-gray-800">{{ e.valor_texto }}</b>
       </p>
-      <p class="nota">Lo de abajo es la regla general. Se cambian en Comisiones → Reglas.</p>
+      <p class="nota">Lo de abajo es la regla general. Se cambian en Bonificaciones → Reglas.</p>
     </div>
 
     <!-- Índice -->
@@ -248,9 +248,9 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Lo básico ─────────────────────────────────────────────── -->
         <template v-if="s.id === 'basico'">
-          <p>Palabras que salen en toda la pantalla de Comisiones:</p>
+          <p>Palabras que salen en toda la pantalla de Bonificaciones:</p>
           <dl class="space-y-2">
-            <div><dt>Meta</dt><dd>Lo que una tienda tiene que vender en el mes. Se pone en Comisiones → Metas.</dd></div>
+            <div><dt>Meta</dt><dd>Lo que una tienda tiene que vender en el mes. Se pone en Bonificaciones → Metas.</dd></div>
             <div><dt>Pool</dt><dd>La plata que gana el equipo de una tienda cuando pasa la meta: {{ r.formula_pool === 'tramos' ? 'un porcentaje por tramos' : `el ${pct('pct_pool')}` }} de lo vendido por encima de la meta<template v-if="conIva">, sin IVA</template><template v-if="Number(r.bono_meta) > 0">, más un bono de {{ bonoTexto(r) }}</template>.</dd></div>
             <div v-if="conIva"><dt>÷ {{ div }}</dt><dd>Los precios traen IVA. Antes de sacar el porcentaje de una <b>venta</b> se le quita el IVA (se divide entre {{ div }}). A una restauración {{ r.iva_en_restauracion ? 'también' : 'no' }} se le quita.</dd></div>
             <div v-if="mismoPago"><dt>El {{ pct('req_pagado_pct') }}</dt><dd>Una venta solo cuenta (para la meta y para cobrar) cuando el cliente ya pagó al menos {{ mitadCobro }} de la orden.</dd></div>
@@ -258,7 +258,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <div><dt>Mes de venta</dt><dd>El mes en que se confirmó la orden, en hora de Colombia. Una cotización es venta del mes en que el cliente la aceptó.</dd></div>
             <div><dt>Día de pago</dt><dd>{{ cuando.replace(/^el /, 'El ') }} a la venta<template v-if="r.meses_espera === 1"> (venta de julio → {{ dia }} de agosto)</template>. En tiendas trimestrales, contando desde el cierre del trimestre.</dd></div>
           </dl>
-          <p>Cada comisión pasa por tres estados:</p>
+          <p>Cada bonificación pasa por tres estados:</p>
           <div class="flex flex-wrap gap-1.5">
             <span class="chip bg-orange-100 text-orange-700">Pendiente: le falta algo</span>
             <span class="chip bg-green-100 text-green-700">Lista: se puede pagar</span>
@@ -291,7 +291,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Tienda con meta ──────────────────────────────────────────── -->
         <template v-else-if="s.id === 'meta'">
-          <p>En una tienda con meta que <b>comparte</b> la comisión, la comisión no es de cada venta sino de la <b>tienda</b>: el equipo se reparte lo que la tienda vende por encima de la meta.</p>
+          <p>En una tienda con meta que <b>comparte</b> la bonificación, la bonificación no es de cada venta sino de la <b>tienda</b>: el equipo se reparte lo que la tienda vende por encima de la meta.</p>
           <div class="formula">Pool = (ventas de la tienda − meta) {{ cuentaPool(r, { espacio: true }) }}</div>
           <p v-if="r.formula_pool === 'tramos'">Por tramos: cada tramo paga su porcentaje solo sobre lo que se vendió dentro de él. Pasar a un tramo más alto no cambia lo que ya se ganó en los de abajo.</p>
           <p v-if="Number(r.bono_meta) > 0">El mes que la tienda llega a la meta, el equipo se lleva además un <b>bono de {{ bonoTexto(r) }}</b>, que se reparte igual que el pool.</p>
@@ -314,7 +314,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>Si después un cliente paga la mitad y la tienda pasa la meta, el pool aparece. Si alguien ya había cobrado, solo sale <b>la diferencia</b>.</p>
           </div>
           <p>Si la tienda no llega a la meta ese mes, el pool es <b>$0</b> y no hay nada que repartir (en las mensuales no se arrastra deuda; en las trimestrales sí, ver <a @click.prevent="ir('trimestral')" href="#">Tiendas trimestrales</a>).</p>
-          <p class="nota">A la meta le suma el valor que comisiona cada venta: sin lo que se llevó la franquicia de la tarjeta, y solo su parte si la venta es compartida. Las restauraciones no le suman (salvo en una tienda donde se cambió esa regla). {{ laParte(r.almacen_fraccion_meta, { espacio: true }).replace(/^./, c => c.toUpperCase()) }} de lo que comparte un independiente sí (ver <a @click.prevent="ir('almacen')" href="#">Independiente que comparte</a>).</p>
+          <p class="nota">A la meta le suma el valor que bonifica cada venta: sin lo que se llevó la franquicia de la tarjeta, y solo su parte si la venta es compartida. Las restauraciones no le suman (salvo en una tienda donde se cambió esa regla). {{ laParte(r.almacen_fraccion_meta, { espacio: true }).replace(/^./, c => c.toUpperCase()) }} de lo que comparte un independiente sí (ver <a @click.prevent="ir('almacen')" href="#">Independiente que comparte</a>).</p>
           <p class="nota">Quien vende en la tienda sin estar en su equipo (ni cubriendo a nadie) cobra el {{ pct('pct_individual') }} de lo suyo por fuera del pool. Sus ventas sí empujan la meta de la tienda.</p>
         </template>
 
@@ -326,7 +326,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li>Su tienda está marcada para que <b>cada quien cobre lo suyo</b> (no comparte), aunque tenga meta.</li>
             <li>Vende en una tienda con meta sin ser de su equipo ni estar cubriendo a nadie.</li>
           </ul>
-          <div class="formula">Comisión = valor de la venta {{ cuenta('pct_individual') }}</div>
+          <div class="formula">Bonificación = valor de la venta {{ cuenta('pct_individual') }}</div>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
             <p>Venta de $10.000.000 {{ pasos(10_000_000, 'pct_individual') }} <b>{{ cop(ej.indiv10M) }}</b>.</p>
@@ -337,8 +337,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Compartida ───────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'compartida'">
-          <p v-if="ej.parteVend === 0.5">Cuando dos asesores hacen la venta juntos, la orden se parte <b>por la mitad</b>: cada uno comisiona sobre la mitad, con las reglas de su propia tienda.</p>
-          <p v-else>Cuando dos asesores hacen la venta juntos, quien la registró comisiona sobre el <b>{{ pct('compartida_parte_vendedor') }}</b> y el compañero sobre el resto, cada uno con las reglas de su propia tienda.</p>
+          <p v-if="ej.parteVend === 0.5">Cuando dos asesores hacen la venta juntos, la orden se parte <b>por la mitad</b>: cada uno bonifica sobre la mitad, con las reglas de su propia tienda.</p>
+          <p v-else>Cuando dos asesores hacen la venta juntos, quien la registró bonifica sobre el <b>{{ pct('compartida_parte_vendedor') }}</b> y el compañero sobre el resto, cada uno con las reglas de su propia tienda.</p>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
             <p v-if="ej.parteVend === 0.5">Venta compartida de $10.000.000: a cada uno le cuentan $5.000.000.</p>
@@ -348,7 +348,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>Si uno está en una tienda con pool, su parte suma a la meta de su tienda y cobra por el pool.</p>
           </div>
           <p class="nota">Lo pagado se mide contra la orden entera, no contra la parte de cada uno: el cliente tiene que haber pagado {{ mitadCobro }} de los $10.000.000.</p>
-          <p class="nota">La parte de cada uno puede ser otra en algunas tiendas o para algunas personas (Comisiones → Reglas).</p>
+          <p class="nota">La parte de cada uno puede ser otra en algunas tiendas o para algunas personas (Bonificaciones → Reglas).</p>
         </template>
 
         <!-- ── Restauraciones ───────────────────────────────────────────── -->
@@ -397,7 +397,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           </div>
           <p>Se pagan <b>el mes completo desde su tarjeta</b>, no orden por orden. Las ventas y las restauraciones esperan {{ pagadaCobro }} y el día {{ dia }}. Al bolsón solo entran las restauraciones con {{ pagadaCobro }}.</p>
           <p class="nota">Si comparte la venta con un almacén, el independiente sigue cobrando el {{ pct('indep_pct_venta') }} sobre la venta <b>entera</b>; lo del almacén va aparte (siguiente tema).</p>
-          <p class="nota">A un independiente se le puede sacar del bolsón, o darle otro porcentaje, en Comisiones → Reglas.</p>
+          <p class="nota">A un independiente se le puede sacar del bolsón, o darle otro porcentaje, en Bonificaciones → Reglas.</p>
         </template>
 
         <!-- ── Independiente + almacén ──────────────────────────────────── -->
@@ -417,7 +417,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Tarjeta ──────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'tarjeta'">
-          <p>De cada peso que se cobra con <b>{{ medios }}</b>, la franquicia se queda el <b>{{ pct('franquicia_pct') }}</b>. Esa plata nunca llega a la caja, así que nadie comisiona sobre ella.</p>
+          <p>De cada peso que se cobra con <b>{{ medios }}</b>, la franquicia se queda el <b>{{ pct('franquicia_pct') }}</b>. Esa plata nunca llega a la caja, así que nadie bonifica sobre ella.</p>
           <div class="formula">Base = valor de la orden − (pagado con {{ medios }} × {{ pct('franquicia_pct') }})</div>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo (pago mixto)</p>
@@ -425,14 +425,14 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>Franquicia: $6.000.000 × {{ pct('franquicia_pct') }} = {{ cop(ej.franquicia) }} → base {{ cop(ej.baseTarjeta) }}.</p>
             <p>Con el {{ pct('pct_individual') }} directo: {{ cop(ej.baseTarjeta) }} {{ cuenta('pct_individual') }} = <b>{{ cop(ej.tarjetaCom) }}</b> (en vez de {{ cop(ej.indiv10M) }}).</p>
           </div>
-          <p>Solo se descuenta lo que de verdad se pagó con tarjeta. Si el cliente todavía no ha pagado con tarjeta, no se descuenta nada; el día que lo haga, la comisión se ajusta sola.</p>
+          <p>Solo se descuenta lo que de verdad se pagó con tarjeta. Si el cliente todavía no ha pagado con tarjeta, no se descuenta nada; el día que lo haga, la bonificación se ajusta sola.</p>
           <p class="nota">Esto también baja lo que la venta le suma a la meta de la tienda. Y aplica igual a independientes y a tiendas.</p>
-          <p class="nota">Aparte de la comisión: pagar con tarjeta, Addi u "otro" hace perder el descuento condicionado de la orden (ese descuento solo vale en efectivo o transferencia). Eso cambia el total de la orden, y con él la comisión.</p>
+          <p class="nota">Aparte de la bonificación: pagar con tarjeta, Addi u "otro" hace perder el descuento condicionado de la orden (ese descuento solo vale en efectivo o transferencia). Eso cambia el total de la orden, y con él la bonificación.</p>
         </template>
 
         <!-- ── FV2 ──────────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'fv2'">
-          <p>Las FV2 (órdenes con descuento especial) llevan su propia numeración, pero comisionan con las mismas reglas que cualquier venta.</p>
+          <p>Las FV2 (órdenes con descuento especial) llevan su propia numeración, pero bonifican con las mismas reglas que cualquier venta.</p>
           <p>Si una FV2 está marcada <b>"sin restar IVA"</b> y quien la vendió cobra el {{ pct('pct_individual') }} directo, el porcentaje se saca del valor <b>entero</b>:</p>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
@@ -448,8 +448,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <ul>
             <li>La meta es la misma cada mes y hay que cumplir <b>los 3 meses</b>.</li>
             <li>Lo que le sobra a un mes paga lo que le falta a otro del mismo trimestre.</li>
-            <li v-if="r.arrastra_deuda_trimestre">Si el trimestre entero no llega, no comisiona y <b>la deuda pasa al trimestre siguiente</b>.</li>
-            <li v-else>Si el trimestre entero no llega, no comisiona. <b>La deuda no pasa</b>: cada trimestre arranca de cero.</li>
+            <li v-if="r.arrastra_deuda_trimestre">Si el trimestre entero no llega, no bonifica y <b>la deuda pasa al trimestre siguiente</b>.</li>
+            <li v-else>Si el trimestre entero no llega, no bonifica. <b>La deuda no pasa</b>: cada trimestre arranca de cero.</li>
             <li>Se cobra {{ cuando }} al cierre<template v-if="r.meses_espera === 1">: lo de jul–sep, el {{ dia }} de octubre</template>. Solo cuentan las ventas hechas dentro del trimestre; las de octubre son del trimestre nuevo.</li>
             <li>Si el trimestre <b>llegó a la meta</b>, hasta el día en que se paga siguen contando los abonos que completen {{ mitadMeta }} de una venta del trimestre, igual que en las tiendas mensuales. En cuanto se le paga a alguien, queda fijo.</li>
             <li>Si <b>no llegó a la meta</b>, el día de pago queda fijo<template v-if="r.arrastra_deuda_trimestre">: esa deuda pasa tal cual al trimestre siguiente</template>.</li>
@@ -458,16 +458,16 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo (meta $40 millones)</p>
             <p>Julio $60 M (sobran 20), agosto $20 M (faltan 20, los paga julio), septiembre $50 M (sobran 10).</p>
-            <p>Comisiona lo que sobra al final: $10.000.000 {{ cuenta('pct_pool') }} = <b>{{ cop(ej.tri10M) }}</b>.</p>
+            <p>Bonifica lo que sobra al final: $10.000.000 {{ cuenta('pct_pool') }} = <b>{{ cop(ej.tri10M) }}</b>.</p>
           </div>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo con deuda</p>
             <template v-if="r.arrastra_deuda_trimestre">
-              <p>Jul–sep: $105 M contra $120 M → faltan $15 M → no comisiona; pasan $15 M de deuda.</p>
+              <p>Jul–sep: $105 M contra $120 M → faltan $15 M → no bonifica; pasan $15 M de deuda.</p>
               <p>Oct–dic: $140 M contra $120 M → sobran $20 M − $15 M de deuda = $5 M → <b>{{ cop(ej.triDeuda) }}</b>.</p>
             </template>
             <template v-else>
-              <p>Jul–sep: $105 M contra $120 M → faltan $15 M → no comisiona. La deuda no pasa.</p>
+              <p>Jul–sep: $105 M contra $120 M → faltan $15 M → no bonifica. La deuda no pasa.</p>
               <p>Oct–dic: $140 M contra $120 M → sobran $20 M → <b>{{ cop(ej.triSinDeuda) }}</b>.</p>
             </template>
           </div>
@@ -476,7 +476,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Equipo ───────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'equipo'">
-          <p>Entre quiénes se reparte lo de una tienda lo dice el <b>equipo</b> de cada tienda, en Comisiones → Metas. Se arrastra de mes a mes hasta que alguien lo cambie. Tener la tienda como sede en el perfil no mete a nadie en el reparto.</p>
+          <p>Entre quiénes se reparte lo de una tienda lo dice el <b>equipo</b> de cada tienda, en Bonificaciones → Metas. Se arrastra de mes a mes hasta que alguien lo cambie. Tener la tienda como sede en el perfil no mete a nadie en el reparto.</p>
           <template v-if="porVentas">
             <p><b>Reemplazos:</b> cuando alguien se va unos días (vacaciones, incapacidad) y otro lo cubre, el que llega <b>no entra al pool</b>: cobra el {{ pct('pct_reemplazo') }} de lo que vendió en esa tienda esos días{{ conIva ? `, sin IVA (÷ ${div})` : '' }}, con el mismo pago del cliente y el mismo día de pago. Esas ventas no suman a la meta ni al pool de la tienda, para no pagarlas dos veces.</p>
             <p>El cubierto pierde esos días y su parte se reparte entre los que sí estaban.</p>
@@ -507,7 +507,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Cuándo ───────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'cuando'">
-          <p>Una comisión pasa a <b>Lista</b> cuando se cumple todo lo de su caso:</p>
+          <p>Una bonificación pasa a <b>Lista</b> cuando se cumple todo lo de su caso:</p>
           <div class="space-y-2">
             <div v-for="c in [
                 { caso: 'Venta en tienda con meta (pool)', req: [`El cliente pagó ${mitadCobro}`, `Llegó el ${dia}`, 'La tienda llegó a la meta'] },
@@ -529,10 +529,10 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <!-- ── Pago ─────────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'pago'">
           <ul>
-            <li>El <b>{{ dia }}</b> llega un aviso a los supervisores con acceso a comisiones: cuántas personas, el total, lo que se descuenta de anticipos y lo que hay que entregar.</li>
-            <li>En <b>Comisiones → Listas</b> sale una tarjeta por persona con todo lo que tiene listo. Se paga <b>todo junto por persona</b>, no orden por orden.</li>
-            <li>Al pagar, el sistema le descuenta los anticipos que deba y muestra un <b>recibo</b>: comisión, anticipo y lo que se entrega.</li>
-            <li>Un pago marcado por error se puede <b>deshacer</b> desde la comisión pagada (pide motivo). Lo descontado de anticipos vuelve a deberse.</li>
+            <li>El <b>{{ dia }}</b> llega un aviso a los supervisores con acceso a bonificaciones: cuántas personas, el total, lo que se descuenta de anticipos y lo que hay que entregar.</li>
+            <li>En <b>Bonificaciones → Listas</b> sale una tarjeta por persona con todo lo que tiene listo. Se paga <b>todo junto por persona</b>, no orden por orden.</li>
+            <li>Al pagar, el sistema le descuenta los anticipos que deba y muestra un <b>recibo</b>: bonificación, anticipo y lo que se entrega.</li>
+            <li>Un pago marcado por error se puede <b>deshacer</b> desde la bonificación pagada (pide motivo). Lo descontado de anticipos vuelve a deberse.</li>
             <li>Todo queda en el <b>historial</b>: quién pagó, quién deshizo, quién cambió metas, equipos o reemplazos.</li>
           </ul>
           <p class="nota"><b>Recalcular</b> pone al día los montos guardados (tarda unos minutos; el botón dice en qué va). El sistema lo hace solo cada mañana a las 6:30, y si un recálculo se corta a mitad (por ejemplo, porque el servidor se reinició) lo vuelve a correr solo.</p>
@@ -547,11 +547,11 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li>En una tienda trimestral, cada mes del trimestre con lo que pasó o le faltó a la meta, y por qué un mes cobra aunque solo no haya llegado.</li>
             <li>Por qué cobra individual (la tienda no reparte, no tiene meta o no era de su equipo), restauraciones, lo sacado del pool y su motivo.</li>
             <li>Cada orden que todavía no entra y cuánto le falta para {{ mitadCobro }}, o si ya pagó pero la tienda no llegó a la meta.</li>
-            <li>Lo que vendió en una tienda donde no hubo comisión, con el porqué; abajo, todas las <b>tiendas sin comisión</b> en ese pago.</li>
+            <li>Lo que vendió en una tienda donde no hubo bonificación, con el porqué; abajo, todas las <b>tiendas sin bonificación</b> en ese pago.</li>
           </ul>
           <p>El botón <b>Excel</b> deja escoger:</p>
           <ul>
-            <li><b>Lo que se va a pagar</b>: lo mismo de Listas, con una hoja de <b>Comprobantes</b> (una persona por página, para imprimir, entregar y firmar, con cada anticipo y abono que se le descuenta), <b>Por cobrar</b> (lo que falta cobrar a los clientes para que esas ventas entren) y <b>Sin comisión</b>.</li>
+            <li><b>Lo que se va a pagar</b>: lo mismo de Listas, con una hoja de <b>Comprobantes</b> (una persona por página, para imprimir, entregar y firmar, con cada anticipo y abono que se le descuenta), <b>Por cobrar</b> (lo que falta cobrar a los clientes para que esas ventas entren) y <b>Sin bonificación</b>.</li>
             <li><b>Un mes completo</b>: cualquier mes, entero, con cada orden y su cuenta.</li>
             <li><b>Una tienda, para los vendedores</b>: una tienda en un mes, para mandárselo al equipo. Una hoja por persona con lo que se le paga, si ya está listo, si ya se pagó o si no se paga, y por qué: sus días, quién la cubrió, las órdenes sin {{ mitadCobro }}, la tarjeta y la cuenta del pool.</li>
             <li><b>Cómo va el mes</b>: el mes en curso, <b>estimado</b> (en ámbar): cuánto le falta a cada tienda y qué hay por cobrar.</li>
@@ -578,47 +578,47 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
 
         <!-- ── Anticipos ────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'anticipos'">
-          <p>Algunos vendedores se llevan cada mes una parte de la comisión por adelantado. Se configura por persona en Comisiones → Metas → Anticipos: cuánto cada mes y desde qué mes.</p>
+          <p>Algunos vendedores se llevan cada mes una parte de la bonificación por adelantado. Se configura por persona en Bonificaciones → Metas → Anticipos: cuánto cada mes y desde qué mes.</p>
           <ul>
-            <li>Al pagar la comisión se resta lo que debe de anticipos <b>hasta el mes de esa comisión</b>. El anticipo de octubre es de la comisión de octubre, no de la de septiembre.</li>
-            <li>Si la comisión no alcanza (o no comisionó), se descuenta lo que haya y el resto lo sigue debiendo para el pago siguiente.</li>
+            <li>Al pagar la bonificación se resta lo que debe de anticipos <b>hasta el mes de esa bonificación</b>. El anticipo de octubre es de la bonificación de octubre, no de la de septiembre.</li>
+            <li>Si la bonificación no alcanza (o no hubo bonificación), se descuenta lo que haya y el resto lo sigue debiendo para el pago siguiente.</li>
             <li>Si un mes se llevó otra cantidad, se corrige ese mes. Cambiar el monto vale desde el mes que se escoja en adelante.</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo trimestral</p>
             <p>$200.000 de anticipo al mes. Al pagar jul–sep se descuentan los tres: <b>$600.000</b>.</p>
           </div>
-          <p class="nota">La comisión queda registrada completa; el descuento va aparte, para poder ver las dos cosas.</p>
+          <p class="nota">La bonificación queda registrada completa; el descuento va aparte, para poder ver las dos cosas.</p>
         </template>
 
         <!-- ── Abonos ───────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'abonos'">
           <p>A veces, cuando ya pasó el día de pago, a alguien se le da <b>una parte</b> de lo que tiene listo y el resto después. No es todos los meses: se anota el día que se da.</p>
           <ul>
-            <li>En <b>Comisiones → Listas</b>, en la tarjeta de la persona, pulsa <b>Registrar abono</b> (solo supervisores).</li>
+            <li>En <b>Bonificaciones → Listas</b>, en la tarjeta de la persona, pulsa <b>Registrar abono</b> (solo supervisores).</li>
             <li>Escoge de qué mes es (si tiene varios), escribe cuánto se le dio y, si quieres, una nota.</li>
-            <li>Listas sigue mostrando la comisión completa y, aparte, "abono ya dado". El botón de pagar dice <b>lo que falta por entregar</b>.</li>
-            <li>Cuando se le paga el resto, el recibo muestra la comisión completa menos anticipos y abonos.</li>
+            <li>Listas sigue mostrando la bonificación completa y, aparte, "abono ya dado". El botón de pagar dice <b>lo que falta por entregar</b>.</li>
+            <li>Cuando se le paga el resto, el recibo muestra la bonificación completa menos anticipos y abonos.</li>
             <li>No puede ser más de lo que falta por entregarle de ese mes.</li>
-            <li>Si se anotó por error, se quita en <b>Metas → Anticipos de comisión</b> (botón Quitar), mientras ese mes no se haya pagado.</li>
+            <li>Si se anotó por error, se quita en <b>Metas → Anticipos de bonificación</b> (botón Quitar), mientras ese mes no se haya pagado.</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
-            <p>Agosto: comisión de {{ cop(ej.indiv10M) }} y anticipo de $200.000 → faltan {{ cop(ej.anticipoFalta) }}. Se le dan $100.000 de abono → en Listas quedan <b>{{ cop(ej.anticipoFalta - 100_000) }}</b> por entregar. Al pagar: {{ cop(ej.indiv10M) }} − $200.000 − $100.000 = {{ cop(ej.anticipoFalta - 100_000) }}.</p>
+            <p>Agosto: bonificación de {{ cop(ej.indiv10M) }} y anticipo de $200.000 → faltan {{ cop(ej.anticipoFalta) }}. Se le dan $100.000 de abono → en Listas quedan <b>{{ cop(ej.anticipoFalta - 100_000) }}</b> por entregar. Al pagar: {{ cop(ej.indiv10M) }} − $200.000 − $100.000 = {{ cop(ej.anticipoFalta - 100_000) }}.</p>
           </div>
-          <p class="nota">El abono no cambia cuánto gana nadie: la comisión del mes, el pool de la tienda y la parte de cada compañero se calculan igual. Solo cambia lo que se entrega el día del pago. En Finanzas cuenta como plata que salió el día en que se dio.</p>
+          <p class="nota">El abono no cambia cuánto gana nadie: la bonificación del mes, el pool de la tienda y la parte de cada compañero se calculan igual. Solo cambia lo que se entrega el día del pago. En Finanzas cuenta como plata que salió el día en que se dio.</p>
         </template>
 
         <!-- ── Fuera del pool ───────────────────────────────────────────── -->
         <template v-else-if="s.id === 'fuera'">
           <p>A veces una venta hecha en la tienda no debe armar el pool del equipo: por ejemplo, la vendió alguien de fuera del equipo y ya se le pagó aparte, o es una FV2 de la gerencia.</p>
           <ul>
-            <li>En el <b>detalle de la orden</b>, en el recuadro <b>Comisión</b>, un supervisor con acceso a comisiones pulsa <b>No sumar al pool</b> y escribe el motivo.</li>
-            <li>Esa orden <b>no cuenta para la meta</b>, <b>no entra al pool</b> y <b>no paga comisión</b> a nadie (ni a quien la vendió, ni al reparto del equipo).</li>
+            <li>En el <b>detalle de la orden</b>, en el recuadro <b>Bonificación</b>, un supervisor con acceso a bonificaciones pulsa <b>No sumar al pool</b> y escribe el motivo.</li>
+            <li>Esa orden <b>no cuenta para la meta</b>, <b>no entra al pool</b> y <b>no paga bonificación</b> a nadie (ni a quien la vendió, ni al reparto del equipo).</li>
             <li>Sigue siendo una venta para todo lo demás: reportes, caja, cartera, inventario y entrega.</li>
             <li>Como el pool es de toda la tienda, cambia lo de todos los del mes: el sistema recalcula solo en unos minutos.</li>
-            <li>Se puede deshacer con <b>Volver a sumarla al pool</b>. Si alguna comisión de esa orden ya se pagó, no se puede cambiar: primero se deshace ese pago.</li>
-            <li>Queda en el historial de Comisiones quién lo hizo y por qué.</li>
+            <li>Se puede deshacer con <b>Volver a sumarla al pool</b>. Si alguna bonificación de esa orden ya se pagó, no se puede cambiar: primero se deshace ese pago.</li>
+            <li>Queda en el historial de Bonificaciones quién lo hizo y por qué.</li>
           </ul>
           <p class="nota">Es por orden, no una regla de la tienda: las demás ventas y las demás tiendas se calculan igual que siempre.</p>
         </template>
@@ -632,14 +632,14 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             </div>
             <div>
               <dt>¿Por qué mi compañero cobra lo mismo si vendió menos?</dt>
-              <dd>En una tienda que comparte, la comisión es del equipo: se reparte igual {{ porDias ? 'por los días trabajados' : 'entre todos' }}. Si tu tienda prefiere que cada uno cobre lo suyo, se cambia en Metas (no comparte).</dd>
+              <dd>En una tienda que comparte, la bonificación es del equipo: se reparte igual {{ porDias ? 'por los días trabajados' : 'entre todos' }}. Si tu tienda prefiere que cada uno cobre lo suyo, se cambia en Metas (no comparte).</dd>
             </div>
             <div>
-              <dt>Ya pasó el {{ dia }} y mi comisión sigue pendiente.</dt>
-              <dd>Le falta otra condición: que el cliente pague {{ mitadCobro }} o que la tienda llegue a la meta. El detalle de la comisión dice cuál.</dd>
+              <dt>Ya pasó el {{ dia }} y mi bonificación sigue pendiente.</dt>
+              <dd>Le falta otra condición: que el cliente pague {{ mitadCobro }} o que la tienda llegue a la meta. El detalle de la bonificación dice cuál.</dd>
             </div>
             <div>
-              <dt>El cliente pagó {{ mitadCobro }} después del {{ dia }}. ¿Pierdo la comisión?</dt>
+              <dt>El cliente pagó {{ mitadCobro }} después del {{ dia }}. ¿Pierdo la bonificación?</dt>
               <dd>No. Queda lista apenas pague y se cobra en el siguiente pago. En las tiendas trimestrales, el trimestre queda fijo el día que se liquida.</dd>
             </div>
             <div>

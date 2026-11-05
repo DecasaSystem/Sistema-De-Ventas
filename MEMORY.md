@@ -21,6 +21,14 @@ del trabajo. Reglas para mantenerlo en [`AGENT.md` §8](AGENT.md#8-cómo-mantene
 - **Preguntar antes de cambiar una regla de plata.** Confirmar con datos reales
   (BD de producción en Aiven, **solo lectura**) cuando se pueda.
 - Todo en español, con comentarios que explican el porqué con casos reales.
+- **En pantalla se dice "Bonificaciones", no "Comisiones"** (dueño, 2026-11-05: "todo, incluso
+  los nombres de los Excel"). Solo cambió lo que ve la gente: menú, pantallas, Ayuda, Excel
+  (y sus archivos `bonificaciones_*.xlsx`), avisos, mensajes de error y el asistente. El código,
+  la ruta `/comisiones`, la API, los permisos (`acceso_comisiones`) y las tablas siguen
+  llamándose "comisiones" (cambiarlos rompería enlaces, avisos ya mandados y a los agentes).
+  Un texto nuevo del módulo se escribe con "bonificación". Ojo: Nómina ya tenía sus propias
+  "bonificaciones" (por producción del taller); son otra cosa. En este archivo y en los docs
+  técnicos se sigue diciendo "comisiones".
 
 ## 2. Reglas de negocio confirmadas (no "arreglarlas")
 

@@ -233,7 +233,7 @@ const simulado = computed(() => {
       </div>
       <p class="text-[10px] text-gray-400 mt-2">
         Cada persona nueva cuesta su sueldo × {{ FACTOR_EMPLEADOR.toLocaleString('es-CO') }}: lo que de verdad cuesta cada peso de sueldo en la nómina de los últimos meses, con aportes y prestaciones.
-        Proporciones de los últimos {{ prop.meses }} mes(es): materiales {{ pct(prop.costo) }}, comisiones {{ pct(prop.comisiones) }} de lo vendido.
+        Proporciones de los últimos {{ prop.meses }} mes(es): materiales {{ pct(prop.costo) }}, bonificaciones {{ pct(prop.comisiones) }} de lo vendido.
       </p>
     </div>
   </div>

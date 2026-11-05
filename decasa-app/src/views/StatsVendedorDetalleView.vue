@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Su tienda en el período: todo lo vendido, de qué es, y debajo (en la
-           meta) lo que de eso cuenta para comisiones. Sin esto solo se veía
+           meta) lo que de eso cuenta para bonificaciones. Sin esto solo se veía
            "lo que cuenta para la meta" y parecía que la tienda vendía menos. -->
       <div v-if="stats.tienda_periodo" class="bg-white rounded-xl shadow-sm p-4">
         <div class="flex items-start justify-between gap-3">
@@ -352,19 +352,19 @@ onBeforeUnmount(() => {
           <span>Meta: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.meta) }}</span></span>
         </div>
         <!-- Sigue siendo venta, pero no le suma a la meta hasta que el
-             cliente pague la mitad (igual que en Comisiones y Reportes). -->
+             cliente pague la mitad (igual que en Bonificaciones y Reportes). -->
         <p v-if="stats.meta_mes.sin_mitad > 0" class="mt-1.5 text-xs text-amber-700">
           + {{ cop(stats.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
         </p>
         <p class="mt-1.5 text-[11px] text-gray-400 leading-snug">
-          Es lo del mes calendario que cuenta en Comisiones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
-          más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+          Es lo del mes calendario que cuenta en Bonificaciones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
+          más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la bonificación del datáfono.
         </p>
         <p v-if="stats.meta_mes.cumplida" class="mt-2 text-xs font-semibold text-green-600">
-          ✓ ¡Meta alcanzada! La comisión del mes está activa.
+          ✓ ¡Meta alcanzada! La bonificación del mes está activa.
         </p>
         <p v-else class="mt-2 text-xs text-gray-400">
-          Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar comisiones
+          Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar bonificaciones
         </p>
       </div>
 

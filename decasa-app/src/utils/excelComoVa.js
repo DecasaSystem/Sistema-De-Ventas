@@ -37,7 +37,7 @@ function diasDelMes(mes, hoy) {
 
 /** Banda ámbar que dice ESTIMADO: va arriba de cada hoja. */
 function avisoEstimado(ws, ctx) {
-  const r = ws.addRow([`ESTIMADO — cifras al ${ctx.generadoEl}. Si el mes cerrara hoy; todavía puede cambiar. Lo que se paga sale en Comisiones → Listas.`])
+  const r = ws.addRow([`ESTIMADO — cifras al ${ctx.generadoEl}. Si el mes cerrara hoy; todavía puede cambiar. Lo que se paga sale en Bonificaciones → Listas.`])
   r.font = { bold: true, color: { argb: 'FF92400E' } }
   r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AMBAR } }
   ws.addRow([])
@@ -166,9 +166,9 @@ function hojaResumen(wb, ctx, tiendas, porCobrar, personas) {
     ['Tiendas que ya llegaron a la meta', `${conMeta.filter(t => t.llego === 'Sí').length} de ${conMeta.length}`],
     ['Órdenes que todavía no cuentan', porCobrar.length, 'entero'],
     ['   Lo que falta cobrar para que cuenten', porCobrar.reduce((s, o) => s + o.falta, 0), 'pesos'],
-    ['Comisión estimada si cerrara hoy (tiendas)', personas.reduce((s, p) => s + p.estimado, 0), 'pesos'],
+    ['Bonificación estimada si cerrara hoy (tiendas)', personas.reduce((s, p) => s + p.estimado, 0), 'pesos'],
     ...(ctx.indep?.independientes?.length
-      ? [['Comisión estimada de los independientes', ctx.indep.independientes.reduce((s, i) => s + n(i.comision), 0), 'pesos']]
+      ? [['Bonificación estimada de los independientes', ctx.indep.independientes.reduce((s, i) => s + n(i.comision), 0), 'pesos']]
       : []),
     ['Se paga', cuandoSePaga(r)],
   ])
@@ -177,7 +177,7 @@ function hojaResumen(wb, ctx, tiendas, porCobrar, personas) {
   fichas(ws, [
     ['Tiendas', 'Cada tienda contra su meta: cuánto lleva, cuánto le falta, cuánto hay que vender por día y el pool si cerrara hoy.'],
     ['Por cobrar', 'Las órdenes que todavía no cuentan porque el cliente no ha pagado lo necesario, con cuánto le falta a cada una.'],
-    ['Personas', 'Lo que lleva cada persona y la comisión que le daría si el mes cerrara hoy.'],
+    ['Personas', 'Lo que lleva cada persona y la bonificación que le daría si el mes cerrara hoy.'],
     ['Cómo leerlo', 'Qué quiere decir cada columna y las reglas del mes.'],
   ])
   return ws
@@ -218,7 +218,7 @@ function hojaPorCobrar(wb, ctx, porCobrar) {
   const ws = wb.addWorksheet('Por cobrar')
   const r = R()
   titulo(ws, `Por cobrar — ${mesEnPalabras(ctx.mes)}`,
-    `Ventas del mes que todavía no cuentan: el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando lo pague, suman a la meta y su comisión se puede pagar. Ordenadas por tienda y, adentro, de la que menos le falta a la que más.`)
+    `Ventas del mes que todavía no cuentan: el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando lo pague, suman a la meta y su bonificación se puede pagar. Ordenadas por tienda y, adentro, de la que menos le falta a la que más.`)
   avisoEstimado(ws, ctx)
 
   if (!porCobrar.length) {
@@ -257,7 +257,7 @@ function hojaPersonas(wb, ctx, personas) {
     { titulo: 'Vendió', campo: 'vendido', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Ya cuenta', campo: 'cuenta', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Órdenes que no cuentan', campo: 'no_cuenta', fmt: 'entero', ancho: 11, total: 'suma' },
-    { titulo: 'Comisión si cerrara hoy (ESTIMADO)', campo: 'estimado', fmt: 'pesos', ancho: 18, total: 'suma', color: () => AMBAR },
+    { titulo: 'Bonificación si cerrara hoy (ESTIMADO)', campo: 'estimado', fmt: 'pesos', ancho: 18, total: 'suma', color: () => AMBAR },
     { titulo: 'De eso, ya pagado', campo: 'ya_pagado', fmt: 'pesos', ancho: 14, total: 'suma' },
   ], personas, { totales: true })
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: header.number }]
@@ -268,7 +268,7 @@ function hojaPersonas(wb, ctx, personas) {
     tabla(ws, [
       { titulo: 'Persona', campo: 'nombre', ancho: 24 },
       { titulo: 'Vendió', campo: i => n(i.vendio ?? i.base ?? i.total_ventas), fmt: 'pesos', ancho: 16, total: 'suma' },
-      { titulo: 'Comisión si cerrara hoy (ESTIMADO)', campo: i => n(i.comision), fmt: 'pesos', ancho: 18, total: 'suma', color: () => AMBAR },
+      { titulo: 'Bonificación si cerrara hoy (ESTIMADO)', campo: i => n(i.comision), fmt: 'pesos', ancho: 18, total: 'suma', color: () => AMBAR },
     ], indep, { totales: true, filtro: false })
   }
   return ws
@@ -281,16 +281,16 @@ function hojaComoLeerlo(wb, ctx) {
   const r = R()
   titulo(ws, 'Cómo leerlo', `Las reglas que rigen en ${mesEnPalabras(ctx.mes)}.`)
   fichas(ws, [
-    ['ESTIMADO', 'Lo que daría si el mes cerrara hoy. Cambia con cada venta y cada abono. Lo que de verdad se paga sale en Comisiones → Listas, el día de pago.'],
+    ['ESTIMADO', 'Lo que daría si el mes cerrara hoy. Cambia con cada venta y cada abono. Lo que de verdad se paga sale en Bonificaciones → Listas, el día de pago.'],
     ['Vendido', `Todo lo que se vendió en el mes, haya pagado o no el cliente. No cuenta lo cancelado. Las restauraciones ${restauracionYMeta(r)}.`],
     ['Ya cuenta para la meta', `Lo vendido cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}. Es lo único que mide la meta y arma el pool.`],
     ['Falta para la meta', 'Meta menos lo que ya cuenta.'],
     ['Hay que sumar por día', 'Lo que falta para la meta repartido en los días que quedan (contando hoy).'],
     ['Pool', `Lo que pasa de la meta ${cuentaPool(r)}. Se parte entre el equipo ${r.reparto_pool === 'iguales' ? 'en partes iguales' : 'por los días que trabajó cada uno'}.`],
-    ['Falta cobrar', `Lo que tiene que abonar el cliente para llegar a ${laParte(r.req_pagado_pct)} de su orden. Con eso la venta cuenta y su comisión se puede pagar.`],
+    ['Falta cobrar', `Lo que tiene que abonar el cliente para llegar a ${laParte(r.req_pagado_pct)} de su orden. Con eso la venta cuenta y su bonificación se puede pagar.`],
     ['Las 3 condiciones para cobrar', `El cliente pagó ${laParte(r.req_pagado_pct)}, llegó el día de pago (${cuandoSePaga(r)}) y la tienda llegó a la meta.`],
     ['Tiendas trimestrales', 'La meta se suma en los tres meses del trimestre y el pool se paga al cerrarlo; la columna "Trimestre" dice cómo va.'],
-    ['Comisión individual', `En una tienda que no reparte, cada uno cobra el ${num(r.pct_individual)}% de lo suyo.`],
+    ['Bonificación individual', `En una tienda que no reparte, cada uno cobra el ${num(r.pct_individual)}% de lo suyo.`],
   ])
   return ws
 }
@@ -347,7 +347,7 @@ export async function exportarComoVaExcel(datos) {
   const ahora = datos.ahora ?? new Date()
   const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`
   a.href = url
-  a.download = `comisiones_como_va_${hoy}.xlsx`
+  a.download = `bonificaciones_como_va_${hoy}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

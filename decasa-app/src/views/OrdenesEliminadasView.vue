@@ -69,7 +69,7 @@ function nombreItem(i) {
     </div>
 
     <p class="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
-      Lo que se borró sigue aquí como estaba: productos, pagos y comisiones, con quién la eliminó y por qué.
+      Lo que se borró sigue aquí como estaba: productos, pagos y bonificaciones, con quién la eliminó y por qué.
     </p>
 
     <div class="relative">
@@ -141,7 +141,7 @@ function nombreItem(i) {
         </div>
 
         <div v-if="e.datos?.comisiones?.length">
-          <p class="text-[10px] font-semibold text-gray-500 uppercase mb-1">Comisiones que tenía</p>
+          <p class="text-[10px] font-semibold text-gray-500 uppercase mb-1">Bonificaciones que tenía</p>
           <div v-for="c in e.datos.comisiones" :key="c.id" class="flex justify-between gap-2 py-0.5">
             <span class="text-gray-700">{{ c.mes_venta }} · {{ c.estado }}</span>
             <span class="text-gray-600 tabular-nums">sobre {{ cop(c.valor_orden) }}</span>

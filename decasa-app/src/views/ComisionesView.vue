@@ -90,7 +90,7 @@ async function cargar() {
     vendedores.value = vRes.data
     await cargarMetas()
   } catch {
-    toast.error('Error cargando comisiones')
+    toast.error('Error cargando bonificaciones')
   } finally {
     cargando.value = false
   }
@@ -336,13 +336,13 @@ function esperarRecalculo() {
 onBeforeUnmount(() => clearTimeout(esperaRecalculo))
 
 async function pagar(id) {
-  if (!confirm('¿Marcar esta comisión como pagada?')) return
+  if (!confirm('¿Marcar esta bonificación como pagada?')) return
   pagando.value = id
   try {
     const { data } = await api.post(`/comisiones/${id}/pagar`)
     toast.success(data?.anticipos_descontados > 0
-      ? `Comisión pagada. Se descontaron ${cop(data.anticipos_descontados)} de anticipos; a entregar ${cop(data.neto)}`
-      : 'Comisión marcada como pagada', 6000)
+      ? `Bonificación pagada. Se descontaron ${cop(data.anticipos_descontados)} de anticipos; a entregar ${cop(data.neto)}`
+      : 'Bonificación marcada como pagada', 6000)
     cargarListas()
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
@@ -392,7 +392,7 @@ async function cargarListas() {
     reglasListas.value = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m).catch(() => null)])))
     listasData.value = data
   } catch {
-    toast.error('Error cargando las comisiones listas')
+    toast.error('Error cargando las bonificaciones listas')
   } finally {
     cargandoListas.value = false
   }
@@ -472,7 +472,7 @@ function textoPendientes(p, b) {
   if (sinPago) out.push(`${plural(sinPago, 'todavía pendiente', 'todavía pendientes')} (el cliente no ha pagado ${laParte(r.req_pagado_pct)})`)
   if (conPago) {
     out.push(b.cuenta?.meta_cumplida === false && b.periodicidad !== 'trimestral'
-      ? `${plural(conPago, 'no comisiona', 'no comisionan')} (ya pagaron, pero la tienda no llegó a la meta)`
+      ? `${plural(conPago, 'no bonifica', 'no bonifican')} (ya pagaron, pero la tienda no llegó a la meta)`
       : `${plural(conPago, 'espera', 'esperan')} ${b.periodicidad === 'trimestral' ? 'el cierre del trimestre' : 'a que la tienda llegue a la meta'}`)
   }
   return out
@@ -481,7 +481,7 @@ function textoPendientes(p, b) {
 /** Por qué no le dio nada lo que vendió en una tienda sin comisión (la misma cuenta de abajo). */
 function motivoSinPago(v) {
   const t = tiendasSinPago.value.find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
-  return t ? ['Ahí no hubo comisión en este pago:', ...t.lineas] : []
+  return t ? ['Ahí no hubo bonificación en este pago:', ...t.lineas] : []
 }
 
 const tiendasSinPago = computed(() => (listasData.value.tiendas_sin_pago ?? [])
@@ -644,12 +644,12 @@ function textoPago(r, total) {
   const d = Math.min(Number(r?.anticipos?.debe) || 0, total)
   if (d <= 0) return `Total: ${cop(total)}`
   const sigue = (Number(r.anticipos.debe) || 0) - d
-  return `Comisión: ${cop(total)}\nMenos anticipos que se llevó: −${cop(d)}\nA entregar: ${cop(total - d)}`
+  return `Bonificación: ${cop(total)}\nMenos anticipos que se llevó: −${cop(d)}\nA entregar: ${cop(total - d)}`
     + (sigue > 0 ? `\n(Sigue debiendo ${cop(sigue)} de anticipos)` : '')
 }
 
 function toastPago(nombre, data) {
-  const base = `${nombre}: ${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} pagada${data.pagadas !== 1 ? 's' : ''}`
+  const base = `${nombre}: ${data.pagadas} ${data.pagadas !== 1 ? 'bonificaciones' : 'bonificación'} pagada${data.pagadas !== 1 ? 's' : ''}`
   toast.success(data.anticipos_descontados > 0
     ? `${base}. Anticipos descontados ${cop(data.anticipos_descontados)}; a entregar ${cop(data.neto)}`
     : base, 6000)
@@ -673,7 +673,7 @@ const FORMAS_PAGO = {
   },
   fuera_del_pool: {
     etiqueta: 'Fuera del pool',
-    resumen:  () => 'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga comisión.',
+    resumen:  () => 'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga bonificación.',
     clase:    'bg-amber-100 text-amber-700',
   },
   sin_meta_5: {
@@ -770,7 +770,7 @@ function dependeDeLaMeta(c) {
 
 async function pagarTodasListas(r) {
   const total = totalListasVendedor(r)
-  if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\n${textoPago(r, total)}`)) return
+  if (!confirm(`¿Marcar ${r.listas} ${r.listas > 1 ? 'bonificaciones' : 'bonificación'} de ${r.vendedor_nombre} como pagadas?\n${textoPago(r, total)}`)) return
   pagandoListas.value = claveFila(r)
   try {
     // Con la tienda: si estuvo en dos, se paga la tarjeta que se pulsó.
@@ -938,10 +938,10 @@ const ACCIONES_BITACORA = {
   meta: 'Cambió la meta', compartidas: 'Cambió si se comparte', periodicidad: 'Cambió la periodicidad',
   equipo_entra: 'Entró al equipo', equipo_sale: 'Salió del equipo',
   movimiento_nuevo: 'Registró reemplazo/traslado', movimiento_editado: 'Corrigió reemplazo/traslado',
-  movimiento_quitado: 'Quitó reemplazo/traslado', pago: 'Pagó una comisión', pago_mes: 'Pagó el mes de alguien',
+  movimiento_quitado: 'Quitó reemplazo/traslado', pago: 'Pagó una bonificación', pago_mes: 'Pagó el mes de alguien',
   deshacer_pago: 'Deshizo un pago', recalcular: 'Recalculó',
-  anticipo_config: 'Cambió el anticipo de comisión', anticipo_mes: 'Corrigió el anticipo de un mes',
-  abono: 'Registró un abono de comisión', abono_quitado: 'Quitó un abono de comisión',
+  anticipo_config: 'Cambió el anticipo de bonificación', anticipo_mes: 'Corrigió el anticipo de un mes',
+  abono: 'Registró un abono de bonificación', abono_quitado: 'Quitó un abono de bonificación',
   fuera_del_pool: 'Sacó una orden del pool', vuelve_al_pool: 'Devolvió una orden al pool',
   trimestre_liquidado: 'Se liquidó el trimestre',
 }
@@ -981,7 +981,7 @@ async function cambiarCompartidas(meta, comparte) {
     await api.patch(`/comisiones/tiendas/${meta.tienda_id}/compartidas`, { comparte })
     meta.comisiones_compartidas = comparte
     toast.success(comparte
-      ? `${meta.nombre}: la comisión ahora se reparte entre el equipo`
+      ? `${meta.nombre}: la bonificación ahora se reparte entre el equipo`
       : `${meta.nombre}: cada uno cobra el ${num(reglasDe(meta).pct_individual)}% de lo suyo`)
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
@@ -1231,7 +1231,7 @@ async function exportarExcelDelMes(mes, vendedorId) {
 
   const hayAlgo = (cRes.data ?? []).some(c => !filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
   if (!hayAlgo && !(iRes.data?.independientes?.length)) {
-    toast.error(`No hay comisiones en ${nombreMes(mes)}${filtros.vendedorNombre ? ' de ' + filtros.vendedorNombre : ''}.`)
+    toast.error(`No hay bonificaciones en ${nombreMes(mes)}${filtros.vendedorNombre ? ' de ' + filtros.vendedorNombre : ''}.`)
     return false
   }
 
@@ -1271,7 +1271,7 @@ async function exportarExcelTienda() {
     cargarReglasVigentes(excelMesTienda.value),
   ])
   if (!data.personas?.length) {
-    toast.error(`${data.tienda_nombre} no tiene comisiones en ${nombreMes(excelMesTienda.value)}.`)
+    toast.error(`${data.tienda_nombre} no tiene bonificaciones en ${nombreMes(excelMesTienda.value)}.`)
     return false
   }
   const { exportarTiendaExcel } = await import('@/utils/excelTienda')
@@ -1346,7 +1346,7 @@ onMounted(async () => {
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
       <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2 shrink-0">
         <ReceiptPercentIcon class="w-6 h-6 text-green-600" />
-        Comisiones
+        Bonificaciones
       </h1>
       <div class="flex flex-wrap gap-2 justify-end">
         <button
@@ -1476,7 +1476,7 @@ onMounted(async () => {
         <p class="text-[11px] font-semibold text-gray-500 uppercase mt-3 mb-1">Almacenes que ayudaron</p>
         <p class="text-[11px] text-gray-500 mb-1">
           Ese {{ num(reglasDe({}).almacen_pct) }}% no se queda en la tienda: se reparte en partes iguales entre su
-          gente y les suma a su comisión del mes.
+          gente y les suma a su bonificación del mes.
         </p>
         <div v-for="a in indepData.almacenes" :key="a.tienda_id"
              class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
@@ -1492,20 +1492,20 @@ onMounted(async () => {
       </template>
     </div>
 
-    <!-- ── Anticipos de comisión ─────────────────────────────────────────────
+    <!-- ── Anticipos de bonificación ─────────────────────────────────────────────
          Lo que algunos se llevan cada mes por adelantado y se les descuenta
-         al pagarles la comisión. Si no comisionan, lo siguen debiendo. -->
+         al pagarles la bonificación. Si no bonifican, lo siguen debiendo. -->
     <div v-if="mostrarMetas" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
       <button @click="abrirAnticipos" class="w-full flex items-center justify-between">
-        <span class="text-sm font-semibold text-gray-700">Anticipos de comisión</span>
+        <span class="text-sm font-semibold text-gray-700">Anticipos de bonificación</span>
         <ChevronUpIcon v-if="verAnticipos" class="w-4 h-4 text-gray-400" />
         <ChevronDownIcon v-else class="w-4 h-4 text-gray-400" />
       </button>
 
       <div v-if="verAnticipos" class="mt-3 space-y-3">
         <p class="text-[11px] text-gray-500 leading-snug">
-          Cada mes queda anotado lo que se lleva. Al pagarle la comisión se le resta lo que debe hasta ese mes
-          (en Pereira, los tres meses del trimestre). Si la comisión no alcanza, lo que falte lo sigue debiendo.
+          Cada mes queda anotado lo que se lleva. Al pagarle la bonificación se le resta lo que debe hasta ese mes
+          (en Pereira, los tres meses del trimestre). Si la bonificación no alcanza, lo que falte lo sigue debiendo.
         </p>
 
         <!-- Activar / cambiar / apagar -->
@@ -1537,7 +1537,7 @@ onMounted(async () => {
         </div>
 
         <p v-if="cargandoAnticipos" class="text-xs text-gray-400">Cargando…</p>
-        <p v-else-if="!anticipos.length" class="text-xs text-gray-400">Nadie tiene anticipo de comisión.</p>
+        <p v-else-if="!anticipos.length" class="text-xs text-gray-400">Nadie tiene anticipo de bonificación.</p>
 
         <div v-for="a in anticipos" :key="a.vendedor_id" class="border border-gray-100 rounded-xl p-3">
           <div class="flex items-start justify-between gap-2">
@@ -1564,9 +1564,9 @@ onMounted(async () => {
             <div v-for="m in a.movimientos" :key="m.id" class="flex items-center justify-between text-[11px] tabular-nums">
               <span class="text-gray-600">
                 {{ m.mes }} ·
-                <template v-if="m.es_abono">abono a esa comisión <span class="text-gray-400">({{ diaDelAbono(m.created_at) }})</span></template>
+                <template v-if="m.es_abono">abono a esa bonificación <span class="text-gray-400">({{ diaDelAbono(m.created_at) }})</span></template>
                 <template v-else-if="m.tipo === 'anticipo'">se llevó<span v-if="m.editado_a_mano" class="text-amber-600"> (corregido)</span></template>
-                <template v-else>descontado de su comisión</template>
+                <template v-else>descontado de su bonificación</template>
                 <span v-if="m.nota" class="text-gray-400"> — {{ m.nota }}</span>
               </span>
               <span class="flex items-center gap-2">
@@ -1656,7 +1656,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- ── Si aquí la comisión es del equipo o de cada quien ──────────
+          <!-- ── Si aquí la bonificación es del equipo o de cada quien ──────────
                Lo dice la tienda, no su meta: son dos cosas distintas y antes
                una se deducía de la otra. -->
           <label
@@ -1672,12 +1672,12 @@ onMounted(async () => {
             />
             <span class="min-w-0">
               <span class="block text-xs font-semibold text-gray-700">
-                Comisiones compartidas
+                Bonificaciones compartidas
                 <span v-if="guardandoCompartidas === m.tienda_id" class="text-gray-400 font-normal">· guardando…</span>
               </span>
               <span class="block text-[11px] text-gray-500 leading-snug">
                 <template v-if="m.comisiones_compartidas">
-                  La comisión es del equipo: el pool ({{ num(reglasDe(m).pct_pool) }}%) se parte entre todos, las restauraciones también,
+                  La bonificación es del equipo: el pool ({{ num(reglasDe(m).pct_pool) }}%) se parte entre todos, las restauraciones también,
                   y quien no vendió cobra su parte igual.
                 </template>
                 <template v-else>
@@ -1709,7 +1709,7 @@ onMounted(async () => {
 
           <!-- Asesores asignados -->
           <div>
-            <p class="text-[10px] text-gray-400 mb-1.5 font-medium uppercase tracking-wide">Equipo comisiones</p>
+            <p class="text-[10px] text-gray-400 mb-1.5 font-medium uppercase tracking-wide">Equipo bonificaciones</p>
             <div v-if="m.asesores && m.asesores.length > 0" class="flex flex-wrap gap-1.5 mb-2">
               <span
                 v-for="a in m.asesores"
@@ -2009,7 +2009,7 @@ onMounted(async () => {
               <p class="text-base font-bold text-gray-700">{{ cop(totalGeneral.ventas) }}</p>
             </div>
             <div class="text-right">
-              <p class="text-xs text-gray-400">Comisión sobre ventas</p>
+              <p class="text-xs text-gray-400">Bonificación sobre ventas</p>
               <p class="text-base font-bold text-green-700">
                 {{ formatPct(totalGeneral.ventas > 0 ? totalGeneral.comision / totalGeneral.ventas * 100 : 0) }}%
               </p>
@@ -2176,7 +2176,7 @@ onMounted(async () => {
                   Ya cierra en positivo con lo vendido.
                 </p>
                 <p class="text-[10px] text-gray-500 mt-1 leading-snug">
-                  La comisión de arriba es provisional: se calcula sobre el trimestre
+                  La bonificación de arriba es provisional: se calcula sobre el trimestre
                   completo y se cierra al terminar.
                 </p>
               </div>
@@ -2201,7 +2201,7 @@ onMounted(async () => {
                 class="mt-3 w-full flex items-center justify-between bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 transition-colors"
               >
                 <span class="text-xs font-semibold">
-                  {{ pagandoListas === claveFila(r) ? 'Pagando…' : `Pagar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} listas` }}
+                  {{ pagandoListas === claveFila(r) ? 'Pagando…' : `Pagar ${r.listas} ${r.listas > 1 ? 'bonificaciones listas' : 'bonificación lista'}` }}
                 </span>
                 <span class="text-sm font-bold">{{ cop(totalListasVendedor(r)) }}</span>
               </button>
@@ -2252,7 +2252,7 @@ onMounted(async () => {
                     >Descuento</span>
                     <span
                       v-if="o.sin_descontar_iva"
-                      title="FV2 especial: la comisión se sacó sobre el valor completo, sin quitarle el IVA"
+                      title="FV2 especial: la bonificación se sacó sobre el valor completo, sin quitarle el IVA"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
                     >Sin restar IVA</span>
                     <span
@@ -2479,7 +2479,7 @@ onMounted(async () => {
                         <span
                           v-if="Number(o.costo_datafono) > 0"
                           class="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 bg-gray-100 text-gray-600"
-                          :title="`Pagó ${cop(o.pagado_tarjeta)} con tarjeta o Addi: la franquicia se lleva ${cop(o.costo_datafono)} y sobre eso no se comisiona`"
+                          :title="`Pagó ${cop(o.pagado_tarjeta)} con tarjeta o Addi: la franquicia se lleva ${cop(o.costo_datafono)} y sobre eso no se bonifica`"
                         >Tarjeta −{{ cop(o.costo_datafono) }}</span>
                         <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
                       </div>
@@ -2496,7 +2496,7 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- Lo que vendió en otra tienda donde no hubo comisión: también hay que decírselo -->
+              <!-- Lo que vendió en otra tienda donde no hubo bonificación: también hay que decírselo -->
               <div
                 v-for="v in p.en_tiendas_sin_pago ?? []"
                 :key="`${v.tienda_id}_${v.mes_de_la_cuenta}`"
@@ -2517,7 +2517,7 @@ onMounted(async () => {
               </div>
 
               <div v-if="p.se_descuenta > 0" class="flex justify-between text-[11px] text-gray-500 border-t border-gray-100 pt-2">
-                <span>Comisión {{ cop(p.lista) }} · {{ p.bloques.some(b => b.abonos > 0) ? 'anticipos y abonos' : 'anticipos' }} − {{ cop(p.se_descuenta) }}</span>
+                <span>Bonificación {{ cop(p.lista) }} · {{ p.bloques.some(b => b.abonos > 0) ? 'anticipos y abonos' : 'anticipos' }} − {{ cop(p.se_descuenta) }}</span>
                 <span v-if="p.sigue_debiendo > 0" class="text-orange-600">sigue debiendo {{ cop(p.sigue_debiendo) }}</span>
               </div>
 
@@ -2563,7 +2563,7 @@ onMounted(async () => {
         <!-- Las tiendas donde nadie cobra en este pago, y por qué: también hay que
              poder decírselo al vendedor (dueño, 2026-11-04) -->
         <div v-if="!cargandoListas && tiendasSinPago.length" class="mt-4 space-y-2">
-          <p class="text-xs font-semibold text-gray-600">Tiendas sin comisión en este pago</p>
+          <p class="text-xs font-semibold text-gray-600">Tiendas sin bonificación en este pago</p>
           <div
             v-for="t in tiendasSinPago"
             :key="`${t.tienda_id}_${t.mes}`"
@@ -2608,17 +2608,17 @@ onMounted(async () => {
             </div>
 
             <p class="text-[11px] text-gray-500 leading-snug">
-              Lo que se le dio hoy de una comisión que ya está lista. Sigue saliendo aquí lo que falta,
-              y al pagar se descuenta el abono. La comisión no cambia.
+              Lo que se le dio hoy de una bonificación que ya está lista. Sigue saliendo aquí lo que falta,
+              y al pagar se descuenta el abono. La bonificación no cambia.
             </p>
 
             <div v-if="mesesAbonables(abonoForm.persona).length > 1">
-              <p class="text-[10px] text-gray-400 mb-0.5">De la comisión de</p>
+              <p class="text-[10px] text-gray-400 mb-0.5">De la bonificación de</p>
               <select v-model="abonoForm.mes" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white capitalize">
                 <option v-for="m in mesesAbonables(abonoForm.persona)" :key="m.mes" :value="m.mes">{{ nombreMes(m.mes) }}</option>
               </select>
             </div>
-            <p v-else class="text-xs text-gray-700">De la comisión de <span class="font-semibold capitalize">{{ nombreMes(abonoForm.mes) }}</span></p>
+            <p v-else class="text-xs text-gray-700">De la bonificación de <span class="font-semibold capitalize">{{ nombreMes(abonoForm.mes) }}</span></p>
 
             <div>
               <div class="flex justify-between items-baseline mb-0.5">
@@ -2651,7 +2651,7 @@ onMounted(async () => {
           <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-start justify-between gap-2">
               <div>
-                <h3 class="text-base font-bold text-gray-800">{{ recibo.incompleto ? 'Pago incompleto' : 'Comisión pagada' }}</h3>
+                <h3 class="text-base font-bold text-gray-800">{{ recibo.incompleto ? 'Pago incompleto' : 'Bonificación pagada' }}</h3>
                 <p class="text-xs text-gray-500">{{ recibo.vendedor_nombre }}<template v-if="recibo.fecha_pago"> · {{ fmtFecha(recibo.fecha_pago.slice(0, 10)) }}</template></p>
               </div>
               <button type="button" @click="recibo = null" class="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
@@ -2673,7 +2673,7 @@ onMounted(async () => {
                 · {{ r.pagadas }} renglón{{ r.pagadas !== 1 ? 'es' : '' }}
               </p>
               <p v-if="r.anticipos_descontados > 0" class="text-[11px] text-gray-500 mt-0.5">
-                Comisión {{ cop(r.monto) }} − anticipos y abonos {{ cop(r.anticipos_descontados) }}
+                Bonificación {{ cop(r.monto) }} − anticipos y abonos {{ cop(r.anticipos_descontados) }}
               </p>
             </div>
 
@@ -2697,11 +2697,11 @@ onMounted(async () => {
       <div v-else-if="filtradas.length === 0" class="text-center py-14">
         <ReceiptPercentIcon class="w-12 h-12 text-gray-300 mx-auto mb-2" />
         <p class="text-gray-400 text-sm">
-          {{ tab === 'pendiente' ? 'No hay comisiones pendientes' : tab === 'lista' ? 'No hay comisiones listas' : 'No hay comisiones pagadas' }}
+          {{ tab === 'pendiente' ? 'No hay bonificaciones pendientes' : tab === 'lista' ? 'No hay bonificaciones listas' : 'No hay bonificaciones pagadas' }}
         </p>
       </div>
 
-      <!-- Lista comisiones -->
+      <!-- Lista bonificaciones -->
       <div v-else class="space-y-3">
         <div
           v-for="c in filtradas"
@@ -2788,7 +2788,7 @@ onMounted(async () => {
             </div>
             <!-- La meta solo es requisito si se cobra por el pool. En una
                  restauración, o sin meta, salía un ✗ rojo que no significaba
-                 nada: la comisión se paga igual. -->
+                 nada: la bonificación se paga igual. -->
             <div v-if="dependeDeLaMeta(c)" class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
@@ -2837,7 +2837,7 @@ onMounted(async () => {
               <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
               <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Su parte este mes: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
-              <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
+              <p class="font-bold text-green-700">Bonificación esta orden: {{ cop(c.monto_comision) }}</p>
               <p v-if="c.deficit_final > 0" class="text-red-500 font-semibold">Queda debiendo {{ cop(c.deficit_final) }} para el próximo trimestre</p>
             </div>
             <div v-else-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
@@ -2851,9 +2851,9 @@ onMounted(async () => {
               <!-- Por tramos o con bono: la cuenta completa está en "Toda la tienda". -->
               <p v-else>Pool {{ cuentaPool(reglasDe(c)) }}: {{ cop(c.comision_pool) }}</p>
               <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
-              <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
+              <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Bonificación asesor: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
-              <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
+              <p class="font-bold text-green-700">Bonificación esta orden: {{ cop(c.monto_comision) }}</p>
             </div>
             <div class="pt-1 text-xs text-gray-400">
               Venta: {{ fmtFecha(c.fecha_venta) }} · Mes: {{ c.mes_venta }}
@@ -2937,7 +2937,7 @@ onMounted(async () => {
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-[11px] text-gray-600 shrink-0">Tienda</p>
                   <select v-model="excelTienda" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                    <option value="">{{ excelTiendas.length ? 'Escoge la tienda' : 'Sin comisiones ese mes' }}</option>
+                    <option value="">{{ excelTiendas.length ? 'Escoge la tienda' : 'Sin bonificaciones ese mes' }}</option>
                     <option v-for="t in excelTiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
                   </select>
                 </div>

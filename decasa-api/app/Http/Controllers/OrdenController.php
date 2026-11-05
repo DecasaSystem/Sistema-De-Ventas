@@ -1984,8 +1984,8 @@ class OrdenController extends Controller
                 ->exists();
             if ($comisionLiquidada) {
                 return response()->json(['message' => $usuario->rol === 'supervisor'
-                    ? 'No se puede cambiar la asignación: una comisión de esta orden ya se pagó. Ese ajuste hay que hacerlo en la liquidación.'
-                    : 'No se puede cambiar la asignación: la comisión de esta orden ya está lista o pagada.'], 422);
+                    ? 'No se puede cambiar la asignación: una bonificación de esta orden ya se pagó. Ese ajuste hay que hacerlo en la liquidación.'
+                    : 'No se puede cambiar la asignación: la bonificación de esta orden ya está lista o pagada.'], 422);
             }
         }
 
@@ -2909,7 +2909,7 @@ class OrdenController extends Controller
                 $pagadas = Comision::where('orden_id', $orden->id)->where('estado', 'pagada')
                     ->with('vendedor:id,nombre')->get();
                 if ($pagadas->isNotEmpty()) {
-                    $ordenFresh->aviso_comisiones = 'La comisión de '
+                    $ordenFresh->aviso_comisiones = 'La bonificación de '
                         . $pagadas->pluck('vendedor.nombre')->filter()->unique()->join(', ', ' y ')
                         . ' ya estaba pagada y no se recalcula: la diferencia hay que ajustarla a mano.';
                 }
@@ -4355,7 +4355,7 @@ class OrdenController extends Controller
             $bloqueos[] = 'Va en camino en un camión. Primero sácala de la ruta.';
         }
         if (Comision::where('orden_id', $orden->id)->where('estado', 'pagada')->exists()) {
-            $bloqueos[] = 'Tiene una comisión ya pagada. Esa plata ya salió: el ajuste se hace en la liquidación.';
+            $bloqueos[] = 'Tiene una bonificación ya pagada. Esa plata ya salió: el ajuste se hace en la liquidación.';
         }
 
         $pagos  = $orden->pagos()->get();
@@ -4380,7 +4380,7 @@ class OrdenController extends Controller
             $avisos[] = 'Lo que tenía apartado y no se ha entregado vuelve a quedar libre en el inventario.';
         }
         if (Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->exists()) {
-            $avisos[] = 'Se borran sus comisiones sin pagar, y deja de sumar a la meta de la tienda.';
+            $avisos[] = 'Se borran sus bonificaciones sin pagar, y deja de sumar a la meta de la tienda.';
         }
 
         return [

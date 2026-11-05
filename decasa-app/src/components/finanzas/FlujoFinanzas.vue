@@ -110,7 +110,7 @@ function armarSemanas(c) {
           afterBody: (x) => {
             const s = semanas.value[x[0].dataIndex]
             return [`Entra ~${pesosCorto(s.entradas)}`, `Nómina ${pesosCorto(s.salidas.nomina)}`,
-              `Comisiones ${pesosCorto(s.salidas.comisiones)}`, `Gastos ${pesosCorto(s.salidas.gastos)}`]
+              `Bonificaciones ${pesosCorto(s.salidas.comisiones)}`, `Gastos ${pesosCorto(s.salidas.gastos)}`]
           },
         } },
       },
@@ -205,7 +205,7 @@ const ICONO_TIPO = { nomina: '👥', comisiones: '🎯', gasto: '🧾', impuesto
     <div class="bg-white rounded-xl shadow-sm p-4">
       <p class="text-sm font-semibold text-gray-800">Próximas 13 semanas</p>
       <p class="text-xs text-gray-400 mb-2">
-        Las salidas tienen fecha (quincenas, gastos fijos, comisiones del 20); las entradas son el ritmo de cobro de los últimos meses
+        Las salidas tienen fecha (quincenas, gastos fijos, bonificaciones del 20); las entradas son el ritmo de cobro de los últimos meses
         ({{ pct(flujo.semanal.recaudo, 0) }} de lo que se vende).
       </p>
       <GraficaFinanzas :armar="armarSemanas" :datos="semanas" alto="h-60" descripcion="Flujo de caja proyectado por semana" />
@@ -221,7 +221,7 @@ const ICONO_TIPO = { nomina: '👥', comisiones: '🎯', gasto: '🧾', impuesto
               <th class="text-left font-semibold py-1 pr-2">Mes</th>
               <th class="text-right font-semibold py-1 px-2">Entró</th>
               <th class="text-right font-semibold py-1 px-2">Nómina</th>
-              <th class="text-right font-semibold py-1 px-2">Comisiones</th>
+              <th class="text-right font-semibold py-1 px-2">Bonificaciones</th>
               <th class="text-right font-semibold py-1 px-2">Gastos</th>
               <th class="text-right font-semibold py-1 pl-2">Neto</th>
             </tr>

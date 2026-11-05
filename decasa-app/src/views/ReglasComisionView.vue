@@ -208,7 +208,7 @@ async function guardar(confirmado = false) {
   try {
     await api.post('/comisiones/reglas', datosRegla)
     olvidarReglasVigentes()
-    toast.success('Regla guardada. Las comisiones se recalculan en unos minutos.')
+    toast.success('Regla guardada. Las bonificaciones se recalculan en unos minutos.')
     cerrar()
     await cargar()
   } catch (e) {
@@ -242,7 +242,7 @@ async function quitar(fila) {
     }
   }
   olvidarReglasVigentes()
-  toast.success('Regla quitada. Las comisiones se recalculan en unos minutos.')
+  toast.success('Regla quitada. Las bonificaciones se recalculan en unos minutos.')
   await cargar()
 }
 
@@ -257,7 +257,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
       </button>
       <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
         <AdjustmentsHorizontalIcon class="w-6 h-6 text-green-600" />
-        Reglas de comisión
+        Reglas de bonificación
       </h2>
     </div>
 
@@ -266,7 +266,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
     <template v-else-if="datos">
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-2">
         <p class="text-sm text-gray-700 leading-snug">
-          Las cifras con que se calculan las comisiones. Un cambio rige <b>desde el mes que escojas</b>:
+          Las cifras con que se calculan las bonificaciones. Un cambio rige <b>desde el mes que escojas</b>:
           los meses anteriores no se mueven y lo ya pagado nunca cambia.
         </p>
         <p class="text-xs text-gray-500 leading-snug">
@@ -274,7 +274,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
         </p>
         <p v-if="!puedeEditar" class="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
           <LockClosedIcon class="w-4 h-4 shrink-0" />
-          Solo lectura: cambiarlas necesita el permiso "Reglas de comisión".
+          Solo lectura: cambiarlas necesita el permiso "Reglas de bonificación".
         </p>
       </div>
 
@@ -472,7 +472,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
             <span class="text-xs font-semibold text-gray-600">Desde el mes</span>
             <input v-model="form.desde_mes" type="month" class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white" />
             <span v-if="form.desde_mes < datos.mes_actual" class="block text-[11px] text-amber-700 mt-1">
-              Es un mes que ya pasó: solo se puede si no tiene comisiones pagadas, y te lo va a confirmar.
+              Es un mes que ya pasó: solo se puede si no tiene bonificaciones pagadas, y te lo va a confirmar.
             </span>
           </label>
 
@@ -513,7 +513,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
                   :class="simulacion.diferencia > 0 ? 'border-green-300 text-green-700' : simulacion.diferencia < 0 ? 'border-red-300 text-red-700' : 'border-gray-200 text-gray-500'"
                 >{{ simulacion.diferencia > 0 ? '+' : '' }}{{ pesos(simulacion.diferencia) }}</span>
               </p>
-              <p v-if="!simulacion.cambian && !simulacion.aviso" class="text-xs text-gray-500">A nadie le cambia la comisión ese mes.</p>
+              <p v-if="!simulacion.cambian && !simulacion.aviso" class="text-xs text-gray-500">A nadie le cambia la bonificación ese mes.</p>
               <ul v-else class="divide-y divide-gray-100 max-h-56 overflow-y-auto">
                 <li v-for="p in simulacion.personas.filter(x => x.diferencia !== 0)" :key="p.vendedor_id + '_' + p.tienda" class="py-1.5 flex items-center justify-between gap-2 text-xs">
                   <div class="min-w-0">

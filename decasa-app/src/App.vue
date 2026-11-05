@@ -315,7 +315,7 @@ const navItems = computed(() => {
       items.push({ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
     if (auth.tieneAccesoComisiones) {
-      items.push({ name: 'comisiones', modulo: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon })
+      items.push({ name: 'comisiones', modulo: 'comisiones', label: 'Bonificaciones', icon: ReceiptPercentIcon })
     }
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
     return modulos.soloVisibles(items)

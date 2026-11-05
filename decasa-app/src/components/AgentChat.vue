@@ -146,7 +146,7 @@ const temas = computed(() => [
   { icono: BookOpenIcon,          titulo: 'Catálogos',       texto: 'Enlaces para el cliente',           pregunta: 'Dame los enlaces de los catálogos' },
   { icono: TagIcon,               titulo: 'Promociones',     texto: 'Qué está rebajado y dónde',         pregunta: '¿Qué promociones hay vigentes?' },
   { icono: ShieldCheckIcon,       titulo: 'Garantías',       texto: 'Abiertas y por responder',          pregunta: '¿Qué garantías hay abiertas?' },
-  auth.tieneAccesoComisiones && { icono: ReceiptPercentIcon, titulo: 'Comisiones', texto: 'Cuánto llevas y por qué', pregunta: '¿Cuánto llevo de comisión este mes y cuándo la cobro?' },
+  auth.tieneAccesoComisiones && { icono: ReceiptPercentIcon, titulo: 'Bonificaciones', texto: 'Cuánto llevas y por qué', pregunta: '¿Cuánto llevo de bonificación este mes y cuándo la cobro?' },
   auth.puedeFinanzas && { icono: BanknotesIcon, titulo: 'Finanzas', texto: 'Utilidad y próximos pagos', pregunta: '¿Cómo vamos este mes en plata y qué hay que pagar pronto?' },
 ].filter(Boolean))
 

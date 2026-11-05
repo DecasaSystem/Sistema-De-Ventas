@@ -111,7 +111,7 @@ function armarCascada(c) {
     ['IVA', -m.value.iva],
     ['Materiales', -m.value.costo_produccion.monto],
     ['Nómina', -m.value.nomina.total],
-    ['Comisiones', -m.value.comisiones.total],
+    ['Bonificaciones', -m.value.comisiones.total],
     ['Gastos', -m.value.gastos.total],
     ['Financieros', -m.value.financieros.total],
     ['Utilidad', m.value.utilidad_operativa, 'total'],
@@ -155,7 +155,7 @@ const reparto = computed(() => {
     ['IVA', m.value.iva, 'iva'],
     ['Materiales', m.value.costo_produccion.monto, 'materiales'],
     ['Nómina', m.value.nomina.total, 'nomina'],
-    ['Comisiones', m.value.comisiones.total, 'comisiones'],
+    ['Bonificaciones', m.value.comisiones.total, 'comisiones'],
     ['Gastos', m.value.gastos.total, 'gastos'],
     ['Financieros', m.value.financieros.total, 'financieros'],
   ]

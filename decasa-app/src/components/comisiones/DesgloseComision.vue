@@ -118,7 +118,7 @@ const cobro = computed(() => {
 
 <template>
   <div v-if="partes.length" class="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5">
-    <!-- ── De dónde sale la comisión ───────────────────────────────────── -->
+    <!-- ── De dónde sale la bonificación ───────────────────────────────────── -->
     <div class="flex items-baseline justify-between mb-1.5">
       <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">De dónde sale</p>
       <p class="text-xs font-bold text-gray-700">{{ cop(total) }}</p>
@@ -176,7 +176,7 @@ const cobro = computed(() => {
             {{ t.label }}
             <span class="text-gray-400">· {{ t.ordenes }} {{ t.ordenes === 1 ? 'orden' : 'órdenes' }} sobre {{ cop(t.monto) }}</span>
           </span>
-          <span class="font-semibold text-gray-700 tabular-nums shrink-0 w-20 text-right" title="Lo que comisiona por estas órdenes">{{ cop(t.comision) }}</span>
+          <span class="font-semibold text-gray-700 tabular-nums shrink-0 w-20 text-right" title="Lo que bonifica por estas órdenes">{{ cop(t.comision) }}</span>
         </div>
       </div>
     </div>
@@ -212,8 +212,8 @@ const cobro = computed(() => {
       </div>
 
       <p class="text-[10px] text-gray-400 leading-snug mt-1">
-        Sobre lo que se lleva la franquicia no comisiona nadie: por eso la base
-        de la comisión no es igual a lo vendido.
+        Sobre lo que se lleva la franquicia no bonifica nadie: por eso la base
+        de la bonificación no es igual a lo vendido.
       </p>
     </div>
   </div>

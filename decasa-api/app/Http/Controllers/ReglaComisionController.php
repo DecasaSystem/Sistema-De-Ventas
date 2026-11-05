@@ -392,10 +392,10 @@ class ReglaComisionController extends Controller
     private static function sinPermiso(Usuario $u)
     {
         if (! self::hayTabla()) {
-            return response()->json(['message' => 'Falta correr la migración de reglas de comisión.'], 503);
+            return response()->json(['message' => 'Falta correr la migración de reglas de bonificación.'], 503);
         }
         if (! self::puedeEditar($u)) {
-            return response()->json(['message' => 'Cambiar las reglas de comisión necesita el permiso "Reglas de comisión".'], 403);
+            return response()->json(['message' => 'Cambiar las reglas de bonificación necesita el permiso "Reglas de bonificación".'], 403);
         }
 
         return null;
@@ -456,7 +456,7 @@ class ReglaComisionController extends Controller
         if ($pagadas->isNotEmpty()) {
             $meses = $pagadas->map(fn ($m) => Carbon::parse($m . '-01')->locale('es')->isoFormat('MMMM [de] YYYY'))->implode(', ');
             return response()->json([
-                'message' => "No se puede desde {$desdeMes}: ya hay comisiones pagadas de {$meses}. "
+                'message' => "No se puede desde {$desdeMes}: ya hay bonificaciones pagadas de {$meses}. "
                     . 'Ponla desde el mes en curso, o desde el mes siguiente al último pagado.',
                 'meses_pagados' => $pagadas->values(),
             ], 422);

@@ -314,7 +314,7 @@ async function submit() {
         </select>
       </div>
 
-      <!-- Apto para comisiones. Quien no usa el programa no hace ventas. -->
+      <!-- Apto para bonificaciones. Quien no usa el programa no hace ventas. -->
       <div v-if="!form.no_usa_programa" class="flex items-start gap-3 py-2">
         <input
           id="apto_comisiones"
@@ -323,8 +323,8 @@ async function submit() {
           class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
         />
         <div>
-          <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para comisiones</label>
-          <p class="text-xs text-gray-500 mt-0.5">Marca que esta persona hace ventas y por lo tanto le corresponde comisión.</p>
+          <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para bonificaciones</label>
+          <p class="text-xs text-gray-500 mt-0.5">Marca que esta persona hace ventas y por lo tanto le corresponde bonificación.</p>
         </div>
       </div>
 
@@ -451,7 +451,7 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Acceso comisiones (solo supervisor) -->
+      <!-- Acceso bonificaciones (solo supervisor) -->
       <div v-if="arquetipo === 'supervisor'" class="flex items-start gap-3 py-2">
         <input
           id="acceso_comisiones"
@@ -460,8 +460,8 @@ async function submit() {
           class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
         />
         <div>
-          <label for="acceso_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
-          <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
+          <label for="acceso_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de bonificaciones</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las bonificaciones de los vendedores.</p>
         </div>
       </div>
 
@@ -636,7 +636,7 @@ async function submit() {
         />
         <div>
           <label for="puede_fv2_sin_iva" class="text-sm font-medium text-gray-700 cursor-pointer">FV2 sin restar el IVA</label>
-          <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la comisión de esa orden se saca sobre el valor completo.</p>
+          <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la bonificación de esa orden se saca sobre el valor completo.</p>
         </div>
       </div>
 
@@ -731,7 +731,7 @@ async function submit() {
         </select>
         <p v-if="errores.tienda_default_id" class="text-xs text-red-600 mt-1">{{ errMsg(errores.tienda_default_id) }}</p>
         <p v-else-if="arquetipo === 'supervisor'" class="text-xs text-gray-500 mt-1">
-          Déjalo en "Sin tienda" si es un jefe que no pertenece a ninguna en particular — no le tocará el reparto de comisiones de ninguna tienda.
+          Déjalo en "Sin tienda" si es un jefe que no pertenece a ninguna en particular — no le tocará el reparto de bonificaciones de ninguna tienda.
         </p>
       </div>
       <p v-else-if="esIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">

@@ -263,7 +263,7 @@ function comoSeCalculo(c) {
         ? `Su parte del pool (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
         : `La tienda no llegó a la meta con lo que tiene ${mitad}: no hay pool. ${pesos(0)}.`
     case 'fuera_del_pool':
-      return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga comisión. ${pesos(0)}.`
+      return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga bonificación. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
         return `FV2 especial, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
@@ -328,7 +328,7 @@ function hojaResumen(wb, ctx) {
   ws.getColumn(1).width = 34
   ws.getColumn(2).width = 60
 
-  titulo(ws, `Comisiones — ${mesEnPalabras(ctx.mes)}`,
+  titulo(ws, `Bonificaciones — ${mesEnPalabras(ctx.mes)}`,
     `Generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
 
   // El mes en curso todavía se mueve: que no se lea como un cierre.
@@ -353,17 +353,17 @@ function hojaResumen(wb, ctx) {
   const suma = (arr, campo) => arr.reduce((s, c) => s + n(c[campo]), 0)
   const porEstado = e => det.filter(c => (c.estado_calculado ?? c.estado) === e)
 
-  seccion(ws, 'Totales de lo exportado', 'Suma de las comisiones que salen en la hoja "Detalle" (no incluye a los independientes, que van en su hoja).')
+  seccion(ws, 'Totales de lo exportado', 'Suma de las bonificaciones que salen en la hoja "Detalle" (no incluye a los independientes, que van en su hoja).')
   fichas(ws, [
-    ['Comisión total', suma(det, 'monto_comision'), 'pesos'],
+    ['Bonificación total', suma(det, 'monto_comision'), 'pesos'],
     ['   Ya pagada', suma(porEstado('pagada'), 'monto_comision'), 'pesos'],
     ['   Lista para pagar', suma(porEstado('lista'), 'monto_comision'), 'pesos'],
     ['   Todavía pendiente', suma(porEstado('pendiente'), 'monto_comision'), 'pesos'],
-    ['Órdenes con comisión', det.filter(c => c.forma_pago !== 'parte_pool').length, 'entero'],
+    ['Órdenes con bonificación', det.filter(c => c.forma_pago !== 'parte_pool').length, 'entero'],
     ['   Pendientes', porEstado('pendiente').length, 'entero'],
     ['   Listas', porEstado('lista').length, 'entero'],
     ['   Pagadas', porEstado('pagada').length, 'entero'],
-    ['Valor vendido (base comisionable)', suma(det, 'valor_orden'), 'pesos'],
+    ['Valor vendido (base bonificable)', suma(det, 'valor_orden'), 'pesos'],
     ['Personas', new Set(det.map(c => c.vendedor_id)).size, 'entero'],
   ])
 
@@ -371,7 +371,7 @@ function hojaResumen(wb, ctx) {
     seccion(ws, 'Independientes', 'Cobran un porcentaje fijo, no por meta. Su detalle está en la hoja "Independientes".')
     fichas(ws, [
       ['Vendieron entre todos', n(ctx.indep.base), 'pesos'],
-      ['Comisión total', ctx.indep.independientes.reduce((s, i) => s + n(i.comision), 0), 'pesos'],
+      ['Bonificación total', ctx.indep.independientes.reduce((s, i) => s + n(i.comision), 0), 'pesos'],
       ['Se paga el', fecha(ctx.indep.se_cobra_el)],
     ])
   }
@@ -380,7 +380,7 @@ function hojaResumen(wb, ctx) {
   fichas(ws, [
     ['Por vendedor', 'Una fila por persona y tienda: cuánto cobra, de dónde sale y qué le falta.'],
     ['Por tienda', 'Cada tienda contra su meta: vendido, excedente, pool y cómo se reparte.'],
-    ['Detalle', 'Cada orden con su comisión, su estado y la cuenta escrita.'],
+    ['Detalle', 'Cada orden con su bonificación, su estado y la cuenta escrita.'],
     ['Independientes', 'Los que cobran porcentaje fijo y los almacenes que les ayudaron.'],
     ['Metas y equipos', 'Meta, equipo, reemplazos y reparto por días de cada tienda.'],
     ['Cómo se calcula', 'Las reglas, en palabras, para leer los números.'],
@@ -456,21 +456,21 @@ function hojaPorVendedor(wb, ctx) {
     { titulo: 'Cómo cobra', campo: 'como', ancho: 16 },
     { titulo: 'Periodicidad', campo: 'periodicidad', ancho: 16 },
     { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 9, total: 'suma' },
-    { titulo: 'Vendió (base comisionable)', campo: 'vendio', fmt: 'pesos', ancho: 18, total: 'suma' },
+    { titulo: 'Vendió (base bonificable)', campo: 'vendio', fmt: 'pesos', ancho: 18, total: 'suma' },
     { titulo: 'Pagado con tarjeta o Addi', campo: 'tarjeta', fmt: 'pesos', ancho: 15, total: 'suma' },
-    { titulo: 'Costo datáfono (no comisiona)', campo: 'datafono', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Costo datáfono (no bonifica)', campo: 'datafono', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Meta de la tienda', campo: 'meta', fmt: 'pesos', ancho: 16 },
     { titulo: 'Vendido en la tienda (mes)', campo: 'ventas_tienda', fmt: 'pesos', ancho: 17 },
     { titulo: 'Meta cumplida', campo: 'meta_cumplida', ancho: 10, color: f => f.meta_cumplida === 'No' ? ROJO_CLARO : null },
     { titulo: 'Pool de la tienda', campo: 'pool', fmt: 'pesos', ancho: 15 },
     { titulo: 'Su parte del pool', campo: 'parte', ancho: 16 },
     { titulo: '% del pool', campo: 'pct_pool', fmt: 'pct', ancho: 9 },
-    { titulo: 'Comisión por pool', campo: 'del_pool', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Bonificación por pool', campo: 'del_pool', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Parte del equipo (sin vender)', campo: 'parte_equipo', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Por restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'De independientes', campo: 'de_indep', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Individual', campo: 'individual', fmt: 'pesos', ancho: 15, total: 'suma' },
-    { titulo: 'COMISIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Pendientes', campo: 'pendientes', fmt: 'entero', ancho: 10, total: 'suma' },
     { titulo: 'Listas', campo: 'listas', fmt: 'entero', ancho: 8, total: 'suma' },
     { titulo: 'Pagadas', campo: 'pagadas', fmt: 'entero', ancho: 8, total: 'suma' },
@@ -545,7 +545,7 @@ function hojaPorTienda(wb, ctx) {
 
   const header = tabla(ws, [
     { titulo: 'Tienda', campo: 'tienda', ancho: 24 },
-    { titulo: 'Reparte comisión', campo: 'comparte', ancho: 26 },
+    { titulo: 'Reparte bonificación', campo: 'comparte', ancho: 26 },
     { titulo: 'Periodicidad', campo: 'periodicidad', ancho: 16 },
     { titulo: 'Meta del mes', campo: 'meta', fmt: 'pesos', ancho: 16 },
     { titulo: 'Vendido para la meta', campo: 'ventas', fmt: 'pesos', ancho: 17 },
@@ -556,7 +556,7 @@ function hojaPorTienda(wb, ctx) {
     { titulo: 'Equipo y reparto por días', campo: 'equipo', ancho: 34 },
     { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 9, total: 'suma' },
     { titulo: 'En restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 17, total: 'suma' },
-    { titulo: 'COMISIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN TOTAL', campo: 'total', fmt: 'pesos', ancho: 17, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Pendientes', campo: 'pendientes', fmt: 'entero', ancho: 10, total: 'suma' },
     { titulo: 'Listas', campo: 'listas', fmt: 'entero', ancho: 8, total: 'suma' },
     { titulo: 'Pagadas', campo: 'pagadas', fmt: 'entero', ancho: 8, total: 'suma' },
@@ -573,7 +573,7 @@ function hojaPorTienda(wb, ctx) {
 function hojaDetalle(wb, ctx) {
   const ws = wb.addWorksheet('Detalle')
   titulo(ws, `Detalle — ${mesEnPalabras(ctx.mes)}`,
-    `Una fila por comisión (${ctx.detalle.length}). "Cómo se calculó" es la cuenta escrita; "Por qué está así" dice qué le falta para pagarse.`)
+    `Una fila por bonificación (${ctx.detalle.length}). "Cómo se calculó" es la cuenta escrita; "Por qué está así" dice qué le falta para pagarse.`)
 
   const filas = [...ctx.detalle].sort((a, b) =>
     String(a.vendedor_nombre).localeCompare(String(b.vendedor_nombre)) || String(a.fecha_venta).localeCompare(String(b.fecha_venta)))
@@ -587,12 +587,12 @@ function hojaDetalle(wb, ctx) {
     { titulo: 'Fecha venta', campo: c => fecha(c.fecha_venta), ancho: 11 },
     { titulo: 'Tipo', campo: c => c.forma_pago === 'parte_pool' ? 'Parte del equipo' : (c.es_restauracion ? 'Restauración' : 'Venta'), ancho: 13 },
     { titulo: 'Cómo se paga', campo: c => FORMA[c.forma_pago] ?? 'Pool del equipo', ancho: 22 },
-    { titulo: 'Valor (base comisionable)', campo: c => n(c.valor_orden), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Valor (base bonificable)', campo: c => n(c.valor_orden), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Pagado por el cliente %', campo: c => c.forma_pago === 'parte_pool' ? null : n(c.pct_pagado), fmt: 'pct', ancho: 11 },
     { titulo: `Cumple ${num(R().req_pagado_pct)}% pagado`, campo: c => c.forma_pago === 'parte_pool' ? '' : siNo(c.req_50_pct), ancho: 10, color: c => c.forma_pago !== 'parte_pool' && !c.req_50_pct ? AMBAR : null },
     { titulo: 'Pagado con tarjeta o Addi', campo: c => n(c.pagado_tarjeta), fmt: 'pesos', ancho: 14 },
     { titulo: 'Costo datáfono', campo: c => n(c.costo_datafono), fmt: 'pesos', ancho: 13 },
-    { titulo: 'COMISIÓN', campo: c => n(c.monto_comision), fmt: 'pesos', ancho: 15, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN', campo: c => n(c.monto_comision), fmt: 'pesos', ancho: 15, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Estado', campo: c => ESTADO[c.estado_calculado ?? c.estado] ?? '', ancho: 15,
       color: c => ({ pagada: GRIS, lista: VERDE_CLARO, pendiente: AMBAR })[c.estado_calculado ?? c.estado] },
     { titulo: 'Se paga desde', campo: c => fecha(c.fecha_disponible), ancho: 12 },
@@ -640,9 +640,9 @@ function hojaIndependientes(wb, ctx) {
     { titulo: 'Vendió', campo: 'vendio', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: '   en ventas', campo: 'vendio_venta', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: '   en restauraciones', campo: 'vendio_restauracion', fmt: 'pesos', ancho: 15, total: 'suma' },
-    { titulo: 'Comisión de lo suyo', campo: 'comision_ventas_propias', fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Bonificación de lo suyo', campo: 'comision_ventas_propias', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Del bolsón de restauraciones', campo: 'comision_restauraciones', fmt: 'pesos', ancho: 16, total: 'suma' },
-    { titulo: 'COMISIÓN TOTAL', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN TOTAL', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Listo para pagar', campo: 'comision_lista', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Todavía pendiente', campo: 'comision_pendiente', fmt: 'pesos', ancho: 15, total: 'suma' },
   ], soloEste, { totales: true })
@@ -673,7 +673,7 @@ function hojaIndependientes(wb, ctx) {
       { titulo: 'Órdenes compartidas', campo: 'ordenes', fmt: 'entero', ancho: 12, total: 'suma' },
       { titulo: 'Valor compartido', campo: 'compartido', fmt: 'pesos', ancho: 16, total: 'suma' },
       { titulo: 'Le suma a su meta', campo: 'suma_a_meta', fmt: 'pesos', ancho: 16, total: 'suma' },
-      { titulo: 'Comisión para su gente', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma' },
+      { titulo: 'Bonificación para su gente', campo: 'comision', fmt: 'pesos', ancho: 16, total: 'suma' },
       { titulo: '   de eso, listo', campo: 'comision_lista', fmt: 'pesos', ancho: 14, total: 'suma' },
     ], d.almacenes, { totales: true })
   }
@@ -689,7 +689,7 @@ function hojaMetasEquipos(wb, ctx) {
   tabla(ws, [
     { titulo: 'Tienda', campo: 'nombre', ancho: 26 },
     { titulo: 'Meta del mes', campo: m => n(m.meta) || null, fmt: 'pesos', ancho: 16 },
-    { titulo: 'Reparte comisión', campo: m => m.comisiones_compartidas ? 'Sí — pool del equipo' : 'No — cada uno lo suyo', ancho: 22 },
+    { titulo: 'Reparte bonificación', campo: m => m.comisiones_compartidas ? 'Sí — pool del equipo' : 'No — cada uno lo suyo', ancho: 22 },
     { titulo: 'Equipo', campo: m => (m.asesores ?? []).map(a => a.nombre).join('\n') || '—', ancho: 30 },
     { titulo: 'Reparto por días (con reemplazos)', campo: m => {
       const r = ctx.reparto[m.tienda_id]
@@ -831,7 +831,7 @@ function hojaReemplazos(wb, ctx) {
     // 2. El pool y cuánto vale un día
     seccion(ws, '2. El pool del mes y cuánto vale un día')
     if (trimestral) {
-      explicar(ws, ['• El pool se calcula por trimestre (ver la hoja de la tienda en Comisiones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
+      explicar(ws, ['• El pool se calcula por trimestre (ver la hoja de la tienda en Bonificaciones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
     } else if (!filaPool || pool <= 0) {
       explicar(ws, [`• Este mes la tienda no pasó la meta con lo que tiene ${partePagada(R({ tienda_id: tiendaId }).meta_req_pagado_pct)}: el pool es $0 y no hay nada que repartir.`])
     } else {
@@ -901,7 +901,7 @@ function hojaReemplazos(wb, ctx) {
 function hojaComoSeCalcula(wb) {
   const ws = wb.addWorksheet('Cómo se calcula')
   ws.getColumn(1).width = 120
-  titulo(ws, 'Cómo se calcula una comisión', 'Las reglas en palabras, para leer los números de las otras hojas.')
+  titulo(ws, 'Cómo se calcula una bonificación', 'Las reglas en palabras, para leer los números de las otras hojas.')
 
   // Las reglas generales del mes. Las de una tienda o una persona pueden ser
   // otras: se avisa abajo y la cuenta de cada fila ya va con las suyas.
@@ -913,9 +913,9 @@ function hojaComoSeCalcula(wb) {
 
   parrafos(ws, [
     '1. Cuándo nace',
-    '• Cada vez que se confirma una orden de venta (no borradores ni cotizaciones) se crea una comisión con el vendedor, la tienda, el mes y el valor.',
-    `• Si la venta es compartida entre dos vendedores, quien la registró comisiona sobre el ${num(r.compartida_parte_vendedor)}% y el compañero sobre el resto. Con un independiente y un almacén, cada uno por su lado.`,
-    `• Lo pagado con ${mediosConFranquicia(r)} no comisiona completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso, y ese pedazo se descuenta de la base.`,
+    '• Cada vez que se confirma una orden de venta (no borradores ni cotizaciones) se crea una bonificación con el vendedor, la tienda, el mes y el valor.',
+    `• Si la venta es compartida entre dos vendedores, quien la registró bonifica sobre el ${num(r.compartida_parte_vendedor)}% y el compañero sobre el resto. Con un independiente y un almacén, cada uno por su lado.`,
+    `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso, y ese pedazo se descuenta de la base.`,
     '',
     '2. A qué tienda le cuenta',
     '• Una venta FÍSICA es de la tienda donde se hizo la orden.',
@@ -945,7 +945,7 @@ function hojaComoSeCalcula(wb) {
     '5. Restauraciones',
     `• Valor${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}%${r.iva_en_restauracion ? '' : ', sin quitar IVA'}. Las restauraciones ${restauracionYMeta(r)}.`,
     r.reparto_restauracion === 'autor_primero'
-      ? `• En una tienda que reparte, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% de esa comisión y el resto se parte entre los demás que estaban ese día.`
+      ? `• En una tienda que reparte, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% de esa bonificación y el resto se parte entre los demás que estaban ese día.`
       : `• En una tienda que reparte, ese ${num(r.pct_restauracion)}% se parte entre los que estaban en la tienda ese día.`,
     '',
     '6. Cuándo se puede pagar (estado "Lista")',
@@ -955,12 +955,12 @@ function hojaComoSeCalcula(wb) {
     '• Hasta que se marque pagada el monto se recalcula: si cambian las ventas del mes, cambia. Al pagarla queda congelada.',
     '',
     '7. Columnas que confunden',
-    '• "Valor (base comisionable)": el valor de la orden menos el costo del datáfono, y solo la parte de cada uno si es compartida. No es lo que pagó el cliente.',
+    '• "Valor (base bonificable)": el valor de la orden menos el costo del datáfono, y solo la parte de cada uno si es compartida. No es lo que pagó el cliente.',
     `• "Vendido para la meta": suma de las ventas de la tienda que cuentan contra la meta (sin canceladas, sin independientes, más lo que un independiente le abonó). Las restauraciones ${restauracionYMeta(r)}.`,
     '• "Su parte del pool": días suyos sobre días de todo el equipo. En trimestrales, los días del trimestre entero.',
     ...(VIGENTES?.excepciones?.length
       ? ['', '8. Excepciones de este mes',
-         '• Algunas tiendas o personas tienen reglas distintas a las de arriba (Comisiones → Reglas). La cuenta de cada fila del Detalle ya va con las suyas.']
+         '• Algunas tiendas o personas tienen reglas distintas a las de arriba (Bonificaciones → Reglas). La cuenta de cada fila del Detalle ya va con las suyas.']
       : []),
   ])
   return ws
@@ -993,7 +993,7 @@ export async function exportarComisionesExcel(datos) {
   const sufijo = [f.vendedorNombre, f.estado ? ESTADO[f.estado] : null].filter(Boolean)
     .map(s => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_')).join('_')
   a.href     = url
-  a.download = `comisiones_${f.vista === 'mes' ? 'mes_' : ''}${datos.mes}${sufijo ? '_' + sufijo : ''}.xlsx`
+  a.download = `bonificaciones_${f.vista === 'mes' ? 'mes_' : ''}${datos.mes}${sufijo ? '_' + sufijo : ''}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -1060,6 +1060,6 @@ export async function armarLibro(datos) {
   hojaReemplazos(wb, ctx)
   hojaComoSeCalcula(wb)
 
-  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: `Comisiones ${mesEnPalabras(ctx.mes)}`, generadoEl: ctx.generadoEl }))
+  wb.worksheets.forEach(ws => paraImprimir(ws, { libro: `Bonificaciones ${mesEnPalabras(ctx.mes)}`, generadoEl: ctx.generadoEl }))
   return wb
 }

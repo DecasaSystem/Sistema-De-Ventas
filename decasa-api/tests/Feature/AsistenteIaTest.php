@@ -173,7 +173,7 @@ class AsistenteIaTest extends TestCase
         $this->assertStringNotContainsString('consultar_comisiones', $prompt);
         $this->assertStringNotContainsString('1,19', $prompt);
         // Sí se le dice que no tiene acceso, para que no improvise.
-        $this->assertMatchesRegularExpression('/NO tiene acceso: [^\n]*Comisiones/', $prompt);
+        $this->assertMatchesRegularExpression('/NO tiene acceso: [^\n]*Bonificaciones/', $prompt);
 
         $r = $this->agente()->ejecutarTool('consultar_comisiones', [], $vendedor);
         $this->assertSame('sin_permiso', $r['error']);

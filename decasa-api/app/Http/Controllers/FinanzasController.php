@@ -192,7 +192,7 @@ class FinanzasController extends Controller
             ['Nómina: sueldos',           'nomina.sueldos'],
             ['Nómina: aportes',           'nomina.aportes'],
             ['Nómina: prestaciones',      'nomina.prestaciones'],
-            ['Comisiones',                'comisiones.total'],
+            ['Bonificaciones',              'comisiones.total'],
             ['Gastos fijos',              'gastos.fijos'],
             ['Gastos variables',          'gastos.variables'],
             ['Gastos financieros',        'financieros.total'],
@@ -208,7 +208,7 @@ class FinanzasController extends Controller
         return Excel::download(
             new ReporteExport($rows, array_merge(['Concepto'], array_column($er['meses'], 'nombre')),
                 "Estado de resultados {$desde} a {$hasta}", [],
-                'Devengado. Materiales estimados con fichas técnicas; comisiones no pagadas al día de hoy.'),
+                'Devengado. Materiales estimados con fichas técnicas; bonificaciones no pagadas al día de hoy.'),
             "estado_resultados_{$desde}_{$hasta}.xlsx"
         );
     }

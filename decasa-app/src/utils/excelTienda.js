@@ -40,8 +40,8 @@ function estadoDeLaTienda(d) {
   if (n(d.lista) > 0 && n(d.pagado) > 0) return `Una parte ya se pagó y otra está lista para pagar (día de pago: ${fecha(d.se_cobra_el)}).`
   if (n(d.lista) > 0) return `Listo para pagar. Día de pago: ${fecha(d.se_cobra_el)}${d.personas.some(p => p.pago?.atrasada) ? ' (ya pasó: está atrasado)' : ''}.`
   if (n(d.pagado) > 0 && n(d.pendiente) <= 0) return 'Ya se pagó todo lo de este mes.'
-  if (n(d.comision_mes) <= 0) return 'Este mes no deja comisión en esta tienda.'
-  return `Día de pago: ${fecha(d.se_cobra_el)}. Hay comisiones que todavía no se pueden pagar (ver la hoja de cada persona).`
+  if (n(d.comision_mes) <= 0) return 'Este mes no deja bonificación en esta tienda.'
+  return `Día de pago: ${fecha(d.se_cobra_el)}. Hay bonificaciones que todavía no se pueden pagar (ver la hoja de cada persona).`
 }
 
 // ── Hoja de la tienda ─────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ function hojaTienda(wb, ctx) {
   ws.getColumn(1).width = 38
   ws.getColumn(2).width = 20
 
-  titulo(ws, `Comisiones de ${d.tienda_nombre} · ${mes}`,
+  titulo(ws, `Bonificaciones de ${d.tienda_nombre} · ${mes}`,
     `Ventas de ${mes} · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
   explicar(ws, [estadoDeLaTienda(d)])
   if (d.cerrada_en) explicar(ws, [`La tienda cerró el ${fecha(d.cerrada_en)}.`])
@@ -66,7 +66,7 @@ function hojaTienda(wb, ctx) {
     ['Vendido en el mes', n(t.vendido), 'pesos'],
     ['   Órdenes', n(t.ordenes), 'entero'],
     [`   Pagado con ${mediosConFranquicia(r)}`, n(t.tarjeta), 'pesos'],
-    [`   Franquicia (${num(r.franquicia_pct)}%): no comisiona`, n(t.datafono), 'pesos'],
+    [`   Franquicia (${num(r.franquicia_pct)}%): no bonifica`, n(t.datafono), 'pesos'],
     ['   Ventas', n(t.por_tipo?.venta?.monto), 'pesos'],
     ['   Restauraciones', n(t.por_tipo?.restauracion?.monto), 'pesos'],
     ['   FV2', n(t.por_tipo?.fv2?.monto), 'pesos'],
@@ -129,7 +129,7 @@ function hojaTienda(wb, ctx) {
   tabla(ws, [
     { titulo: 'Persona', campo: 'vendedor_nombre', ancho: 38 },
     { titulo: 'Días', campo: p => p.dias ?? '', ancho: 20 },
-    { titulo: 'Comisión del mes', campo: p => n(p.comision_mes), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Bonificación del mes', campo: p => n(p.comision_mes), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Ya pagado', campo: p => n(p.pagado), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Listo para pagar', campo: p => n(p.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: p => n(p.lista) > 0 ? VERDE_CLARO : null },
     { titulo: 'Anticipos que se descuentan', campo: p => n(p.pago?.se_descuenta), fmt: 'pesos', ancho: 16, total: 'suma' },
@@ -138,7 +138,7 @@ function hojaTienda(wb, ctx) {
     { titulo: 'No se paga', campo: p => partesDelMes(d, p).noSePaga, fmt: 'pesos', ancho: 14, total: 'suma' },
     { titulo: 'Cómo va', campo: p => estadoCorto(d, p), ancho: 24 },
   ], d.personas, { totales: true, filtro: false })
-  explicar(ws, ['"Comisión del mes" = ya pagado + listo para pagar + lo que todavía no se puede pagar + lo que no se paga (la tienda no llegó a la meta). "Se le entrega" es lo listo menos los anticipos y abonos que ya se le dieron.'])
+  explicar(ws, ['"Bonificación del mes" = ya pagado + listo para pagar + lo que todavía no se puede pagar + lo que no se paga (la tienda no llegó a la meta). "Se le entrega" es lo listo menos los anticipos y abonos que ya se le dieron.'])
 
   seccion(ws, 'Qué hay en cada hoja')
   fichas(ws, [
@@ -165,10 +165,10 @@ function columnasOrdenes() {
     { titulo: 'Cómo pagó', campo: 'medios', ancho: 26 },
     { titulo: 'Franquicia restada', campo: 'franquicia', fmt: 'pesos', ancho: 13, total: 'suma' },
     { titulo: '¿Por qué se resta o no la tarjeta?', campo: 'por_que_tarjeta', ancho: 40 },
-    { titulo: 'Base que comisiona', campo: 'base', fmt: 'pesos', ancho: 15 },
+    { titulo: 'Base que bonifica', campo: 'base', fmt: 'pesos', ancho: 15 },
     { titulo: 'Cómo sale la base', campo: 'base_texto', ancho: 32 },
     { titulo: 'IVA (÷ 1,19)', campo: 'iva', ancho: 24 },
-    { titulo: 'COMISIÓN', campo: 'comision', fmt: 'pesos', ancho: 14, total: 'suma', color: () => VERDE_CLARO },
+    { titulo: 'BONIFICACIÓN', campo: 'comision', fmt: 'pesos', ancho: 14, total: 'suma', color: () => VERDE_CLARO },
     { titulo: 'Estado', campo: 'estado', ancho: 26, color: f => f.estado_clave === 'pendiente' ? AMBAR : null },
     { titulo: 'De dónde sale', campo: 'como_sale', ancho: 56 },
   ]
@@ -199,7 +199,7 @@ function renglonesDe(d, p) {
       comision: n(o.monto_comision),
       estado: estadoDeOrden(o, p, d, r),
       estado_clave: o.estado,
-      como_sale: o.forma_pago === 'fuera_del_pool' ? 'Un supervisor la sacó del pool: no suma a la meta ni paga comisión.' : comoSale(o, b, r),
+      como_sale: o.forma_pago === 'fuera_del_pool' ? 'Un supervisor la sacó del pool: no suma a la meta ni paga bonificación.' : comoSale(o, b, r),
     }
   }).sort((a, b) => (a.orden === '(sin orden)') - (b.orden === '(sin orden)') || a.fecha_iso.localeCompare(b.fecha_iso))
 }
@@ -213,7 +213,7 @@ function hojaPersona(wb, ctx, p) {
   ws.getColumn(2).width = 22
 
   titulo(ws, `${p.vendedor_nombre} · ${d.tienda_nombre} · ${mes}`,
-    `Comisión de las ventas de ${mes} · generado el ${ctx.generadoEl}`)
+    `Bonificación de las ventas de ${mes} · generado el ${ctx.generadoEl}`)
 
   const listo = d.llego_el_dia && n(p.lista) > 0
   const partes = partesDelMes(d, p)
@@ -221,7 +221,7 @@ function hojaPersona(wb, ctx, p) {
     ['Cómo va', estadoCorto(d, p)],
     ['Día de pago', fecha(d.se_cobra_el)],
     ...(p.dias != null ? [['Días en la tienda', `${diasTexto(p.dias)} de ${d.dias_del_mes}`]] : []),
-    ['Comisión del mes', n(p.comision_mes), 'pesos'],
+    ['Bonificación del mes', n(p.comision_mes), 'pesos'],
     ['   Ya pagado', n(p.pagado), 'pesos'],
     ['   Listo para pagar', n(p.lista), 'pesos'],
     [d.llego_el_dia ? '   Todavía no se puede pagar' : '   Para el día de pago (cómo va)', partes.espera, 'pesos'],
@@ -248,7 +248,7 @@ function hojaPersona(wb, ctx, p) {
   const filas = renglonesDe(d, p)
   seccion(ws, `Sus órdenes de ${mes}`, filas.some(f => f.orden === '(sin orden)')
     ? '"(sin orden)" es su parte del pool cuando no tiene ventas propias que cuenten: se le paga entera en ese renglón.'
-    : 'En una tienda con pool, la comisión de cada orden es cómo se reparte su parte del pool sobre sus ventas que ya cuentan; la cuenta real es la del pool (hoja "La tienda").')
+    : 'En una tienda con pool, la bonificación de cada orden es cómo se reparte su parte del pool sobre sus ventas que ya cuentan; la cuenta real es la del pool (hoja "La tienda").')
   if (filas.length) {
     tabla(ws, columnasOrdenes(), filas, { totales: true, etiquetaTotal: 'TOTAL', filtro: false })
   } else {
@@ -315,7 +315,7 @@ function hojaPorCobrar(wb, ctx) {
   const d = ctx.d
   const r = R(d)
   const ws = wb.addWorksheet('Por cobrar')
-  titulo(ws, 'Por cobrar', `Órdenes del mes que no cuentan porque el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando las paguen, suman y comisionan en el próximo pago.`)
+  titulo(ws, 'Por cobrar', `Órdenes del mes que no cuentan porque el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando las paguen, suman y bonifican en el próximo pago.`)
   const filas = ordenesDeLaTienda(d).filter(x => !x.cuenta).map(x => ({
     orden: x.referencia ?? '',
     cliente: x.cliente ?? '',
@@ -342,13 +342,13 @@ function hojaComoSeCalcula(wb, ctx) {
   ws.getColumn(1).width = 120
   titulo(ws, 'Cómo se calcula', `Las reglas que rigen en ${mesEnPalabras(d.mes)} para ${d.tienda_nombre}.`)
   const lineas = [
-    '1. Cuándo se paga una comisión (las tres condiciones)',
+    '1. Cuándo se paga una bonificación (las tres condiciones)',
     `• El cliente pagó al menos ${laParte(r.req_pagado_pct)} de la orden.`,
     `• Llegó el día de pago: ${cuandoSePaga(r)} a la venta${d.periodicidad === 'trimestral' ? ' (en una tienda trimestral, después del cierre del trimestre)' : ''}.`,
     `• La tienda llegó a la meta, medida solo con las ventas que ya tienen ${laParte(r.meta_req_pagado_pct)} pagado.`,
     '',
     '2. La tarjeta',
-    `• Lo pagado con ${mediosConFranquicia(r)} no comisiona completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso y se le resta a la orden. Lo pagado en efectivo o transferencia no se toca.`,
+    `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso y se le resta a la orden. Lo pagado en efectivo o transferencia no se toca.`,
     '',
     '3. El IVA',
     `• A las ventas se les quita el IVA (÷ ${divisor(r.iva_divisor)}): en una tienda con pool se le quita al pool, no orden por orden.`,
@@ -364,14 +364,14 @@ function hojaComoSeCalcula(wb, ctx) {
     `• Lo que comparte un independiente con la tienda: la tienda cobra su ${num(r.almacen_pct)}% y se parte entre los que estaban ese día.`,
     '',
     '6. Anticipos y abonos',
-    '• Lo que se le adelantó se descuenta al pagar, del más viejo al más nuevo. La comisión no cambia; cambia lo que se entrega.',
+    '• Lo que se le adelantó se descuenta al pagar, del más viejo al más nuevo. La bonificación no cambia; cambia lo que se entrega.',
   ]
   for (const l of lineas) {
     const row = ws.addRow([l])
     row.font = l && !l.startsWith('•') ? { size: 10, bold: true } : { size: 10 }
     row.alignment = { wrapText: true, vertical: 'top' }
   }
-  const nota = ws.addRow(['Las cifras salen de la misma cuenta que muestra Comisiones y que se paga.'])
+  const nota = ws.addRow(['Las cifras salen de la misma cuenta que muestra Bonificaciones y que se paga.'])
   nota.font = { italic: true, size: 9, color: { argb: GRIS_TEXTO } }
 }
 
@@ -420,7 +420,7 @@ export async function armarLibroTienda({ libro, reglas = null, generadoPor }) {
   hojaOrdenes(wb, ctx)
   hojaPorCobrar(wb, ctx)
   hojaComoSeCalcula(wb, ctx)
-  const nombre = `Comisiones ${libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
+  const nombre = `Bonificaciones ${libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
   wb.worksheets.forEach(ws => paraImprimir(ws, { libro: nombre, generadoEl: ctx.generadoEl }))
   return wb
 }
@@ -434,7 +434,7 @@ export async function exportarTiendaExcel(datos) {
   const a = document.createElement('a')
   const tienda = String(datos.libro.tienda_nombre ?? 'tienda').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
   a.href = url
-  a.download = `comisiones_${tienda}_${datos.libro.mes}.xlsx`
+  a.download = `bonificaciones_${tienda}_${datos.libro.mes}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

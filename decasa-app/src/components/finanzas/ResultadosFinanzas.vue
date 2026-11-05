@@ -67,7 +67,7 @@ const LINEAS = [
   { t: '− Sueldos',             v: f => -f.nomina.sueldos, sub: true },
   { t: '− Aportes',             v: f => -f.nomina.aportes, sub: true },
   { t: '− Prestaciones',        v: f => -f.nomina.prestaciones, sub: true },
-  { t: '− Comisiones',          v: f => -f.comisiones.total, sub: true },
+  { t: '− Bonificaciones',          v: f => -f.comisiones.total, sub: true },
   { t: '− Gastos fijos',        v: f => -f.gastos.fijos, sub: true },
   { t: '− Gastos variables',    v: f => -f.gastos.variables, sub: true },
   { t: '− Financieros',         v: f => -f.financieros.total, sub: true },
@@ -89,7 +89,7 @@ function armarComposicion(c) {
           backgroundColor: c.ingresos, pointRadius: 2, tension: 0.3, order: 0 },
         serie('Materiales', c.materiales, f => f.costo_produccion.monto),
         serie('Nómina', c.nomina, f => f.nomina.total),
-        serie('Comisiones', c.comisiones, f => f.comisiones.total),
+        serie('Bonificaciones', c.comisiones, f => f.comisiones.total),
         serie('Gastos', c.gastos, f => f.gastos.total),
         serie('Financieros', c.financieros, f => f.financieros.total),
       ],
@@ -262,7 +262,7 @@ async function exportar() {
           </table>
         </div>
         <p class="text-[10px] text-gray-400 px-4 py-3">
-          * Mes en curso. Materiales estimados con las fichas técnicas; comisiones sin pagar, al día de hoy.
+          * Mes en curso. Materiales estimados con las fichas técnicas; bonificaciones sin pagar, al día de hoy.
           <template v-if="filas.some(f => f.sin_gastos_registrados)">Los meses sin gastos registrados salen con más utilidad de la real.</template>
         </p>
       </div>

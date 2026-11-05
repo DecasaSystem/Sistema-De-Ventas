@@ -924,13 +924,13 @@ onBeforeUnmount(() => {
                 + {{ cop(t.meta_mes.sin_mitad) }} vendido sin {{ partePagada(reglasCom.meta_req_pagado_pct) }} (todavía no cuenta)
               </p>
               <!-- No es el "vendido" de arriba: la meta se mide como en
-                   Comisiones (mes calendario, con el 50% pagado, sin
+                   Bonificaciones (mes calendario, con el 50% pagado, sin
                    restauraciones ni cancelados, con la mitad que abonan los
-                   independientes y sin la comisión del datáfono), y el período
+                   independientes y sin la bonificación del datáfono), y el período
                    de arriba puede ser otro. -->
               <p class="mt-1 text-[10px] text-gray-300 leading-snug">
-                Es lo del mes calendario que cuenta en Comisiones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
-                más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+                Es lo del mes calendario que cuenta en Bonificaciones: solo ventas con {{ partePagada(reglasCom.meta_req_pagado_pct) }} (sin restauraciones ni canceladas),
+                más {{ laParte(reglasCom.almacen_fraccion_meta) }} que le abonan los independientes, y a lo pagado con tarjeta se le quita la bonificación del datáfono.
               </p>
               <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>
               <p v-else class="mt-1 text-[11px] text-gray-400">

@@ -801,7 +801,7 @@ onMounted(cargar)
                 <span class="min-w-0">
                   <span class="text-xs font-semibold text-gray-800">No se resta el IVA</span>
                   <span class="block text-xs text-gray-500">
-                    Tu comisión de esta orden se saca sobre el valor completo, sin dividir por {{ divisor(reglasCom.iva_divisor) }}.
+                    Tu bonificación de esta orden se saca sobre el valor completo, sin dividir por {{ divisor(reglasCom.iva_divisor) }}.
                   </span>
                 </span>
               </label>

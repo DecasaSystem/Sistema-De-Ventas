@@ -82,19 +82,19 @@ class ReglasComision
         'franquicia_pct' => [
             'tipo' => 'fraccion', 'defecto' => ComisionController::COSTO_TARJETA, 'alcances' => ['general'],
             'nombre' => 'Lo que se queda la franquicia',
-            'explica' => 'De lo pagado con estos medios, esta parte no le llega a la empresa y nadie comisiona sobre ella.',
+            'explica' => 'De lo pagado con estos medios, esta parte no le llega a la empresa y nadie bonifica sobre ella.',
         ],
         'franquicia_metodos' => [
             'tipo' => 'lista', 'defecto' => ['tarjeta', 'addi'], 'alcances' => ['general'],
             'nombre' => 'Medios de pago con franquicia',
-            'explica' => 'Solo para comisiones. El descuento condicionado y Finanzas tienen su propia lista (Orden::METODOS_CON_FRANQUICIA).',
+            'explica' => 'Solo para bonificaciones. El descuento condicionado y Finanzas tienen su propia lista (Orden::METODOS_CON_FRANQUICIA).',
         ],
 
         // ── Cuándo se cobra ──────────────────────────────────────────────
         'req_pagado_pct' => [
             'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Lo que el cliente tiene que haber pagado para cobrar',
-            'explica' => 'Parte de la orden entera que el cliente debe haber pagado para que la comisión de esa venta se pueda pagar.',
+            'explica' => 'Parte de la orden entera que el cliente debe haber pagado para que la bonificación de esa venta se pueda pagar.',
         ],
         'req_pagado_restauracion' => [
             'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
@@ -109,7 +109,7 @@ class ReglasComision
         'dia_pago' => [
             'tipo' => 'entero', 'defecto' => 20, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Día de pago',
-            'explica' => 'Día del mes en que la comisión queda disponible.',
+            'explica' => 'Día del mes en que la bonificación queda disponible.',
         ],
         'meses_espera' => [
             'tipo' => 'entero', 'defecto' => 1, 'alcances' => ['general', 'tienda'],
@@ -127,7 +127,7 @@ class ReglasComision
             'explica' => 'Cada mes o por trimestre (los tres meses juntos, se paga al cerrar). Empieza siempre el primer mes de un trimestre: enero, abril, julio u octubre.',
             'opciones' => [
                 'de_la_tienda' => ['nombre' => 'Lo que dice la tienda',
-                    'explica' => 'Lo que está escogido en Comisiones → Metas ("Se liquida").'],
+                    'explica' => 'Lo que está escogido en Bonificaciones → Metas ("Se liquida").'],
                 'mensual'      => ['nombre' => 'Cada mes',
                     'explica' => 'Cada mes con su meta y su pool; se paga el día de pago del mes siguiente.'],
                 'trimestral'   => ['nombre' => 'Por trimestre',
@@ -256,7 +256,7 @@ class ReglasComision
         'parte_autor_restauracion' => [
             'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Parte de quien hizo la restauración',
-            'explica' => 'Solo con "Quien la hizo primero": qué parte de la comisión de la restauración es suya.',
+            'explica' => 'Solo con "Quien la hizo primero": qué parte de la bonificación de la restauración es suya.',
         ],
 
         // ── Independientes y almacenes ───────────────────────────────────
@@ -340,7 +340,7 @@ class ReglasComision
     public static function valor(string $clave, string $mes, ?int $tiendaId = null, ?int $usuarioId = null): mixed
     {
         if (! isset(self::CATALOGO[$clave])) {
-            throw new \InvalidArgumentException("Regla de comisión desconocida: {$clave}");
+            throw new \InvalidArgumentException("Regla de bonificación desconocida: {$clave}");
         }
 
         $filas = self::filas()[$clave] ?? null;
@@ -562,7 +562,7 @@ class ReglasComision
     {
         // Un sí/no entra como 1 o 0; una lista, una opción o unos tramos no tienen número.
         if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'opcion', 'tramos'], true)) {
-            throw new \InvalidArgumentException("Regla de comisión sin número: {$clave}");
+            throw new \InvalidArgumentException("Regla de bonificación sin número: {$clave}");
         }
 
         $defecto = self::literal((float) self::CATALOGO[$clave]['defecto']);
@@ -600,7 +600,7 @@ class ReglasComision
     public static function sqlEnLista(string $clave, string $columnaSql, string $mesSql): string
     {
         if (! isset(self::CATALOGO[$clave]) || self::CATALOGO[$clave]['tipo'] !== 'lista') {
-            throw new \InvalidArgumentException("Regla de comisión sin lista: {$clave}");
+            throw new \InvalidArgumentException("Regla de bonificación sin lista: {$clave}");
         }
 
         $enLista = function (?array $valores) use ($columnaSql): ?string {
