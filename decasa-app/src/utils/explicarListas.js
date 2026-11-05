@@ -432,7 +432,7 @@ export function explicacionDelMes(d, p, r) {
 export function estadoDelMes(d, p) {
   const lineas = []
   if (!d.llego_el_dia) {
-    lineas.push(`Todavía no llega el día de pago (${fecha(d.se_cobra_el)}): esto es cómo va. Puede cambiar si los clientes pagan lo que deben o si la tienda vende más.`)
+    lineas.push(`Todavía no llega el día de pago (${fecha(d.se_cobra_el)}): esto es cómo va. Puede cambiar si los clientes pagan lo que deben o si se vende más.`)
     return lineas
   }
   if (n(p.lista) > 0) {
@@ -563,6 +563,83 @@ function pendientesDelMes(d, p, r) {
     } else {
       lineas.push(`${cuantas}: esperan ${trimestral ? 'al cierre del trimestre' : 'a que la tienda llegue a la meta'}.`)
     }
+  }
+  return lineas
+}
+
+/**
+ * El mes de un independiente (GET /comisiones/libro-tienda?independiente_id=N).
+ * No es de ninguna tienda: cobra su % de sus ventas y su parte del bolsón de
+ * restauraciones de todos (dueño, 2026-11-05: "también los independientes, a
+ * cada uno, porque no pertenecen a tiendas").
+ */
+export function explicacionDelIndependiente(d, r) {
+  const mes = mesEnPalabras(d.mes)
+  const ordenes = d.ordenes ?? []
+  const bolson = d.bolson ?? {}
+  const lineas = []
+
+  lineas.push(n(d.de_sus_ventas) > 0 && n(d.del_bolson) > 0
+    ? `Bonificación de ${mes}: ${pesos(d.comision_mes)} = sus ventas ${pesos(d.de_sus_ventas)} + bolsón de restauraciones ${pesos(d.del_bolson)}.`
+    : `Bonificación de ${mes}: ${pesos(d.comision_mes)}${n(d.del_bolson) > 0 ? ' (todo del bolsón de restauraciones)' : ''}.`)
+  lineas.push(...estadoDelMes(d, d))
+  if (d.llego_el_dia && n(d.lista) > 0 && (n(d.por_pagar_ventas) > 0 || n(d.por_pagar_bolson) > 0)) {
+    lineas.push(`Lo listo sale de: sus ventas ${pesos(d.por_pagar_ventas)} + bolsón ${pesos(d.por_pagar_bolson)}.`)
+  }
+
+  lineas.push(`Es independiente: no pertenece a ninguna tienda, no tiene meta ni pool y no depende de lo que venda nadie más (salvo el bolsón).`)
+
+  // Sus ventas.
+  const ventas = ordenes.filter(o => !o.es_restauracion)
+  if (ventas.length) {
+    lineas.push(`Sus ventas: ${ventas.length} orden(es); a cada una le toca ${cuentaVenta(r, 'indep_pct_venta')}, sobre su valor menos la franquicia de la tarjeta → ${pesos(d.de_sus_ventas)} en el mes.`)
+  } else {
+    lineas.push('Este mes no tiene ventas propias (solo restauraciones): todo lo suyo viene del bolsón.')
+  }
+
+  // El bolsón.
+  const deTodos = (bolson.restauraciones ?? []).length
+  const quienes = (bolson.independientes ?? []).join(' y ')
+  lineas.push(`Bolsón de restauraciones de ${mes}: se juntan TODAS las restauraciones de los independientes (${quienes})`
+    + `${r.bolson_incluye_almacenes ? ' y las que subieron los almacenes' : ''}, la suba quien la suba: ${deTodos} por ${pesos(bolson.total)} (hoja "Bolsón").`)
+  lineas.push(r.bolson_modo === 'se_reparte'
+    ? `El ${num(r.indep_pct_bolson)}% del bolsón (sin quitarle el IVA) se reparte entre los independientes: su parte = ${pesos(d.del_bolson)}.`
+    : `Cada independiente cobra el ${num(r.indep_pct_bolson)}% del bolsón completo, sin quitarle el IVA (es mano de obra): ${pesos(bolson.total)} × ${num(r.indep_pct_bolson)}% = ${pesos(d.del_bolson)}.`)
+  if (n(bolson.listo) < n(bolson.total)) {
+    lineas.push(d.llego_el_dia
+      ? `De eso ya entra ${pesos(bolson.listo)} (las restauraciones cuyo cliente ya pagó ${laParte(r.req_pagado_pct)}): su parte lista del bolsón es ${pesos(d.del_bolson_listo)}. El resto entra cuando los clientes paguen.`
+      : `Al día de pago entra solo lo que el cliente ya haya pagado ${laParte(r.req_pagado_pct)}.`)
+  }
+
+  // Lo compartido con un almacén.
+  const conAlmacen = ordenes.filter(o => o.almacen)
+  if (conAlmacen.length) {
+    lineas.push(`${conAlmacen.map(o => o.orden_referencia).join(', ')}: compartida(s) con ${[...new Set(conAlmacen.map(o => o.almacen))].join(', ')}. Él cobra lo suyo igual; el almacén cobra su propio ${num(r.almacen_pct)}% aparte, partido entre su equipo.`)
+  }
+
+  // La tarjeta.
+  const tarjeta = ordenes.reduce((s, o) => s + n(o.pagado_tarjeta), 0)
+  const franquicia = ordenes.reduce((s, o) => s + n(o.costo_datafono), 0)
+  if (franquicia > 0) {
+    lineas.push(`En sus órdenes se pagaron ${pesos(tarjeta)} con ${mediosConFranquicia(r)}: la franquicia se queda con el ${num(r.franquicia_pct)}% (${pesos(franquicia)}) y sobre eso nadie bonifica.`)
+  }
+
+  // Sus órdenes que esperan la mitad.
+  const sinMitad = ordenes.filter(o => o.estado === 'pendiente' && !o.req_50_pct)
+  if (sinMitad.length) {
+    lineas.push(`${sinMitad.length} orden(es) suyas esperan que el cliente pague ${laParte(r.req_pagado_pct)}; cuando la paguen, entran en el próximo pago:`)
+    for (const o of sinMitad) {
+      const falta = Math.max(0, Math.ceil(n(o.valor_total_orden) * n(r.req_pagado_pct) - n(o.pagado)))
+      lineas.push(`   ${o.orden_referencia ?? 'Orden'}${o.cliente_nombre ? ` (${o.cliente_nombre})` : ''}: ha pagado ${pesos(o.pagado)} de ${pesos(o.valor_total_orden)}; le faltan ${pesos(falta)}.`)
+    }
+  }
+
+  // Anticipos.
+  if (d.pago && (n(d.pago.se_descuenta) > 0 || n(d.pago.debe_al_corte) > 0)) {
+    lineas.push(`Anticipos y abonos: debía ${pesos(d.pago.debe_al_corte)} a este corte. Al pagar se descuentan ${pesos(d.pago.se_descuenta)} → se le entregan ${pesos(d.pago.entregar)}.`)
+    if (n(d.pago.sigue_debiendo) > 0) lineas.push(`Después de pagarle sigue debiendo ${pesos(d.pago.sigue_debiendo)}: se descuenta en el próximo pago.`)
+  } else if (n(d.abonos_del_mes) > 0) {
+    lineas.push(`De esta bonificación ya se le dio un abono de ${pesos(d.abonos_del_mes)}: se descuenta al pagarla.`)
   }
   return lineas
 }

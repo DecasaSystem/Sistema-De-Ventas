@@ -1261,17 +1261,21 @@ async function cargarTiendasExcel() {
   try {
     const { data } = await api.get('/comisiones/libro-tienda', { params: { mes: excelMesTienda.value }, silencioso: true })
     excelTiendas.value = data ?? []
-    if (!excelTiendas.value.some(t => t.id === excelTienda.value)) excelTienda.value = ''
+    // "t:5" una tienda, "i:24" un independiente (dueño, 2026-11-05: "también
+    // los independientes, a cada uno, porque no pertenecen a tiendas").
+    const clave = t => `${t.tipo === 'independiente' ? 'i' : 't'}:${t.id}`
+    if (!excelTiendas.value.some(t => clave(t) === excelTienda.value)) excelTienda.value = ''
   } catch { /* se escoge de nuevo */ }
 }
 
 async function exportarExcelTienda() {
+  const [tipo, id] = String(excelTienda.value).split(':')
   const [{ data }, reglas] = await Promise.all([
-    api.get('/comisiones/libro-tienda', { params: { mes: excelMesTienda.value, tienda_id: excelTienda.value } }),
+    api.get('/comisiones/libro-tienda', { params: { mes: excelMesTienda.value, ...(tipo === 'i' ? { independiente_id: id } : { tienda_id: id }) } }),
     cargarReglasVigentes(excelMesTienda.value),
   ])
-  if (!data.personas?.length) {
-    toast.error(`${data.tienda_nombre} no tiene bonificaciones en ${nombreMes(excelMesTienda.value)}.`)
+  if (data.es_independiente ? !data.comision_mes && !data.ordenes?.length : !data.personas?.length) {
+    toast.error(`${data.es_independiente ? data.vendedor_nombre : data.tienda_nombre} no tiene bonificaciones en ${nombreMes(excelMesTienda.value)}.`)
     return false
   }
   const { exportarTiendaExcel } = await import('@/utils/excelTienda')
@@ -2927,21 +2931,26 @@ onMounted(async () => {
           <div class="flex items-start gap-2">
             <input type="radio" value="tienda" v-model="excelOpcion" @change="cargarTiendasExcel" class="mt-0.5 accent-green-600" />
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-semibold text-gray-800">Una tienda, para los vendedores</p>
-              <p class="text-[11px] text-gray-500 leading-snug">Una tienda en un mes, para mandárselo al equipo: qué se le paga a cada uno, si ya está listo o ya se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la cuenta del pool). Una hoja por persona.</p>
+              <p class="text-sm font-semibold text-gray-800">Una tienda o un independiente, para mandárselo</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Una tienda en un mes, para mandárselo al equipo: qué se le paga a cada uno, si ya está listo o ya se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la cuenta del pool). Una hoja por persona. Los independientes no son de ninguna tienda: cada uno sale solo, con sus ventas y el bolsón de restauraciones.</p>
               <div v-if="excelOpcion === 'tienda'" class="mt-2 space-y-2">
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-[11px] text-gray-600">Mes</p>
                   <input type="month" v-model="excelMesTienda" @change="cargarTiendasExcel" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
                 </div>
                 <div class="flex items-center justify-between gap-2">
-                  <p class="text-[11px] text-gray-600 shrink-0">Tienda</p>
+                  <p class="text-[11px] text-gray-600 shrink-0">De quién</p>
                   <select v-model="excelTienda" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                    <option value="">{{ excelTiendas.length ? 'Escoge la tienda' : 'Sin bonificaciones ese mes' }}</option>
-                    <option v-for="t in excelTiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                    <option value="">{{ excelTiendas.length ? 'Escoge' : 'Sin bonificaciones ese mes' }}</option>
+                    <optgroup v-if="excelTiendas.some(t => t.tipo !== 'independiente')" label="Tiendas">
+                      <option v-for="t in excelTiendas.filter(t => t.tipo !== 'independiente')" :key="'t' + t.id" :value="'t:' + t.id">{{ t.nombre }}</option>
+                    </optgroup>
+                    <optgroup v-if="excelTiendas.some(t => t.tipo === 'independiente')" label="Independientes">
+                      <option v-for="t in excelTiendas.filter(t => t.tipo === 'independiente')" :key="'i' + t.id" :value="'i:' + t.id">{{ t.nombre }}</option>
+                    </optgroup>
                   </select>
                 </div>
-                <p class="text-[10px] text-gray-500">Trae lo de todo el equipo de la tienda, con anticipos y abonos de cada uno.</p>
+                <p class="text-[10px] text-gray-500">Trae los anticipos y abonos de cada uno.</p>
               </div>
             </div>
           </div>

@@ -553,7 +553,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <ul>
             <li><b>Lo que se va a pagar</b>: lo mismo de Listas, con una hoja de <b>Comprobantes</b> (una persona por página, para imprimir, entregar y firmar, con cada anticipo y abono que se le descuenta), <b>Por cobrar</b> (lo que falta cobrar a los clientes para que esas ventas entren) y <b>Sin bonificación</b>.</li>
             <li><b>Un mes completo</b>: cualquier mes, entero, con cada orden y su cuenta.</li>
-            <li><b>Una tienda, para los vendedores</b>: una tienda en un mes, para mandárselo al equipo. Una hoja por persona con lo que se le paga, si ya está listo, si ya se pagó o si no se paga, y por qué: sus días, quién la cubrió, las órdenes sin {{ mitadCobro }}, la tarjeta y la cuenta del pool.</li>
+            <li><b>Una tienda o un independiente, para mandárselo</b>: una tienda en un mes, para mandárselo al equipo. Una hoja por persona con lo que se le paga, si ya está listo, si ya se pagó o si no se paga, y por qué: sus días, quién la cubrió, las órdenes sin {{ mitadCobro }}, la tarjeta y la cuenta del pool. Cada independiente sale solo (no es de ninguna tienda): sus ventas, el bolsón de restauraciones con cada una y si ya entra.</li>
             <li><b>Cómo va el mes</b>: el mes en curso, <b>estimado</b> (en ámbar): cuánto le falta a cada tienda y qué hay por cobrar.</li>
           </ul>
           <p class="nota">Los textos de Listas y de los Excel salen de las mismas reglas que el cálculo: si se cambia una regla, dicen lo nuevo.</p>

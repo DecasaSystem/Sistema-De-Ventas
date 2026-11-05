@@ -56,7 +56,8 @@ Lo vendido sin la mitad pagada es venta, pero no suma a la meta hasta que la pag
   nuevo. La comisión no cambia; cambia lo que se entrega.
 - **Excel:** "Lo que se va a pagar" (con un comprobante por persona para firmar y la hoja Por
   cobrar), "Un mes completo", "Una tienda, para los vendedores" (una tienda en un mes, una hoja
-  por persona con lo que se le paga y por qué, para mandársela al equipo) y "Cómo va el mes"
+  por persona con lo que se le paga y por qué, para mandársela al equipo; o un independiente solo,
+  con sus ventas y el bolsón) y "Cómo va el mes"
   (estimado).
 - **Recalcular** pone al día los montos guardados (también solo, a las 6:30). Listas calcula al
   abrirse: lo que muestra es lo que se paga.

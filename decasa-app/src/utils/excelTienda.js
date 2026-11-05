@@ -20,7 +20,7 @@ import {
   mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar, paraImprimir,
 } from './excelComisiones'
 import { tipoDe, mediosTexto, porQueTarjeta, baseTexto, ivaTexto, comoSale } from './excelListas'
-import { explicacionDelMes, estadoCorto, estadoDeOrden, partesDelMes } from './explicarListas'
+import { explicacionDelMes, explicacionDelIndependiente, estadoCorto, estadoDeOrden, partesDelMes } from './explicarListas'
 import { reglasPara, num, divisor, cuentaPool, cuentaVenta, laParte, partePagada, mediosConFranquicia, restauracionYMeta, cuandoSePaga } from './reglasComision'
 
 let VIGENTES = null
@@ -174,9 +174,9 @@ function columnasOrdenes() {
   ]
 }
 
-function renglonesDe(d, p) {
+function renglonesDe(d, p, { independiente = false } = {}) {
   const r = R(d, p)
-  const b = { es_independiente: false, mes: d.mes, tienda_id: d.tienda_id, tienda_nombre: d.tienda_nombre }
+  const b = { es_independiente: independiente, mes: d.mes, tienda_id: d.tienda_id, tienda_nombre: d.tienda_nombre }
   return (p.ordenes ?? []).map(o => {
     const sinOrden = o.forma_pago === 'parte_pool'
     return {
@@ -196,7 +196,8 @@ function renglonesDe(d, p) {
       base: sinOrden ? null : n(o.valor_orden),
       base_texto: baseTexto(o, b, r),
       iva: ivaTexto(o, b, r),
-      comision: n(o.monto_comision),
+      // La restauración de un independiente no se le paga en su renglón: va al bolsón.
+      comision: independiente && o.es_restauracion ? 0 : n(o.monto_comision),
       estado: estadoDeOrden(o, p, d, r),
       estado_clave: o.estado,
       como_sale: o.forma_pago === 'fuera_del_pool' ? 'Un supervisor la sacó del pool: no suma a la meta ni paga bonificación.' : comoSale(o, b, r),
@@ -375,6 +376,129 @@ function hojaComoSeCalcula(wb, ctx) {
   nota.font = { italic: true, size: 9, color: { argb: GRIS_TEXTO } }
 }
 
+// ── Un independiente (no es de ninguna tienda) ────────────────────────────────
+
+function hojaIndependiente(wb, ctx) {
+  const d = ctx.d
+  const r = reglasPara(VIGENTES, { usuarioId: d.vendedor_id })
+  const mes = mesEnPalabras(d.mes)
+  const ws = wb.addWorksheet(String(d.vendedor_nombre ?? 'Independiente').replace(/[[\]:*?/\\.]/g, '').slice(0, 28) || 'Independiente')
+  ws.getColumn(1).width = 34
+  ws.getColumn(2).width = 22
+
+  titulo(ws, `${d.vendedor_nombre} · independiente · ${mes}`,
+    `Bonificación de las ventas y restauraciones de ${mes} · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
+
+  const listo = d.llego_el_dia && n(d.lista) > 0
+  fichas(ws, [
+    ['Cómo va', estadoCorto(d, d)],
+    ['Día de pago', fecha(d.se_cobra_el)],
+    ['Vendió en el mes', n(d.vendio), 'pesos'],
+    ['Bonificación del mes', n(d.comision_mes), 'pesos'],
+    ['   De sus ventas', n(d.de_sus_ventas), 'pesos'],
+    ['   Del bolsón de restauraciones', n(d.del_bolson), 'pesos'],
+    ['Ya pagado', n(d.pagado), 'pesos'],
+    ['Listo para pagar', n(d.lista), 'pesos'],
+    [d.llego_el_dia ? 'Todavía no se puede pagar' : 'Para el día de pago (cómo va)', n(d.pendiente), 'pesos'],
+    ...(listo ? [
+      ['Anticipos y abonos que se descuentan', n(d.pago?.se_descuenta), 'pesos'],
+      ['SE LE ENTREGA', n(d.pago?.entregar ?? d.lista), 'pesos'],
+    ] : []),
+  ])
+  if (listo) {
+    const fila = ws.lastRow
+    fila.font = { bold: true, size: 12 }
+    fila.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VERDE_CLARO } }
+  }
+
+  seccion(ws, 'Por qué')
+  explicar(ws, explicacionDelIndependiente(d, r).map(l => l.startsWith('   ') ? l : `• ${l}`))
+
+  if ((d.anticipos_detalle ?? []).length) {
+    seccion(ws, 'Anticipos y abonos que se le descuentan', 'Ya se le dieron; se descuentan del más viejo al más nuevo.')
+    explicar(ws, d.anticipos_detalle.map(a => `• ${mesEnPalabras(a.mes)} · ${a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`))
+  }
+
+  const filas = renglonesDe(d, d, { independiente: true })
+  seccion(ws, `Sus órdenes de ${mes}`, 'Sus restauraciones salen con $0 aquí: no se le pagan una por una, entran al bolsón (hoja "Bolsón").')
+  if (filas.length) {
+    tabla(ws, columnasOrdenes(), filas, { totales: true, etiquetaTotal: 'TOTAL DE SUS VENTAS', filtro: false })
+  } else {
+    ws.addRow(['No tiene órdenes propias este mes.'])
+  }
+}
+
+function hojaBolson(wb, ctx) {
+  const d = ctx.d
+  const r = reglasPara(VIGENTES, { usuarioId: d.vendedor_id })
+  const b = d.bolson ?? {}
+  const mes = mesEnPalabras(d.mes)
+  const ws = wb.addWorksheet('Bolsón')
+  titulo(ws, `Bolsón de restauraciones · ${mes}`,
+    `Todas las restauraciones de los independientes${r.bolson_incluye_almacenes ? ' y de los almacenes' : ''} del mes, la suba quien la suba. "Entra" = el cliente ya pagó ${laParte(r.req_pagado_pct)} y llegó el día de pago.`)
+  fichas(ws, [
+    ['Bolsón del mes', n(b.total), 'pesos'],
+    ['   Lo que ya entra', n(b.listo), 'pesos'],
+    [r.bolson_modo === 'se_reparte' ? `Su parte (${num(r.indep_pct_bolson)}% repartido)` : `Su ${num(r.indep_pct_bolson)}% del bolsón`, n(d.del_bolson), 'pesos'],
+    ['   De lo que ya entra', n(d.del_bolson_listo), 'pesos'],
+  ])
+  const filas = (b.restauraciones ?? []).map(o => ({
+    orden: o.referencia ?? '',
+    cliente: o.cliente ?? '',
+    fecha: fecha(o.fecha),
+    quien: o.de_almacen ? `${o.vendedor} (${o.de_almacen})` : o.vendedor,
+    valor: n(o.valor),
+    pagado: n(o.pagado),
+    entra: o.lista ? 'Sí' : 'No',
+    falta: o.lista ? null : Math.max(0, Math.ceil(n(o.valor_orden) * n(r.req_pagado_pct) - n(o.pagado))),
+  }))
+  if (!filas.length) { ws.addRow(['No hubo restauraciones este mes.']); return }
+  seccion(ws, 'Las restauraciones del bolsón')
+  tabla(ws, [
+    { titulo: 'Orden', campo: 'orden', ancho: 11 },
+    { titulo: 'Cliente', campo: 'cliente', ancho: 26 },
+    { titulo: 'Fecha', campo: 'fecha', ancho: 11 },
+    { titulo: 'Quién la subió', campo: 'quien', ancho: 24 },
+    { titulo: 'Valor (sin franquicia)', campo: 'valor', fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Pagado por el cliente', campo: 'pagado', fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Entra', campo: 'entra', ancho: 8, color: f => f.entra === 'No' ? AMBAR : null },
+    { titulo: 'Le falta para entrar', campo: 'falta', fmt: 'pesos', ancho: 16, total: 'suma' },
+  ], filas, { totales: true, etiquetaTotal: `BOLSÓN (${filas.length})`, filtro: false })
+}
+
+function hojaComoSeCalculaIndependiente(wb, ctx) {
+  const d = ctx.d
+  const r = reglasPara(VIGENTES, { usuarioId: d.vendedor_id })
+  const ws = wb.addWorksheet('Cómo se calcula')
+  ws.getColumn(1).width = 120
+  titulo(ws, 'Cómo se calcula (independientes)', `Las reglas que rigen en ${mesEnPalabras(d.mes)}.`)
+  const lineas = [
+    '1. Sus ventas',
+    `• Cobra el ${num(r.indep_pct_venta)}% de cada venta suya (${cuentaVenta(r, 'indep_pct_venta')}), sin meta ni pool.`,
+    `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% y se le resta a la orden.`,
+    '',
+    '2. El bolsón de restauraciones',
+    `• Se juntan todas las restauraciones del mes de los independientes${r.bolson_incluye_almacenes ? ' y de los almacenes' : ''}.`,
+    r.bolson_modo === 'se_reparte'
+      ? `• El ${num(r.indep_pct_bolson)}% del bolsón, sin quitarle el IVA, se reparte entre los independientes.`
+      : `• Cada independiente cobra el ${num(r.indep_pct_bolson)}% del bolsón completo, sin quitarle el IVA (es mano de obra).`,
+    '',
+    '3. Cuándo se paga',
+    `• Cuando el cliente pagó al menos ${laParte(r.req_pagado_pct)} de la orden y llegó el día de pago (${cuandoSePaga(r)} a la venta). Lo que falte entra en un pago siguiente cuando el cliente pague.`,
+    '',
+    '4. Con un almacén',
+    `• Si comparte una venta con una tienda, él cobra lo suyo igual y la tienda cobra su propio ${num(r.almacen_pct)}% aparte.`,
+    '',
+    '5. Anticipos y abonos',
+    '• Lo que se le adelantó se descuenta al pagar, del más viejo al más nuevo. La bonificación no cambia; cambia lo que se entrega.',
+  ]
+  for (const l of lineas) {
+    const row = ws.addRow([l])
+    row.font = l && !l.startsWith('•') ? { size: 10, bold: true } : { size: 10 }
+    row.alignment = { wrapText: true, vertical: 'top' }
+  }
+}
+
 // ── Punto de entrada ──────────────────────────────────────────────────────────
 
 /** Nombres de hoja únicos y válidos para Excel (31 letras, sin []:*?/\). */
@@ -415,12 +539,18 @@ export async function armarLibroTienda({ libro, reglas = null, generadoPor }) {
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
   }
 
-  hojaTienda(wb, ctx)
-  for (const p of libro.personas ?? []) hojaPersona(wb, ctx, p)
-  hojaOrdenes(wb, ctx)
-  hojaPorCobrar(wb, ctx)
-  hojaComoSeCalcula(wb, ctx)
-  const nombre = `Bonificaciones ${libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
+  if (libro.es_independiente) {
+    hojaIndependiente(wb, ctx)
+    hojaBolson(wb, ctx)
+    hojaComoSeCalculaIndependiente(wb, ctx)
+  } else {
+    hojaTienda(wb, ctx)
+    for (const p of libro.personas ?? []) hojaPersona(wb, ctx, p)
+    hojaOrdenes(wb, ctx)
+    hojaPorCobrar(wb, ctx)
+    hojaComoSeCalcula(wb, ctx)
+  }
+  const nombre = `Bonificaciones ${libro.es_independiente ? libro.vendedor_nombre : libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
   wb.worksheets.forEach(ws => paraImprimir(ws, { libro: nombre, generadoEl: ctx.generadoEl }))
   return wb
 }
@@ -432,7 +562,7 @@ export async function exportarTiendaExcel(datos) {
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  const tienda = String(datos.libro.tienda_nombre ?? 'tienda').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  const tienda = String((datos.libro.es_independiente ? datos.libro.vendedor_nombre : datos.libro.tienda_nombre) ?? 'tienda').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
   a.href = url
   a.download = `bonificaciones_${tienda}_${datos.libro.mes}.xlsx`
   document.body.appendChild(a)

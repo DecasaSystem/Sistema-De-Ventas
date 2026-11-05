@@ -3198,7 +3198,7 @@ class ComisionController extends Controller
         $mes = self::mesPedido($request);
         if ($mes === null) return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
 
-        if (! $request->filled('tienda_id')) {
+        if (! $request->filled('tienda_id') && ! $request->filled('independiente_id')) {
             // Las que tienen comisiones de alguien que no es independiente: lo
             // de los independientes va en su propio bloque, no es una tienda
             // (en producción su sede no tiene la marca es_independientes).
@@ -3206,8 +3206,20 @@ class ComisionController extends Controller
                 ->whereIn('vendedor_id', Usuario::where(fn ($q) => $q->where('independiente', false)->orWhereNull('independiente'))->select('id'))
                 ->distinct()->pluck('tienda_id')->all();
 
-            return response()->json(Tienda::whereIn('id', $ids)->orderBy('nombre')->get(['id', 'nombre'])
-                ->map(fn ($t) => ['id' => $t->id, 'nombre' => $t->nombre])->values());
+            $tiendas = Tienda::whereIn('id', $ids)->orderBy('nombre')->get(['id', 'nombre'])
+                ->map(fn ($t) => ['id' => $t->id, 'nombre' => $t->nombre, 'tipo' => 'tienda']);
+            // Y cada independiente con algo ese mes, aparte: no son de ninguna
+            // tienda (dueño, 2026-11-05: "también los independientes, a cada uno").
+            $indep = collect(\App\Services\ComisionIndependientes::delMes($mes)['independientes'])
+                ->filter(fn ($i) => (float) $i['comision'] > 0 || (float) $i['vendio'] > 0)
+                ->sortBy('nombre')
+                ->map(fn ($i) => ['id' => (int) $i['vendedor_id'], 'nombre' => $i['nombre'], 'tipo' => 'independiente']);
+
+            return response()->json($tiendas->concat($indep)->values());
+        }
+
+        if ($request->filled('independiente_id')) {
+            return $this->libroIndependiente($mes, (int) $request->query('independiente_id'));
         }
 
         $tiendaId = (int) $request->query('tienda_id');
@@ -3302,6 +3314,101 @@ class ComisionController extends Controller
             'pagado'        => $personas->sum('pagado'),
             'lista'         => $personas->sum('lista'),
             'pendiente'     => $personas->sum('pendiente'),
+        ]);
+    }
+
+    /**
+     * El libro de un independiente en un mes (GET /comisiones/libro-tienda
+     * ?independiente_id=N): no es de ninguna tienda, así que va solo. Lo suyo
+     * son sus ventas (su % de cada una) y su parte del bolsón de restauraciones
+     * de todos. Las cifras son las del resumen del mes (la tarjeta que pinta la
+     * pantalla) y las de ComisionIndependientes::delMes; lo que se descuenta,
+     * de Listas, como en las tiendas.
+     */
+    private function libroIndependiente(string $mes, int $vendedorId)
+    {
+        $usuario = Usuario::find($vendedorId);
+        if (! $usuario || ! $usuario->independiente) {
+            return response()->json(['message' => 'Independiente no encontrado.'], 404);
+        }
+
+        $delMes = \App\Services\ComisionIndependientes::delMes($mes);
+        $suyo   = collect($delMes['independientes'])->firstWhere('vendedor_id', $vendedorId);
+        $tarjeta = $this->resumenDelMes($mes, true)
+            ->first(fn ($t) => (int) $t['vendedor_id'] === $vendedorId && ! empty($t['es_independiente']));
+
+        $hoy        = self::hoy();
+        $diaDePago  = self::ultimoDiaDePago($hoy);
+        $mesQueToca = $diaDePago->copy()->subMonthsNoOverflow((int) ReglasComision::valor('meses_espera', $diaDePago->format('Y-m')))->format('Y-m');
+        $seCobra    = (string) $delMes['se_cobra_el'];
+
+        $pago = null;
+        if ($tarjeta && $mes <= $mesQueToca && round((float) ($tarjeta['comision_lista'] ?? 0)) > 0) {
+            foreach ($this->loQueHayPorPagar(null, true)['personas'] as $p) {
+                if ((int) $p['vendedor_id'] !== $vendedorId) continue;
+                foreach ($p['bloques'] as $b) {
+                    if ($b['mes'] !== $mes || empty($b['es_independiente'])) continue;
+                    $pago = [
+                        'se_descuenta'   => (float) $b['se_descuenta'],
+                        'entregar'       => (float) $b['entregar'],
+                        'debe_al_corte'  => (float) ($b['debe_al_corte'] ?? 0),
+                        'atrasada'       => (bool) $b['atrasada'],
+                        'sigue_debiendo' => (float) $p['sigue_debiendo'],
+                        'otros_meses'    => count($p['bloques']) - 1,
+                    ];
+                }
+            }
+        }
+
+        // El bolsón entero del mes, con lo de quién es cada restauración y si
+        // ya entra (la mitad pagada y el día de pago): el independiente cobra
+        // su parte de todo, no de lo suyo.
+        $pctCobrar = ReglasComision::numero('req_pagado_pct', $mes);
+        $bolson = collect($delMes['ordenes'])->where('es_restauracion', true)
+            ->map(fn ($o) => ['referencia' => $o['referencia'], 'cliente' => $o['cliente'] ?? null, 'vendedor' => $o['vendedor'],
+                              'de_almacen' => null, 'valor' => (float) $o['valor'], 'valor_orden' => (float) ($o['valor_orden_entera'] ?? $o['valor']),
+                              'pagado' => (float) $o['pagado'], 'lista' => (bool) $o['lista'], 'fecha' => $o['fecha']])
+            ->merge(collect(ReglasComision::si('bolson_incluye_almacenes', $mes) ? ($delMes['restauraciones_almacenes'] ?? []) : [])
+                ->map(fn ($o) => ['referencia' => $o['referencia'], 'cliente' => $o['cliente'] ?? null, 'vendedor' => $o['vendedor'],
+                                  'de_almacen' => $o['almacen'] ?? null, 'valor' => (float) $o['valor'], 'valor_orden' => (float) $o['valor'],
+                                  'pagado' => (float) $o['pagado'], 'lista' => (bool) $o['lista'], 'fecha' => $o['fecha']]))
+            ->sortBy('fecha')->values();
+
+        $comision = (float) ($suyo['comision'] ?? 0);
+        $pagado   = (float) ($suyo['comision_pagada'] ?? 0);
+        $porPagar = (float) ($suyo['comision_por_pagar'] ?? 0);
+
+        return response()->json([
+            'mes'             => $mes,
+            'es_independiente'=> true,
+            'vendedor_id'     => $vendedorId,
+            'vendedor_nombre' => $usuario->nombre,
+            'se_cobra_el'     => $seCobra,
+            'llego_el_dia'    => $hoy->toDateString() >= $seCobra,
+            'hoy'             => $hoy->toDateString(),
+            'mes_en_curso'    => $mes >= $hoy->format('Y-m'),
+            'requiere_pct'    => $pctCobrar,
+            'comision_mes'    => round($comision),
+            'pagado'          => round($pagado),
+            'lista'           => round($porPagar),
+            'pendiente'       => round(max(0, $comision - $pagado - $porPagar)),
+            'de_sus_ventas'   => round((float) ($suyo['comision_ventas_propias'] ?? 0)),
+            'del_bolson'      => round((float) ($suyo['comision_restauraciones'] ?? 0)),
+            'del_bolson_listo'=> round((float) ($suyo['comision_restauraciones_lista'] ?? 0)),
+            'por_pagar_ventas'=> (float) ($suyo['por_pagar_ventas'] ?? 0),
+            'por_pagar_bolson'=> (float) ($suyo['por_pagar_bolson'] ?? 0),
+            'vendio'          => round((float) ($suyo['vendio'] ?? 0)),
+            'bolson'          => [
+                'total'          => round($bolson->sum('valor')),
+                'listo'          => round($bolson->where('lista', true)->sum('valor')),
+                'restauraciones' => $bolson->all(),
+                'independientes' => collect($delMes['independientes'])->pluck('nombre')->values()->all(),
+            ],
+            'almacenes'       => collect($delMes['almacenes'] ?? [])->values()->all(),
+            'ordenes'         => collect($tarjeta['ordenes'] ?? [])->values()->all(),
+            'pago'            => $pago,
+            'anticipos_detalle' => $pago ? AnticiposComision::pendientesDeDescontar($vendedorId, $mes) : [],
+            'abonos_del_mes'  => (float) (AnticiposComision::abonosPorMes([$vendedorId])[$vendedorId][$mes] ?? 0),
         ]);
     }
 

@@ -384,6 +384,38 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals([50_000, 50_000], $this->bolsonDeDos());
     }
 
+    public function test_el_excel_de_un_independiente_dice_lo_mismo_que_listas(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->bolsonDeDos();
+        // Una venta de Henry, pagada: 1.190.000 ÷ 1,19 × 5 % = 50.000.
+        $this->orden(40, self::FERIA, 1_190_000, [['efectivo', 1_190_000]]);
+        $jefe = Usuario::find(self::JEFE);
+
+        $lista = collect($this->actingAs($jefe)->getJson('/api/comisiones/libro-tienda?mes=' . self::MES)->assertOk()->json());
+        $this->assertSame(['Flabio', 'Henry'], $lista->where('tipo', 'independiente')->pluck('nombre')->values()->all());
+
+        $henry = $this->actingAs($jefe)->getJson('/api/comisiones/libro-tienda?mes=' . self::MES . '&independiente_id=40')->assertOk()->json();
+        $this->assertTrue($henry['es_independiente']);
+        $this->assertEquals(50_000, $henry['de_sus_ventas']);
+        $this->assertEquals(50_000, $henry['del_bolson']);
+        $this->assertEquals(1_000_000, $henry['bolson']['total']);
+        $this->assertCount(1, $henry['bolson']['restauraciones']);
+        $this->assertEquals($henry['comision_mes'], $henry['pagado'] + $henry['lista'] + $henry['pendiente']);
+
+        $listas = collect($this->actingAs($jefe)->getJson('/api/comisiones/por-pagar?detalle=1')->json('personas'))->firstWhere('vendedor_id', 40);
+        $this->assertEquals($listas['lista'], $henry['lista']);
+        $this->assertEquals($listas['entregar'], $henry['pago']['entregar']);
+
+        // Flabio no vendió: lo suyo es todo del bolsón.
+        $flabio = $this->actingAs($jefe)->getJson('/api/comisiones/libro-tienda?mes=' . self::MES . '&independiente_id=41')->assertOk()->json();
+        $this->assertEquals(0, $flabio['de_sus_ventas']);
+        $this->assertEquals(50_000, $flabio['del_bolson']);
+
+        // Alguien que no es independiente no tiene este libro.
+        $this->actingAs($jefe)->getJson('/api/comisiones/libro-tienda?mes=' . self::MES . '&independiente_id=' . self::PAOLA)->assertNotFound();
+    }
+
     public function test_bolson_que_se_reparte_entre_los_que_entran(): void
     {
         Carbon::setTestNow('2026-11-21 10:00:00');

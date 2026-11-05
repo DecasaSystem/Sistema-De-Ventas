@@ -603,6 +603,12 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   los de Listas y compartiendo `otrosCaminos` / `fueraDelPoolTexto`. "No se paga" = lo que
   espera solo la meta en un mes ya cerrado que no llegó (o un trimestre cerrado sin pool).
   Tests en `ComisionesAtrasadasTest` (sección libro de la tienda).
+  **Independientes** (mismo día, pedido del dueño: "no pertenecen a tiendas"): la lista trae
+  también a cada independiente con algo ese mes (`tipo: 'independiente'`) y
+  `?independiente_id=N` devuelve su libro (`libroIndependiente`): su tarjeta del resumen, sus
+  cifras de `ComisionIndependientes::delMes` (de sus ventas, del bolsón, listo, pagado) y el
+  bolsón entero del mes con cada restauración y si ya entra. Hojas: la persona, Bolsón y Cómo se
+  calcula (`explicacionDelIndependiente`). Test en `ReglasDeComisionTest`.
 - **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
   "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
   `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →
