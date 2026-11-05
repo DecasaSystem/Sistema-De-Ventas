@@ -588,6 +588,37 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertNull($l['personas'][0]['pago']);
     }
 
+    public function test_el_libro_de_una_persona_junta_sus_tiendas_y_dice_lo_mismo(): void
+    {
+        // Juan cubre en Norte los primeros 10 días de septiembre.
+        DB::table('tiendas')->insert(['id' => 2, 'nombre' => 'Decasa Norte', 'comisiones_compartidas' => false]);
+        DB::table('tienda_reemplazos')->insert(['tienda_id' => 2, 'tipo' => 'reemplazo', 'usuario_id' => self::JUAN,
+            'desde' => '2026-09-01', 'hasta' => '2026-09-10', 'created_at' => now(), 'updated_at' => now()]);
+        TiendaReemplazo::olvidarCache();
+        $orden = Orden::create(['tienda_id' => 2, 'vendedor_id' => self::JUAN, 'estado' => 'entregado', 'valor_total' => 1_190_000]);
+        DB::table('ordenes')->where('id', $orden->id)->update(['created_at' => '2026-09-05 15:00:00']);
+        DB::table('orden_items')->insert(['orden_id' => $orden->id, 'precio_unitario' => 1_190_000]);
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 1_190_000, 'metodo' => 'efectivo', 'created_at' => '2026-09-05 15:00:00']);
+        ComisionController::crearParaOrden($orden->fresh());
+
+        $p = $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09&persona_id=' . self::JUAN)->assertOk()->json();
+        $this->assertTrue($p['es_persona']);
+        $this->assertSame(['Decasa El Edén', 'Decasa Norte'], array_column($p['tiendas'], 'tienda_nombre'));
+
+        // Cada tienda dice lo mismo que el Excel de esa tienda, y él sigue saliendo ahí.
+        foreach ($p['tiendas'] as $t) {
+            $this->assertCount(1, $t['personas']);
+            $deLaTienda = $this->jefe()->getJson('/api/comisiones/libro-tienda?mes=2026-09&tienda_id=' . $t['tienda_id'])->json();
+            $enLaTienda = collect($deLaTienda['personas'])->firstWhere('vendedor_id', self::JUAN);
+            $this->assertNotNull($enLaTienda, 'sigue saliendo en el Excel de ' . $t['tienda_nombre']);
+            $this->assertEquals($enLaTienda['comision_mes'], $t['personas'][0]['comision_mes']);
+            $this->assertEquals($enLaTienda['lista'], $t['personas'][0]['lista']);
+        }
+        $this->assertEquals(array_sum(array_map(fn ($t) => $t['personas'][0]['comision_mes'], $p['tiendas'])), $p['comision_mes']);
+        $listas = $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas.0');
+        $this->assertEqualsWithDelta(collect($listas['bloques'])->where('mes', '2026-09')->sum('lista'), $p['lista'], 1);
+    }
+
     public function test_sin_acceso_a_comisiones_no_se_ve_el_libro_de_la_tienda(): void
     {
         $this->actingAs(Usuario::find(self::JUAN))

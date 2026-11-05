@@ -1192,9 +1192,11 @@ function abrirExcel() {
   excelMes.value       = mesActual.value
   excelVendedor.value  = vistaTab.value === 'vendedor' && vendedorSel.value ? vendedorSel.value : ''
   excelMesTienda.value = mesListas.value || mesActual.value
+  excelMesPersona.value = mesListas.value || mesActual.value
   hojaExcel.value = true
   cargarPersonasExcel()
   cargarTiendasExcel()
+  cargarPersonasDelMes()
 }
 
 async function exportarExcelListas(mes) {
@@ -1283,6 +1285,38 @@ async function exportarExcelTienda() {
   return true
 }
 
+// Una persona, con todas las tiendas donde estuvo en el mes (dueño,
+// 2026-11-05: quien cubrió media mes en otra tienda recibía dos archivos). En
+// el Excel de cada tienda sigue saliendo igual.
+const excelMesPersona  = ref('')
+const excelPersona     = ref('')
+const excelPersonasMes = ref([])
+
+async function cargarPersonasDelMes() {
+  excelPersonasMes.value = []
+  if (!excelMesPersona.value) return
+  try {
+    const { data } = await api.get('/comisiones/vendedores', { params: { mes: excelMesPersona.value }, silencioso: true })
+    excelPersonasMes.value = data ?? []
+    if (!excelPersonasMes.value.some(p => p.id === excelPersona.value)) excelPersona.value = ''
+  } catch { /* se escoge de nuevo */ }
+}
+
+async function exportarExcelPersona() {
+  const [{ data }, reglas] = await Promise.all([
+    api.get('/comisiones/libro-tienda', { params: { mes: excelMesPersona.value, persona_id: excelPersona.value } }),
+    cargarReglasVigentes(excelMesPersona.value),
+  ])
+  const vacio = data.es_persona ? !data.tiendas?.length : (!data.comision_mes && !data.ordenes?.length)
+  if (vacio) {
+    toast.error(`${data.vendedor_nombre} no tiene bonificaciones en ${nombreMes(excelMesPersona.value)}.`)
+    return false
+  }
+  const { exportarTiendaExcel } = await import('@/utils/excelTienda')
+  await exportarTiendaExcel({ libro: data, reglas, generadoPor: auth.usuario?.nombre })
+  return true
+}
+
 async function exportarExcelComoVa() {
   const mes = mesDeHoy()
   const [cRes, iRes, mRes, reglas] = await Promise.all([
@@ -1312,11 +1346,16 @@ async function descargarExcel() {
     toast.error('Escoge el mes y la tienda.')
     return
   }
+  if (excelOpcion.value === 'persona' && (!excelMesPersona.value || !excelPersona.value)) {
+    toast.error('Escoge el mes y la persona.')
+    return
+  }
   exportando.value = true
   try {
     const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
       : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
       : excelOpcion.value === 'tienda' ? await exportarExcelTienda()
+      : excelOpcion.value === 'persona' ? await exportarExcelPersona()
       : await exportarExcelComoVa()
     if (listo) hojaExcel.value = false
   } catch {
@@ -2956,7 +2995,32 @@ onMounted(async () => {
           </div>
         </label>
 
-        <!-- 4. Cómo va el mes -->
+        <!-- 4. Una persona, con todas las tiendas donde estuvo -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'persona' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="persona" v-model="excelOpcion" @change="cargarPersonasDelMes" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Una persona, para mandárselo</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Solo lo de una persona en el mes, en un archivo: si estuvo en dos tiendas (cubrió a alguien en otra), un resumen con el total y una hoja por cada tienda. En el Excel de cada tienda sigue saliendo igual.</p>
+              <div v-if="excelOpcion === 'persona'" class="mt-2 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600">Mes</p>
+                  <input type="month" v-model="excelMesPersona" @change="cargarPersonasDelMes" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600 shrink-0">Persona</p>
+                  <select v-model="excelPersona" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="">{{ excelPersonasMes.length ? 'Escoge' : 'Sin bonificaciones ese mes' }}</option>
+                    <option v-for="p in excelPersonasMes" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 5. Cómo va el mes -->
         <label class="block rounded-xl border p-3 cursor-pointer"
           :class="excelOpcion === 'como_va' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
           <div class="flex items-start gap-2">

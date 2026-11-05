@@ -3198,7 +3198,7 @@ class ComisionController extends Controller
         $mes = self::mesPedido($request);
         if ($mes === null) return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
 
-        if (! $request->filled('tienda_id') && ! $request->filled('independiente_id')) {
+        if (! $request->filled('tienda_id') && ! $request->filled('independiente_id') && ! $request->filled('persona_id')) {
             // Las que tienen comisiones de alguien que no es independiente: lo
             // de los independientes va en su propio bloque, no es una tienda
             // (en producción su sede no tiene la marca es_independientes).
@@ -3222,10 +3222,25 @@ class ComisionController extends Controller
             return $this->libroIndependiente($mes, (int) $request->query('independiente_id'));
         }
 
-        $tiendaId = (int) $request->query('tienda_id');
-        $tienda   = Tienda::find($tiendaId);
+        if ($request->filled('persona_id')) {
+            return $this->libroPersona($mes, (int) $request->query('persona_id'));
+        }
+
+        $tienda = Tienda::find((int) $request->query('tienda_id'));
         if (! $tienda) return response()->json(['message' => 'Tienda no encontrada.'], 404);
 
+        return response()->json($this->datosLibroTienda($mes, $tienda));
+    }
+
+    /**
+     * Lo de una tienda en un mes para su Excel: la cuenta de la tienda y cada
+     * persona con lo suyo y el porqué. $porPagar da lo de Listas (para los
+     * anticipos); el libro de una persona lo pasa para no calcularlo una vez
+     * por cada tienda donde estuvo.
+     */
+    private function datosLibroTienda(string $mes, Tienda $tienda, ?\Closure $porPagar = null): array
+    {
+        $tiendaId = (int) $tienda->id;
         $tarjetas = $this->resumenDelMes($mes, true)
             ->filter(fn ($t) => (int) $t['tienda_id'] === $tiendaId && empty($t['es_independiente']))
             ->values();
@@ -3240,7 +3255,7 @@ class ComisionController extends Controller
         // descontaría también lo de un mes anterior que no se ha pagado.
         $bloquesListas = collect();
         if ($mes <= $mesQueToca && $tarjetas->contains(fn ($t) => round(self::loListoDe($t)) > 0)) {
-            foreach ($this->loQueHayPorPagar(null, true)['personas'] as $p) {
+            foreach (($porPagar ? $porPagar() : $this->loQueHayPorPagar(null, true))['personas'] as $p) {
                 foreach ($p['bloques'] as $b) {
                     if ($b['mes'] === $mes && (int) $b['tienda_id'] === $tiendaId) {
                         $bloquesListas[(int) $p['vendedor_id']] = $b + ['sigue_debiendo' => $p['sigue_debiendo'], 'meses_en_listas' => count($p['bloques'])];
@@ -3297,7 +3312,7 @@ class ComisionController extends Controller
             ->sortBy(fn ($p) => [-(float) ($p['dias'] ?? -1), $p['vendedor_nombre']])
             ->values();
 
-        return response()->json([
+        return [
             'mes'           => $mes,
             'tienda_id'     => $tiendaId,
             'tienda_nombre' => $tienda->nombre,
@@ -3314,6 +3329,53 @@ class ComisionController extends Controller
             'pagado'        => $personas->sum('pagado'),
             'lista'         => $personas->sum('lista'),
             'pendiente'     => $personas->sum('pendiente'),
+        ];
+    }
+
+    /**
+     * El libro de una persona en un mes (?persona_id=N): lo suyo en cada tienda
+     * donde estuvo, junto, para mandárselo solo a ella (dueño, 2026-11-05: quien
+     * cubrió media mes en otra tienda recibía dos archivos). Cada tienda sale
+     * con la misma cuenta que su propio Excel; en el de la tienda la persona
+     * sigue saliendo igual. Un independiente va a su propio libro.
+     */
+    private function libroPersona(string $mes, int $vendedorId)
+    {
+        $usuario = Usuario::find($vendedorId);
+        if (! $usuario) return response()->json(['message' => 'Persona no encontrada.'], 404);
+        if ($usuario->independiente) return $this->libroIndependiente($mes, $vendedorId);
+
+        $tiendaIds = $this->resumenDelMes($mes, true)
+            ->filter(fn ($t) => (int) $t['vendedor_id'] === $vendedorId && empty($t['es_independiente']))
+            ->pluck('tienda_id')->unique()->values()->all();
+
+        $cache = null;
+        $porPagar = function () use (&$cache) { return $cache ??= $this->loQueHayPorPagar(null, true); };
+
+        $tiendas = Tienda::whereIn('id', $tiendaIds)->orderBy('nombre')->get()
+            ->map(function ($t) use ($mes, $vendedorId, $porPagar) {
+                $d = $this->datosLibroTienda($mes, $t, $porPagar);
+                $d['personas'] = array_values(array_filter($d['personas'], fn ($p) => (int) $p['vendedor_id'] === $vendedorId));
+
+                return $d;
+            })
+            ->filter(fn ($d) => count($d['personas']) > 0)
+            ->values();
+
+        $suyo = $tiendas->map(fn ($d) => $d['personas'][0]);
+
+        return response()->json([
+            'mes'             => $mes,
+            'es_persona'      => true,
+            'vendedor_id'     => $vendedorId,
+            'vendedor_nombre' => $usuario->nombre,
+            'tiendas'         => $tiendas->all(),
+            'comision_mes'    => $suyo->sum('comision_mes'),
+            'pagado'          => $suyo->sum('pagado'),
+            'lista'           => $suyo->sum('lista'),
+            'pendiente'       => $suyo->sum('pendiente'),
+            'se_descuenta'    => $suyo->sum(fn ($p) => (float) ($p['pago']['se_descuenta'] ?? 0)),
+            'entregar'        => $suyo->sum(fn ($p) => (float) ($p['pago']['entregar'] ?? 0)),
         ]);
     }
 

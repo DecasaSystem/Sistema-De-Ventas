@@ -249,7 +249,8 @@ function hojaPersona(wb, ctx, p) {
   const filas = renglonesDe(d, p)
   seccion(ws, `Sus órdenes de ${mes}`, filas.some(f => f.orden === '(sin orden)')
     ? '"(sin orden)" es su parte del pool cuando no tiene ventas propias que cuenten: se le paga entera en ese renglón.'
-    : 'En una tienda con pool, la bonificación de cada orden es cómo se reparte su parte del pool sobre sus ventas que ya cuentan; la cuenta real es la del pool (hoja "La tienda").')
+    : !p.cuenta?.por_pool ? 'Aquí no hay pool: la bonificación de cada orden es la que se le paga.'
+    : 'En una tienda con pool, la bonificación de cada orden es cómo se reparte su parte del pool sobre sus ventas que ya cuentan; la cuenta real es la del pool' + (ctx.persona ? ' (arriba, en "Por qué").' : ' (hoja "La tienda").'))
   if (filas.length) {
     tabla(ws, columnasOrdenes(), filas, { totales: true, etiquetaTotal: 'TOTAL', filtro: false })
   } else {
@@ -374,6 +375,43 @@ function hojaComoSeCalcula(wb, ctx) {
   }
   const nota = ws.addRow(['Las cifras salen de la misma cuenta que muestra Bonificaciones y que se paga.'])
   nota.font = { italic: true, size: 9, color: { argb: GRIS_TEXTO } }
+}
+
+// ── Una persona, con todas las tiendas donde estuvo ───────────────────────────
+//
+// Quien cubrió media mes en otra tienda salía en dos archivos (dueño,
+// 2026-11-05). Este libro junta lo suyo: un resumen con el total y una hoja por
+// tienda, la misma que sale en el Excel de esa tienda (donde sigue saliendo).
+
+function hojaResumenPersona(wb, ctx) {
+  const L = ctx.d
+  const mes = mesEnPalabras(L.mes)
+  const ws = wb.addWorksheet('Resumen')
+  ws.getColumn(1).width = 34
+  ws.getColumn(2).width = 18
+  titulo(ws, `Bonificaciones de ${L.vendedor_nombre} · ${mes}`,
+    `Ventas de ${mes} · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
+  if (!L.tiendas.length) { ws.addRow(['No tiene bonificaciones este mes.']); return }
+
+  const filas = L.tiendas.map(t => ({ t, p: t.personas[0] }))
+  explicar(ws, [filas.length > 1
+    ? `• Este mes estuvo en ${filas.length} tiendas: ${filas.map(x => x.t.tienda_nombre).join(' y ')}. Cada tienda tiene su propia cuenta (meta y pool, o lo de cada uno si no reparte), así que cobra en cada una lo que le toca allá${filas.some(x => x.p.cuenta?.por_pool) ? ' (en el pool, por los días que estuvo ahí)' : ''}. Nada se paga dos veces. Abajo, una hoja por tienda con el porqué.`
+    : `• Este mes estuvo en ${filas[0].t.tienda_nombre}. El porqué está en la hoja de la tienda.`])
+  tabla(ws, [
+    { titulo: 'Tienda', campo: x => x.t.tienda_nombre, ancho: 34 },
+    { titulo: 'Días', campo: x => x.p.dias ?? '', ancho: 18 },
+    { titulo: 'Bonificación del mes', campo: x => n(x.p.comision_mes), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'Ya pagado', campo: x => n(x.p.pagado), fmt: 'pesos', ancho: 14, total: 'suma' },
+    { titulo: 'Listo para pagar', campo: x => n(x.p.lista), fmt: 'pesos', ancho: 16, total: 'suma', color: x => n(x.p.lista) > 0 ? VERDE_CLARO : null },
+    { titulo: 'Anticipos que se descuentan', campo: x => n(x.p.pago?.se_descuenta), fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'SE LE ENTREGA', campo: x => n(x.p.pago?.entregar), fmt: 'pesos', ancho: 16, total: 'suma', color: x => n(x.p.pago?.entregar) > 0 ? VERDE_CLARO : null },
+    { titulo: 'Todavía no se puede pagar', campo: x => partesDelMes(x.t, x.p).espera, fmt: 'pesos', ancho: 16, total: 'suma' },
+    { titulo: 'No se paga', campo: x => partesDelMes(x.t, x.p).noSePaga, fmt: 'pesos', ancho: 14, total: 'suma' },
+    { titulo: 'Cómo va', campo: x => estadoCorto(x.t, x.p), ancho: 24 },
+  ], filas, { totales: true, filtro: false })
+  if (n(L.entregar) > 0) {
+    explicar(ws, [`• En total se le entregan ${pesos(L.entregar)}${n(L.se_descuenta) > 0 ? ` (bonificación lista ${pesos(L.lista)} − anticipos y abonos ${pesos(L.se_descuenta)})` : ''}.`])
+  }
 }
 
 // ── Un independiente (no es de ninguna tienda) ────────────────────────────────
@@ -539,7 +577,18 @@ export async function armarLibroTienda({ libro, reglas = null, generadoPor }) {
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
   }
 
-  if (libro.es_independiente) {
+  if (libro.es_persona) {
+    hojaResumenPersona(wb, ctx)
+    const usadas = new Set(['resumen', 'cómo se calcula'])
+    for (const t of libro.tiendas) {
+      let hoja = String(t.tienda_nombre).replace(/^Decasa\s+/i, '').replace(/[[\]:*?/\\.]/g, '').slice(0, 28) || 'Tienda'
+      while (usadas.has(hoja.toLowerCase())) hoja = hoja.slice(0, 26) + ' 2'
+      usadas.add(hoja.toLowerCase())
+      const p = t.personas[0]
+      hojaPersona(wb, { ...ctx, d: t, hojaDe: new Map([[p.vendedor_id, hoja]]), persona: true }, p)
+    }
+    if (libro.tiendas.length) hojaComoSeCalcula(wb, { ...ctx, d: libro.tiendas[0] })
+  } else if (libro.es_independiente) {
     hojaIndependiente(wb, ctx)
     hojaBolson(wb, ctx)
     hojaComoSeCalculaIndependiente(wb, ctx)
@@ -550,7 +599,7 @@ export async function armarLibroTienda({ libro, reglas = null, generadoPor }) {
     hojaPorCobrar(wb, ctx)
     hojaComoSeCalcula(wb, ctx)
   }
-  const nombre = `Bonificaciones ${libro.es_independiente ? libro.vendedor_nombre : libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
+  const nombre = `Bonificaciones ${libro.es_independiente || libro.es_persona ? libro.vendedor_nombre : libro.tienda_nombre} ${mesEnPalabras(libro.mes)}`
   wb.worksheets.forEach(ws => paraImprimir(ws, { libro: nombre, generadoEl: ctx.generadoEl }))
   return wb
 }
@@ -562,7 +611,7 @@ export async function exportarTiendaExcel(datos) {
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  const tienda = String((datos.libro.es_independiente ? datos.libro.vendedor_nombre : datos.libro.tienda_nombre) ?? 'tienda').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  const tienda = String((datos.libro.es_independiente || datos.libro.es_persona ? datos.libro.vendedor_nombre : datos.libro.tienda_nombre) ?? 'tienda').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
   a.href = url
   a.download = `bonificaciones_${tienda}_${datos.libro.mes}.xlsx`
   document.body.appendChild(a)

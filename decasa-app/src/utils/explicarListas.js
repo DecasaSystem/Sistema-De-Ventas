@@ -440,7 +440,7 @@ export function estadoDelMes(d, p) {
       ? `Está atrasado: se debía pagar el ${fecha(d.se_cobra_el)}.`
       : `Se paga el ${fecha(d.se_cobra_el)}.`))
     if (n(p.pago?.otros_meses) > 0) {
-      lineas.push(`Tiene ${p.pago.otros_meses} mes(es) más por pagar en Listas: se pagan del más viejo al más nuevo.`)
+      lineas.push(`En Listas tiene ${p.pago.otros_meses} pago(s) más (de otro mes o de otra tienda): se pagan del mes más viejo al más nuevo.`)
     }
   }
   const { espera, noSePaga } = partesDelMes(d, p)

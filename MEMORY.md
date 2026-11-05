@@ -502,7 +502,7 @@ escribiendo precios (Fase 1b).
   Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
   mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
   "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
-- **Excel de una tienda para los vendedores** (2026-11-05, **sin subir**, sin migración). Pedido
+- **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en
   `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla ni cifra. Revisado con una copia de

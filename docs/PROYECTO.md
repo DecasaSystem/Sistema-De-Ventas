@@ -609,6 +609,12 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   cifras de `ComisionIndependientes::delMes` (de sus ventas, del bolsón, listo, pagado) y el
   bolsón entero del mes con cada restauración y si ya entra. Hojas: la persona, Bolsón y Cómo se
   calcula (`explicacionDelIndependiente`). Test en `ReglasDeComisionTest`.
+  **Una persona** (mismo día, pedido del dueño: quien cubrió media mes en otra tienda recibía
+  dos archivos): opción aparte del botón Excel, `?persona_id=N` (`libroPersona`). Junta las
+  tiendas donde tuvo algo ese mes, cada una con `datosLibroTienda` (la misma cuenta del Excel de
+  la tienda, filtrada a esa persona; Listas se calcula una sola vez para todas), más un Resumen
+  con el total. **En el Excel de cada tienda la persona sigue saliendo igual** (dueño: "si se le
+  saca se confunde todo"). Un independiente va a su libro. Test en `ComisionesAtrasadasTest`.
 - **Excel de Listas** (2026-10-28, sin migración): en la pestaña Listas el botón Excel baja
   "Comisiones por pagar" (`utils/excelListas.js`) en vez del libro del mes. Sale de
   `GET /comisiones/por-pagar?detalle=1`: la misma cuenta (`loQueHayPorPagar` →
