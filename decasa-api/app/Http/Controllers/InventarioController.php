@@ -11,6 +11,7 @@ use App\Models\OrdenItem;
 use App\Models\SurtidoTienda;
 use App\Models\Tienda;
 use App\Support\OrdenExistencias;
+use App\Support\ValorInventario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -176,13 +177,16 @@ class InventarioController extends Controller
      */
     public function resumenCategoria(Request $request)
     {
+        // Sin categoría = "Todas": el total de todo el inventario, con el reparto
+        // por categoría (cuántos productos y cuánta plata hay en cada una).
         $request->validate([
             'tienda_id' => 'required',
-            'categoria' => 'required|string',
+            'categoria' => 'nullable|string',
         ]);
 
         $tiendaId  = $request->query('tienda_id');
         $categoria = $request->query('categoria');
+        $categoria = is_string($categoria) && trim($categoria) !== '' ? $categoria : null;
         $todas     = $tiendaId === 'todas';
 
         if (! $todas) {
@@ -194,7 +198,7 @@ class InventarioController extends Controller
             ->join('productos as p', 'p.id', '=', 'inv.producto_id')
             ->join('tiendas as t', 't.id', '=', 'inv.tienda_id')
             ->where('p.activo', true)
-            ->where('p.categoria', $categoria)
+            ->when($categoria !== null, fn ($q) => $q->where('p.categoria', $categoria))
             ->where('t.activa', true)
             ->when(! $todas, fn ($q) => $q->where('inv.tienda_id', $tid))
             ->groupBy('inv.tienda_id', 't.nombre')
@@ -220,17 +224,59 @@ class InventarioController extends Controller
         // no sume nada al total de unidades.
         $productos = DB::table('productos')
             ->where('activo', true)
-            ->where('categoria', $categoria)
+            ->when($categoria !== null, fn ($q) => $q->where('categoria', $categoria))
             ->count();
 
-        return response()->json([
-            'categoria'           => $categoria,
+        $respuesta = [
+            'categoria'           => $categoria ?? '',
             'productos'           => $productos,
             'cantidad_disponible' => (int) $porTienda->sum('cantidad_disponible'),
             'cantidad_reservada'  => (int) $porTienda->sum('cantidad_reservada'),
             'stock_libre'         => (int) $porTienda->sum('stock_libre'),
             'por_tienda'          => $porTienda,
-        ]);
+        ];
+
+        // Cuánta plata hay (unidades × precio de venta, con variantes). Solo
+        // para el supervisor: es una cifra del negocio, no de atender clientes.
+        if ($request->user()?->rol === 'supervisor') {
+            $valor = ValorInventario::resumen(
+                ValorInventario::filas($todas ? null : $tid, $categoria)
+            );
+            $porTiendaValor = collect($valor['por_tienda'])->keyBy('tienda_id');
+
+            $respuesta += self::cifrasDeValor($valor['total']);
+            $respuesta['por_tienda'] = $porTienda->map(fn ($t) => $t + self::cifrasDeValor(
+                $porTiendaValor[$t['tienda_id']] ?? []
+            ))
+                // Con la plata a la vista, la tienda que más vale primero.
+                ->sort(fn ($a, $b) => [$b['valor'], $b['stock_libre']] <=> [$a['valor'], $a['stock_libre']])
+                ->values();
+
+            if ($categoria === null) {
+                $respuesta['por_categoria'] = $valor['por_categoria'];
+            }
+        } elseif ($categoria === null) {
+            // Sin la plata, igual sirve saber cuántas unidades hay en cada categoría.
+            $respuesta['por_categoria'] = collect(ValorInventario::resumen(
+                ValorInventario::filas($todas ? null : $tid)
+            )['por_categoria'])
+                ->map(fn ($c) => collect($c)->only(['categoria', 'productos_con_stock', 'unidades', 'apartadas', 'libres'])->all())
+                ->sortByDesc('unidades')
+                ->values();
+        }
+
+        return response()->json($respuesta);
+    }
+
+    /** Las cifras de plata de un bloque de ValorInventario::resumen (en 0 si no hay). */
+    private static function cifrasDeValor(array $b): array
+    {
+        return [
+            'valor'          => round((float) ($b['valor'] ?? 0), 2),
+            'valor_apartado' => round((float) ($b['valor_apartado'] ?? 0), 2),
+            'valor_libre'    => round((float) ($b['valor_libre'] ?? 0), 2),
+            'sin_marcar'     => (int) ($b['sin_marcar'] ?? 0),
+        ];
     }
 
     /**
@@ -257,8 +303,14 @@ class InventarioController extends Controller
         $pedido  = $request->query('per_page');
         $perPage = is_numeric($pedido) ? min(max((int) $pedido, 1), 200) : 20;
 
+        // El Excel pide además lo que vale cada producto con sus variantes
+        // (antes multiplicaba todo por el precio base: una cama de 1.60 valía
+        // como la de 1.40). La pantalla no lo pide: son 3 consultas más.
+        // La plata del inventario es solo para el supervisor (dueño, 2026-11-06).
+        $conValor = $request->boolean('con_valor') && $request->user()?->rol === 'supervisor';
+
         if ($tiendaId === 'todas') {
-            return $this->inventarioTodas($search, $categoria, $perPage, $orden, $existencia);
+            return $this->inventarioTodas($search, $categoria, $perPage, $orden, $existencia, $conValor);
         }
 
         $request->validate([
@@ -307,7 +359,13 @@ class InventarioController extends Controller
         }
         $this->ordenarYFiltrarExistencia($query, $orden, $existencia, false);
 
-        return response()->json($query->paginate($perPage)->through(function ($inv) {
+        $pagina = $query->paginate($perPage);
+        $valores = $conValor
+            ? $this->valoresDe(collect($pagina->items())->pluck('producto_id')->all(), $tid)
+            : null;
+
+        return response()->json($pagina->through(function ($inv) use ($valores) {
+            if ($valores !== null) $inv->valor = $valores[$inv->producto_id]['valor'] ?? 0.0;
             $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
             $inv->bajo_stock  = $inv->cantidad_disponible <= $inv->stock_minimo;
             $inv->producto = (object) [
@@ -333,7 +391,7 @@ class InventarioController extends Controller
     /**
      * Devuelve inventario agrupado por producto de TODAS las tiendas.
      */
-    private function inventarioTodas($search = null, $categoria = null, $perPage = 20, $orden = null, $existencia = null)
+    private function inventarioTodas($search = null, $categoria = null, $perPage = 20, $orden = null, $existencia = null, bool $conValor = false)
     {
         $query = DB::table('productos')
             ->leftJoin('inventario', 'inventario.producto_id', '=', 'productos.id')
@@ -392,15 +450,22 @@ class InventarioController extends Controller
         //
         // Se resuelve en una sola consulta para los 20 productos de la página:
         // preguntarlo producto por producto serían 20 viajes a la base.
-        $desglose = $this->stockPorTienda(
-            collect($pagina->items())->pluck('producto_id')->all()
-        );
+        $idsPagina = collect($pagina->items())->pluck('producto_id')->all();
+        $desglose  = $this->stockPorTienda($idsPagina);
+        $valores   = $conValor ? $this->valoresDe($idsPagina, null) : null;
 
         return response()->json($pagina
-            ->through(function ($inv) use ($desglose) {
+            ->through(function ($inv) use ($desglose, $valores) {
                 $disp = (int) $inv->cantidad_disponible;
                 $res  = (int) $inv->cantidad_reservada;
-                return (object) [
+                $porTienda = $desglose[$inv->producto_id] ?? [];
+                $extra = [];
+                if ($valores !== null) {
+                    $v = $valores[$inv->producto_id] ?? ['valor' => 0.0, 'por_tienda' => []];
+                    $extra['valor'] = $v['valor'];
+                    $porTienda = array_map(fn ($t) => $t + ['valor' => $v['por_tienda'][$t['tienda_id']] ?? 0.0], $porTienda);
+                }
+                return (object) ($extra + [
                     'id'                  => $inv->producto_id,
                     'producto_id'         => $inv->producto_id,
                     'cantidad_disponible' => $disp,
@@ -409,7 +474,7 @@ class InventarioController extends Controller
                     'stock_minimo'        => 0,
                     'bajo_stock'          => false,
                     'tiendas_count'       => (int) $inv->tiendas_count,
-                    'por_tienda'          => $desglose[$inv->producto_id] ?? [],
+                    'por_tienda'          => $porTienda,
                     'producto'            => (object) [
                         'id'             => $inv->producto_id,
                         'nombre'         => $inv->nombre,
@@ -426,8 +491,23 @@ class InventarioController extends Controller
                         'material'       => $inv->material,
                         'activo'         => true,
                     ],
-                ];
+                ]);
             }));
+    }
+
+    /**
+     * Lo que vale cada producto (con sus variantes), en total y por tienda:
+     * [producto_id => ['valor' => …, 'por_tienda' => [tienda_id => …]]].
+     */
+    private function valoresDe(array $productoIds, ?int $tiendaId): array
+    {
+        $out = [];
+        foreach (ValorInventario::filas($tiendaId, null, $productoIds) as $f) {
+            $out[$f['producto_id']] ??= ['valor' => 0.0, 'por_tienda' => []];
+            $out[$f['producto_id']]['valor'] += $f['valor'];
+            $out[$f['producto_id']]['por_tienda'][$f['tienda_id']] = $f['valor'];
+        }
+        return $out;
     }
 
     /** Orden y filtro de existencias: vive en OrdenExistencias (la Reserva usa el mismo). */

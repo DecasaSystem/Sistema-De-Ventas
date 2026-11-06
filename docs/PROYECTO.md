@@ -310,6 +310,20 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
     (`producto_variante_configs` + `inventario_variante_configs`).
   - **Combinaciones** de opciones (`inventario_variante_combinaciones`).
   - El desglose nunca supera el total (`Support/StockVariantes`).
+- **Total y valor del inventario** (2026-11-06, tarjeta arriba de la lista; `Support/ValorInventario`,
+  `GET /inventario/resumen-categoria`, `GET /reserva/resumen`). Con una categoría da sus
+  unidades (en tienda / apartado / disponible) y en "Todas las tiendas" cuánto hay en cada una;
+  en "Todas" las categorías da el total de todo y el reparto por categoría (tocar una la abre).
+  **Solo al supervisor** (dueño, 2026-11-06; también en Reserva y en el Excel) le dice además
+  **cuánta plata es a precio de venta**: cada producto y tienda por su cuenta, cada unidad al precio de su variante
+  (medida = `precio_adicional` como precio completo, 0 = el del producto; tela con
+  `precio_variante` lo reemplaza). Los ejes (tela, cada tipo de opción) no se suman: se usa el que
+  cambia el precio, con más unidades marcadas, y las opciones antes que la tela si empatan; lo sin
+  marcar va al precio del producto (la tarjeta avisa cuántas). Un reparto que se pasa del stock se
+  recorta. Lo apartado se dice aparte ("ya vendido"). Sin promociones (precio de lista), solo
+  tiendas activas y productos activos. El Excel pide `con_valor=1` (la API lo ignora si no es
+  supervisor) y su "Valor en tienda" sale de la misma cuenta (antes era precio base × unidades);
+  a los demás les sale sin esa columna. Prueba: `ValorInventarioTest`.
 - **Venta por juego** (comedor de 6 sillas = juego o piezas sueltas).
 - **Productos únicos** (piezas irrepetibles ya vendidas).
 - **Auditoría de descuadres** (supervisor): reservas fantasma y entregas que no

@@ -10,6 +10,7 @@ use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Events\InventarioActualizado;
 use App\Support\OrdenExistencias;
+use App\Support\ValorInventario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -93,6 +94,64 @@ class ReservaController extends Controller
         });
 
         return response()->json($paginated);
+    }
+
+    /**
+     * GET /reserva/resumen?categoria=sofas — el total de la fábrica arriba de la
+     * lista: cuántos productos y unidades hay y cuánta plata es (unidades ×
+     * precio de venta, con variantes: misma regla que Inventario, ver
+     * ValorInventario). Sin categoría = todo, con el reparto por categoría.
+     *
+     * La lista llega paginada; sumar lo cargado daría un total a medias.
+     * La plata solo se le manda al supervisor (dueño, 2026-11-06: "solo
+     * supervisores"; tener acceso a la Reserva no basta).
+     */
+    public function resumen(Request $request)
+    {
+        $fabrica   = $this->fabrica();
+        $categoria = $request->query('categoria');
+        $categoria = is_string($categoria) && trim($categoria) !== '' ? $categoria : null;
+
+        $valor = ValorInventario::resumen(ValorInventario::filas($fabrica->id, $categoria));
+        $t = $valor['total'];
+
+        $usuario  = $request->user();
+        $verPlata = $usuario?->rol === 'supervisor';
+
+        $productos = DB::table('productos')
+            ->where('activo', true)
+            ->when($categoria !== null, fn ($q) => $q->where('categoria', $categoria))
+            ->count();
+
+        $soloUnidades = fn (array $b) => collect($b)->only([
+            'categoria', 'productos_con_stock', 'unidades', 'apartadas', 'libres',
+        ])->all();
+
+        $respuesta = [
+            'categoria'           => $categoria ?? '',
+            'productos'           => $productos,
+            'productos_con_stock' => collect($valor['por_categoria'])->sum('productos_con_stock'),
+            'cantidad_disponible' => $t['unidades'],
+            'cantidad_reservada'  => $t['apartadas'],
+            'stock_libre'         => $t['libres'],
+        ];
+
+        if ($verPlata) {
+            $respuesta += [
+                'valor'          => round($t['valor'], 2),
+                'valor_apartado' => round($t['valor_apartado'], 2),
+                'valor_libre'    => round($t['valor_libre'], 2),
+                'sin_marcar'     => $t['sin_marcar'],
+            ];
+        }
+
+        if ($categoria === null) {
+            $respuesta['por_categoria'] = $verPlata
+                ? $valor['por_categoria']
+                : collect($valor['por_categoria'])->map($soloUnidades)->sortByDesc('unidades')->values();
+        }
+
+        return response()->json($respuesta);
     }
 
     /** GET /reserva/stock-lote?ids[]=1&ids[]=2 — stock libre por producto (todos los roles) */

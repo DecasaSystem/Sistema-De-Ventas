@@ -6,7 +6,7 @@ import {
   PhotoIcon, XMarkIcon, ArrowsUpDownIcon, ChevronDownIcon, CheckIcon,
 } from '@heroicons/vue/24/outline'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
-import { getReservaInventario, addReservaStock, addReservaVarianteStock, removeReservaStock, getReservaMovimientos, getReservaInfo } from '@/api/reserva'
+import { getReservaInventario, addReservaStock, addReservaVarianteStock, removeReservaStock, getReservaMovimientos, getReservaInfo, getReservaResumen } from '@/api/reserva'
 import { getVariantes, crearVariante } from '@/api/inventario'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
@@ -373,7 +373,42 @@ function seleccionarCategoria(cat) {
   cargarInventario(true)
 }
 
+// ── Total de la fábrica, arriba de la lista ──────────────────────────────────
+// La lista llega paginada: el total sale aparte, de toda la categoría (o de
+// todo, en "Todas", con el reparto por categoría). Quien gestiona la Reserva
+// ve además cuánta plata es a precio de venta, cada variante a su precio.
+const resumenReserva  = ref(null)
+const cargandoResumen = ref(false)
+
+async function cargarResumen() {
+  const cat = categoriaFiltro.value
+  // Si ya se mostraba esta misma categoría, se recalcula sin borrar la tarjeta
+  // (agregar o quitar stock no debe hacerla parpadear).
+  const misma = resumenReserva.value && (resumenReserva.value.categoria ?? '') === cat
+  if (!misma) { resumenReserva.value = null; cargandoResumen.value = true }
+  try {
+    const { data } = await getReservaResumen(cat, { silencioso: misma })
+    if (categoriaFiltro.value === cat) resumenReserva.value = data
+  } catch {
+    if (!misma) resumenReserva.value = null
+  } finally {
+    cargandoResumen.value = false
+  }
+}
+
+/** "$ 31 M", "$ 1,5 M", "$ 850 mil": para la lista por categoría. */
+function pesosCortos(v) {
+  const n = Number(v) || 0
+  if (Math.abs(n) >= 1e6) {
+    const m = n / 1e6
+    return `$ ${m.toLocaleString('es-CO', { maximumFractionDigits: m >= 100 ? 0 : 1 })} M`
+  }
+  if (Math.abs(n) >= 1e3) return `$ ${Math.round(n / 1e3).toLocaleString('es-CO')} mil`
+  return pesos(n)
+}
+
 async function cargarInventario(reset = false) {
+  if (reset) cargarResumen()
   if (reset) loading.value = true
   try {
     const page = reset ? 1 : currentPage.value + 1
@@ -722,6 +757,73 @@ onMounted(async () => {
             existenciaRes === e.valor ? 'border-purple-500 text-purple-600 bg-white' : 'border-gray-200 text-gray-500 bg-white hover:border-gray-300']"
         >{{ e.texto }}</button>
       </div>
+    </div>
+
+    <!-- Total de la fábrica (o de la categoría): no sale de sumar lo cargado,
+         que llega paginado; ver cargarResumen. -->
+    <div class="bg-white border border-gray-200 rounded-xl p-3">
+      <div v-if="cargandoResumen" class="flex items-center gap-2 text-xs text-gray-400 py-1">
+        <span class="w-3.5 h-3.5 border-2 border-gray-300 border-t-purple-500 rounded-full animate-spin" />
+        Calculando el total...
+      </div>
+      <template v-else-if="resumenReserva">
+        <p class="text-sm font-semibold text-gray-800">
+          {{ categoriaFiltro || 'Toda la fábrica' }}
+          <span class="font-normal text-gray-400">
+            · {{ resumenReserva.productos_con_stock }} producto{{ resumenReserva.productos_con_stock === 1 ? '' : 's' }} con stock
+          </span>
+        </p>
+        <div class="grid grid-cols-3 gap-2 text-center mt-2">
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-gray-800">{{ resumenReserva.cantidad_disponible }}</p>
+            <p class="text-xs text-gray-400">En fábrica</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-gray-500">{{ resumenReserva.cantidad_reservada }}</p>
+            <p class="text-xs text-gray-400">Apartado</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-green-600">{{ resumenReserva.stock_libre }}</p>
+            <p class="text-xs text-gray-400">Disponible</p>
+          </div>
+        </div>
+
+        <div v-if="resumenReserva.valor != null" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
+          <p class="text-xs text-gray-500">Valor en fábrica (a precio de venta)</p>
+          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenReserva.valor) }}</p>
+          <p v-if="resumenReserva.valor_apartado > 0" class="text-xs text-gray-500 mt-0.5">
+            {{ pesos(resumenReserva.valor_libre) }} disponible
+            · {{ pesos(resumenReserva.valor_apartado) }} ya vendido (apartado)
+          </p>
+          <p v-if="resumenReserva.sin_marcar > 0" class="text-[11px] text-amber-600 mt-1 leading-snug">
+            {{ resumenReserva.sin_marcar }} unidad{{ resumenReserva.sin_marcar === 1 ? '' : 'es' }}
+            sin medida u opción marcada: se cuenta{{ resumenReserva.sin_marcar === 1 ? '' : 'n' }} al precio del producto.
+          </p>
+        </div>
+
+        <!-- "Todas": cuánto hay en cada categoría. Tocar una la abre. -->
+        <div v-if="!categoriaFiltro && resumenReserva.por_categoria?.length" class="mt-3">
+          <p class="text-xs text-gray-400 mb-1">Por categoría</p>
+          <ul class="divide-y divide-gray-100">
+            <li v-for="c in resumenReserva.por_categoria" :key="c.categoria">
+              <button
+                type="button"
+                @click="categoriasDisponibles.includes(c.categoria) && seleccionarCategoria(c.categoria)"
+                class="w-full flex items-center gap-2 py-1.5 text-left hover:bg-gray-50 rounded"
+              >
+                <span class="flex-1 min-w-0 truncate text-sm text-gray-700">{{ c.categoria }}</span>
+                <span class="text-xs text-gray-500 whitespace-nowrap">
+                  {{ c.unidades }} u.
+                  <span v-if="c.apartadas > 0" class="text-gray-400">({{ c.apartadas }} apart.)</span>
+                </span>
+                <span v-if="c.valor != null" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap" :title="pesos(c.valor)">
+                  {{ pesosCortos(c.valor) }}
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </template>
     </div>
 
     <AppSpinner v-if="loading" />

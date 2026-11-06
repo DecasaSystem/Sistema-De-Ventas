@@ -9,6 +9,10 @@ export const getReservaInventario     = (search, page, categoria, filtros = {}) 
   ...(filtros.existencia ? { existencia: filtros.existencia } : {}),
 } })
 export const getReservaStockLote      = (ids)           => api.get('/reserva/stock-lote', { params: { ids } })
+// Total de la fábrica (o de una categoría): unidades y, a quien gestiona la
+// Reserva, cuánta plata es a precio de venta. Sin categoría trae el reparto.
+export const getReservaResumen        = (categoria, { silencioso = false } = {}) =>
+  api.get('/reserva/resumen', { params: categoria ? { categoria } : {}, silencioso })
 export const addReservaStock          = (data)          => api.post('/reserva/entrada', data)
 export const addReservaVarianteStock  = (data)          => api.post('/reserva/variante-entrada', data)
 export const removeReservaStock       = (data)          => api.post('/reserva/salida', data)

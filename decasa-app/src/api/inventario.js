@@ -9,6 +9,8 @@ export const getInventario  = (tiendaId, search = '', page = 1, categoria = '', 
     ...(perPage ? { per_page: perPage } : {}),
     ...(filtros.orden && filtros.orden !== 'stock_desc' ? { orden: filtros.orden } : {}),
     ...(filtros.existencia ? { existencia: filtros.existencia } : {}),
+    // El Excel pide lo que vale cada producto con sus variantes.
+    ...(filtros.conValor ? { con_valor: 1 } : {}),
   } })
 
 export const getDesgloseVariantes = (tiendaId) =>
@@ -17,8 +19,10 @@ export const getDesgloseVariantes = (tiendaId) =>
 // El total de una categoría (y, en "todas las tiendas", cuánto hay en cada
 // una). Va aparte del listado porque este llega paginado y sumarlo en el
 // front daría un total incompleto mientras no se haya cargado todo.
+// Sin categoría = todo el inventario, con el reparto por categoría. Al
+// supervisor le llega además la plata (valor, valor_apartado, valor_libre).
 export const getResumenCategoria = (tiendaId, categoria) =>
-  api.get('/inventario/resumen-categoria', { params: { tienda_id: tiendaId, categoria } })
+  api.get('/inventario/resumen-categoria', { params: { tienda_id: tiendaId, ...(categoria ? { categoria } : {}) } })
 
 // Categorías (supervisor): el nombre real con cuántos productos tiene, y
 // renombrar/juntar. 409 con `existe` = ya hay otra con ese nombre; se manda
