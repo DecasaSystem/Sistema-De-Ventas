@@ -791,8 +791,9 @@ escribiendo precios (Fase 1b).
   columna; sin ella se manda el catálogo completo como antes). No se probó con el modelo real
   (`npm run eval` cuesta y no hay clave aquí). Comparar con dos fotos sube un poco los tokens de
   visión en los productos que tienen foto adicional.
-- **Revisión del módulo de Costos + 4 arreglos** (2026-11-06, **sin subir**, sin migración, rama
-  `claude/analisis-modulo-costos-aa07c1`; pedido del usuario). (1) Responder/ajustar una consulta de
+- **Revisión del módulo de Costos + 4 arreglos** (2026-11-06, **subido a `main`** ese día con las
+  tres vueltas siguientes en el commit 109029a, que trae las migraciones `2026_11_09_000001` y
+  `000002`; rama `claude/analisis-modulo-costos-aa07c1`; pedido del usuario). (1) Responder/ajustar una consulta de
   costo dejaba `valor_total` = cantidad × precio a secas (perdía descuentos y contaba lo devuelto):
   ahora `Orden::recalcularTotal()` + `sincronizarValorOrden`. (2) Aprendizaje: estimado y corrección
   se enlazan **solo por el nombre** (`hashInput($nombre, null)`; antes nombre+especificaciones y
