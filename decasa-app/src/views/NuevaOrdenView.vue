@@ -36,6 +36,7 @@ import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabaj
 import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo, pdfDeclaracion, anexosSinOrden, crearOrdenDeAnexo, cambiarCrearAlFirmar } from '@/api/anexos'
 import FichaEspecialEditor from '@/components/anexo/FichaEspecialEditor.vue'
 import { useAjustesDeclaracion, aplicaDeclaracion, limpiarFicha, faltaEnFicha } from '@/utils/declaracionEspeciales'
+import { useAjustesSistema } from '@/utils/ajustesSistema'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -1438,10 +1439,11 @@ function _pushItem(producto, variante) {
 
   // La medida sin tela ("1.40 · tela por definir"): la tela se escoge
   // después, desde la orden, y no se despacha sin ella.
-  const telaPorDefinir = !!variante?._tela_por_definir
+  // Con el ajuste apagado es solo la medida ("Cuero"), como cualquier producto.
+  const telaPorDefinir = !!variante?._tela_por_definir && pideTela.value
   const varianteLabel = variante
-    ? (telaPorDefinir
-        ? `${variante._config_label} · tela por definir`
+    ? (variante._tela_por_definir
+        ? (telaPorDefinir ? `${variante._config_label} · tela por definir` : variante._config_label)
         : variante.medida
           ? variante.medida
           : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
@@ -2027,6 +2029,10 @@ const anexoDesactualizado = computed(() =>
 // firma con el anexo: una sola firma, dos documentos. Ver
 // utils/declaracionEspeciales.js y App\Support\DeclaracionEspeciales.
 const ajustesDeclaracion = useAjustesDeclaracion()
+// "Tela por definir" se puede apagar en Gestión → Ajustes (dueño, 2026-11-06):
+// apagado, la medida se vende sola, sin la marca ni el freno del despacho.
+const ajustesSistema = useAjustesSistema()
+const pideTela = computed(() => ajustesSistema.value.tela_por_definir !== false)
 function pideDeclaracion(i) {
   return aplicaDeclaracion(tipoDeItemCarrito(i), ajustesDeclaracion.value)
 }
@@ -6829,8 +6835,10 @@ onBeforeUnmount(() => {
             <!-- Se sabe la medida, no la tela: se escoge después desde la orden. -->
             <template v-if="v._tela_por_definir">
               <span class="font-medium">{{ v._config_label }}</span>
-              <span class="text-gray-400 mx-1">·</span>
-              <span class="text-amber-600">tela por definir</span>
+              <template v-if="pideTela">
+                <span class="text-gray-400 mx-1">·</span>
+                <span class="text-amber-600">tela por definir</span>
+              </template>
               <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
                 ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
               </span>

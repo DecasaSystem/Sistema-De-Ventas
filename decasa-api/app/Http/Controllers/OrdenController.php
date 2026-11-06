@@ -546,7 +546,15 @@ class OrdenController extends Controller
         // un borrador: es la intención del vendedor y hay que respetarla al
         // completarlo. Lo que sí espera al borrador es la ENTREGA en sí.
         $quiereEntregaInmediata = $request->boolean('entrega_inmediata', false);
+        // "Tela por definir" apagado en Gestión → Ajustes: la medida se vende
+        // sola, como cualquier producto (también si una pantalla vieja manda
+        // la marca).
+        $pideTela = \App\Support\AjustesSistema::pideTela();
         foreach ($data['items'] as $k => $i) {
+            if (! $pideTela) {
+                $data['items'][$k]['tela_por_definir'] = false;
+                $i['tela_por_definir'] = false;
+            }
             // Producto que se vende en juego: la cantidad llega en piezas.
             $juego = OrdenItem::datosDeJuego($i);
             if (is_string($juego)) {

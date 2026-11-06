@@ -10,7 +10,8 @@ import { ref, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { getAjustesSistema, guardarAjustesSistema } from '@/api/ajustes'
 import AppSpinner from '@/components/common/AppSpinner.vue'
-import { WrenchScrewdriverIcon, DocumentCheckIcon, BellAlertIcon } from '@heroicons/vue/24/outline'
+import { WrenchScrewdriverIcon, DocumentCheckIcon, BellAlertIcon, SwatchIcon } from '@heroicons/vue/24/outline'
+import { useAjustesSistema } from '@/utils/ajustesSistema'
 
 const toast = useToast()
 
@@ -52,6 +53,8 @@ async function cambiar(clave) {
   try {
     const { data } = await guardarAjustesSistema({ [clave]: nuevo })
     ajustes.value = data
+    // Las demás pantallas abiertas en esta sesión lo ven de una vez.
+    useAjustesSistema().value = { ...useAjustesSistema().value, ...data }
     toast.success(nuevo ? 'Encendido.' : 'Apagado.')
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
@@ -116,6 +119,41 @@ onMounted(cargar)
             <span class="block text-xs text-gray-400 mt-1">
               No cambia ningún pago: la nómina y las bonificaciones no usan las estrellas.
               Las calificaciones ya guardadas se conservan.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Dueño, 2026-11-06: la tela casi siempre la anotan en las notas, y
+           hay importados (sillas Nube: cuero o tela) que no llevan tela. -->
+      <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+          <SwatchIcon class="w-4 h-4 text-blue-600" />
+          Ventas
+        </h3>
+
+        <label class="flex items-start gap-2.5 cursor-pointer select-none">
+          <button
+            type="button" role="switch"
+            :aria-checked="ajustes.tela_por_definir"
+            :disabled="guardando === 'tela_por_definir'"
+            @click="cambiar('tela_por_definir')"
+            :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0 mt-0.5 disabled:opacity-50',
+              ajustes.tela_por_definir ? 'bg-blue-600' : 'bg-gray-300']"
+          >
+            <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
+              ajustes.tela_por_definir ? 'translate-x-5' : 'translate-x-0.5']" />
+          </button>
+          <span class="text-sm text-gray-700">
+            Pedir la tela de lo que se vende por la medida
+            <span class="block text-xs text-gray-400 mt-0.5">
+              Encendido: al vender del inventario de una tienda solo la medida o la opción
+              ("1.40", "Cuero"), la orden queda con "Tela por definir", el botón "Definir tela"
+              y no se despacha hasta escogerla. Apagado: se vende la medida sola y se despacha
+              como cualquier producto; la tela, si hace falta, va en las notas.
+            </span>
+            <span class="block text-xs text-gray-400 mt-1">
+              Al apagarlo, las órdenes que ya estaban esperando la tela también se pueden despachar.
             </span>
           </span>
         </label>

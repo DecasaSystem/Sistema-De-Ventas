@@ -146,6 +146,16 @@ class OrdenItem extends Model
     }
 
     /**
+     * Se vendió la medida sin tela y todavía hay que escogerla antes de
+     * despacharla. Con "tela por definir" apagado en Gestión → Ajustes no
+     * espera nada: lo vendido así antes de apagarlo también sale.
+     */
+    public function esperaTela(): bool
+    {
+        return (bool) $this->tela_por_definir && \App\Support\AjustesSistema::pideTela();
+    }
+
+    /**
      * Qué variante exacta se vendió, en una sola línea: tela, color, medida.
      *
      * El nombre del producto solo no basta para despachar. "SOFA CONFORT" hay

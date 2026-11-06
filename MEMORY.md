@@ -721,7 +721,12 @@ escribiendo precios (Fase 1b).
   agregarle un `increment` a `inventario_variante_configs.cantidad_reservada`. (3) Si ninguna
   medida del producto tiene stock anotado en esa tienda, no se frena por medida (manda el total).
   `completarBorrador` (camino viejo) sigue sin revisar stock, como antes. Tests en
-  `VentaPorMedidaSinTelaTest`. Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
+  `VentaPorMedidaSinTelaTest`. **Se puede apagar** (dueño, 2026-11-06, **sin subir**, sin migración):
+  Gestión → Ajustes → Ventas, clave `ventas_tela_por_definir` (de fábrica prendido). En Decasa la
+  tela va en las notas y hay importados (sillas Nube: cuero/tela) sin tela que escoger; "no
+  quitarlo, que otra empresa lo use". Apagado: la medida se vende sola, sin aviso ni botón, y lo
+  ya marcado también se despacha (`OrdenItem::esperaTela()`; no tocar `tela_por_definir` directo
+  para frenar el despacho). Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
   falla solo el día 20 de cada mes (sus dos fechas caen el mismo día); no es de este cambio.
 - **Cambio de producto entregado, con reemplazo** (2026-10-21, **subido a `main`** ese día, rama
   `claude/order-detail-return-function-8db111`, trae **migración**

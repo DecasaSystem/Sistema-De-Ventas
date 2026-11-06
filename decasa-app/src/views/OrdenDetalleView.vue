@@ -49,6 +49,7 @@ import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { textoRebaja } from '@/utils/promociones'
 import { formatoDuracion } from '@/utils/duracion'
+import { useAjustesSistema } from '@/utils/ajustesSistema'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
@@ -250,6 +251,16 @@ const esParteDeLaOrden = computed(() => {
   const miTienda = Number(auth.usuario?.tienda_default_id)
   return !!o.tienda_abonada_id && !!miTienda && Number(o.tienda_abonada_id) === miTienda && o.estado !== 'borrador'
 })
+
+// "Tela por definir" apagado en Gestión → Ajustes: lo vendido así no espera
+// la tela ni muestra el aviso, y el texto guardado ("Cuero · tela por
+// definir") se lee como la medida sola.
+const ajustesSistema = useAjustesSistema()
+const pideTela = computed(() => ajustesSistema.value.tela_por_definir !== false)
+function textoVariante(item) {
+  const t = item.variante_texto ?? ''
+  return item.tela_por_definir && !pideTela.value ? t.replace(/ · tela por definir/i, '') : t
+}
 
 const puedeEditar = computed(() => {
   if (!orden.value) return false
@@ -2704,10 +2715,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <!-- La variante, pegada al nombre y en rojo: del mismo mueble hay
                    varias telas y el nombre solo no alcanza para saber cuál sacar. -->
               <p v-if="item.variante_texto" class="text-sm font-bold text-red-600 leading-tight">
-                {{ item.variante_texto }}
+                {{ textoVariante(item) }}
               </p>
-              <!-- Se vendió la medida sin tela: no se despacha hasta escogerla. -->
-              <div v-if="item.tela_por_definir" class="flex flex-wrap items-center gap-1.5 mt-1">
+              <!-- Se vendió la medida sin tela: no se despacha hasta escogerla
+                   (si "tela por definir" está prendido en Gestión → Ajustes). -->
+              <div v-if="item.tela_por_definir && pideTela" class="flex flex-wrap items-center gap-1.5 mt-1">
                 <span class="bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">
                   Tela por definir · no se despacha sin ella
                 </span>
@@ -2841,7 +2853,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         >
           <p class="text-sm font-semibold text-gray-700">
             {{ item.producto?.nombre ?? item.nombre_custom ?? 'Ítem personalizado' }}
-            <span v-if="item.variante_texto" class="text-red-600 font-bold">— {{ item.variante_texto }}</span>
+            <span v-if="item.variante_texto" class="text-red-600 font-bold">— {{ textoVariante(item) }}</span>
           </p>
 
           <!-- Pasos -->
