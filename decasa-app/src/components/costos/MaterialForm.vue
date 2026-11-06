@@ -29,6 +29,7 @@ const guardando = ref(false)
 
 const usos          = computed(() => Number(props.material?.usos) || 0)
 const cambiaPrecio  = computed(() => !esNuevo && Number(form.value.precio_unitario) !== Number(props.material.precio_unitario))
+const cambiaUnidad  = computed(() => !esNuevo && (form.value.unidad.trim().toUpperCase() || null) !== (props.material.unidad || null))
 
 const historial         = ref([])
 const cargandoHistorial = ref(false)
@@ -111,10 +112,16 @@ const variacion = h => ((h.precio_nuevo - h.precio_anterior) / (Number(h.precio_
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
 
+          <!-- Las cantidades de las fichas no se convierten: 3 metros pasarían a ser 3 láminas -->
+          <p v-if="cambiaUnidad && usos" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Cambias la unidad de «{{ props.material.unidad || 'sin unidad' }}» a «{{ form.unidad.trim().toUpperCase() || 'sin unidad' }}».
+            Las {{ usos }} {{ usos === 1 ? 'ficha que lo usa conserva su cantidad' : 'fichas que lo usan conservan su cantidad' }}
+            (no se convierte): si la unidad es otra medida, revisa las cantidades de esas fichas.
+          </p>
           <p v-if="cambiaPrecio && usos" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             Al guardar se recalcula el costo de {{ usos }} {{ usos === 1 ? 'ficha que usa' : 'fichas que usan' }} este material.
           </p>
-          <p v-else-if="!esNuevo" class="text-xs text-gray-400">
+          <p v-else-if="!esNuevo && !(cambiaUnidad && usos)" class="text-xs text-gray-400">
             {{ usos ? `Se usa en ${usos} ${usos === 1 ? 'ficha' : 'fichas'}.` : 'Ninguna ficha lo usa todavía.' }}
           </p>
 

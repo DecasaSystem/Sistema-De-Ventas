@@ -220,7 +220,9 @@ class FichaRetriever
     /** Texto que representa a una ficha en el índice. */
     public function textoDeFicha(object $ficha, array $secciones = []): string
     {
-        $partes = [$ficha->nombre, $ficha->categoria];
+        // La descripción es el nombre que tenía antes de vincularla a un producto (el del
+        // Excel): trae medidas y materiales que el nombre del producto no dice.
+        $partes = [$ficha->nombre, $ficha->descripcion ?? null, $ficha->categoria];
 
         foreach ($secciones as $s) {
             if ($s && mb_strtoupper($s) !== mb_strtoupper($ficha->nombre)) $partes[] = $s;
@@ -235,7 +237,9 @@ class FichaRetriever
      */
     public function indexarFicha(int $fichaId): bool
     {
-        $ficha = DB::table('fichas_tecnicas')->where('id', $fichaId)->first(['id', 'nombre', 'categoria']);
+        $cols = ['id', 'nombre', 'categoria'];
+        if (RecetasDeProductos::hayDescripcion()) $cols[] = 'descripcion';
+        $ficha = DB::table('fichas_tecnicas')->where('id', $fichaId)->first($cols);
         if (! $ficha) return false;
 
         $secciones = DB::table('ficha_tecnica_items')

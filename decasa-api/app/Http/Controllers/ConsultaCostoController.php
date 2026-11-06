@@ -306,7 +306,7 @@ class ConsultaCostoController extends Controller
     public function enviar(Request $request, int $id)
     {
         $usuario  = $request->user();
-        $consulta = ConsultaCosto::with(['items.ordenItem', 'orden.cliente:id,nombre', 'orden'])->findOrFail($id);
+        $consulta = ConsultaCosto::with(['items.ordenItem.producto:id,nombre', 'orden.cliente:id,nombre', 'orden'])->findOrFail($id);
 
         if ($consulta->asignado_a_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
@@ -340,12 +340,19 @@ class ConsultaCostoController extends Controller
                 // Bucle de aprendizaje: el precio_base del ebanista es el COSTO real de
                 // fabricación, comparable con el precio_ia del estimado. Se enlaza con el
                 // estimado de la IA para que futuros muebles parecidos aprendan de esta
-                // corrección (AGENT.md, Fase 5). Best-effort: no debe romper el envío.
+                // corrección (docs/plan-cotizador-ia.md, Fase 5). Best-effort: no debe romper el envío.
+                //
+                // Solo con desglose. En "Precio manual" el ebanista escribe un precio de
+                // VENTA (la pantalla lo llena con el precio de catálogo) y se guarda con
+                // margen 0: tomarlo como costo le enseñaba a la IA que se quedaba corta a
+                // la mitad y la empujaba a inflar las cantidades.
                 try {
                     $costoHumano = (int) round((float) $item->precio_base);
-                    if ($costoHumano > 0) {
+                    if ($costoHumano > 0 && $item->desglose()->exists()) {
                         app(\App\Services\Costos\FewShotProvider::class)->registrarCorreccion(
-                            $item->ordenItem->nombre_custom,
+                            // Lo mismo que el cotizador recibe como `nombre`: el nombre
+                            // escrito o, en un producto del catálogo, el del producto.
+                            $item->ordenItem->nombre_custom ?: $item->ordenItem->producto?->nombre,
                             $item->ordenItem->categoria_custom,
                             $costoHumano,
                             $item->ordenItem->id,
@@ -357,10 +364,11 @@ class ConsultaCostoController extends Controller
                 }
             }
 
-            $orden = $consulta->orden;
-            $orden->load('items');
-            $nuevoTotal = $orden->items->sum(fn($i) => $i->cantidad * $i->precio_unitario);
-            $orden->update(['valor_total' => $nuevoTotal]);
+            // El total sale de la misma cuenta del resto del sistema: descuentos y
+            // descuento condicionado se respetan y lo devuelto no suma. Antes se
+            // sumaba cantidad × precio a secas y una orden con descuento subía de total.
+            $consulta->orden->recalcularTotal();
+            ComisionController::sincronizarValorOrden($consulta->orden->fresh());
 
             $consulta->update([
                 'estado'        => 'respondida',
@@ -462,10 +470,9 @@ class ConsultaCostoController extends Controller
                 $ci->ordenItem->update(['precio_unitario' => $precioNuevo]);
             }
 
-            // Recalcular valor_total de la orden
-            $consulta->orden->load('items');
-            $nuevoTotal = $consulta->orden->items->sum(fn($i) => $i->cantidad * $i->precio_unitario);
-            $consulta->orden->update(['valor_total' => $nuevoTotal]);
+            // Mismo total que en `enviar`: con descuentos y sin lo devuelto
+            $consulta->orden->recalcularTotal();
+            ComisionController::sincronizarValorOrden($consulta->orden->fresh());
         });
 
         // Registrar auditoría

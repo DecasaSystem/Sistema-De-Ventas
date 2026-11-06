@@ -5,7 +5,8 @@
  * celular había que arrastrar de lado.
  *
  * La mano de obra que sale de Tarifas no deja editar el valor por hora: lo manda
- * el incentivo del oficio, y al guardar Tarifas se pisaría.
+ * el incentivo del oficio, y al guardar Tarifas se pisaría. Lo mismo un material
+ * del catálogo: su precio se cambia en Materiales.
  */
 import { computed } from 'vue'
 import { CubeIcon, WrenchScrewdriverIcon, ArrowsRightLeftIcon, TrashIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
@@ -23,6 +24,9 @@ const { formatPeso, formatCantidad } = useCostos()
 const sinPrecio     = computed(() => !(Number(props.item.precio_unitario) > 0) || !String(props.item.descripcion ?? '').trim())
 const fueraCatalogo = computed(() => !props.item.es_mano_obra && !props.item.material_id && String(props.item.descripcion ?? '').trim() !== '')
 const sigueTarifa   = computed(() => props.item.es_mano_obra && props.item.tarifa_proceso_id)
+// Un material del catálogo tampoco: al guardar, el servidor pone el precio del catálogo
+// (si se escribía otro aquí, el próximo cambio de precio en Materiales lo pisaba).
+const sigueCatalogo = computed(() => !props.item.es_mano_obra && props.item.material_id)
 // "1 horas" se lee mal: la mano de obra se muestra en h
 const unidad        = computed(() => {
   const u = props.item.unidad
@@ -64,11 +68,14 @@ const unidad        = computed(() => {
           type="number" step="any" min="0" inputmode="decimal" :aria-label="`Cantidad (${unidad})`"
           class="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <span>{{ unidad }} ×</span>
-        <InputPesos v-if="!sigueTarifa" :model-value="item.precio_unitario" @update:modelValue="v => emit('cambio', { precio_unitario: v })"
+        <InputPesos v-if="!sigueTarifa && !sigueCatalogo" :model-value="item.precio_unitario" @update:modelValue="v => emit('cambio', { precio_unitario: v })"
           aria-label="Valor unitario"
           class="w-28 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <span v-else class="px-2 py-1.5 rounded-lg bg-gray-100 text-gray-600" title="Lo fija el incentivo por hora del oficio en Tarifas">
+        <span v-else-if="sigueTarifa" class="px-2 py-1.5 rounded-lg bg-gray-100 text-gray-600" title="Lo fija el incentivo por hora del oficio en Tarifas">
           {{ formatPeso(item.precio_unitario) }} <span class="text-gray-400">· de Tarifas</span>
+        </span>
+        <span v-else class="px-2 py-1.5 rounded-lg bg-gray-100 text-gray-600" title="Lo fija el precio del material en la pestaña Materiales">
+          {{ formatPeso(item.precio_unitario) }} <span class="text-gray-400">· del catálogo</span>
         </span>
       </div>
 

@@ -559,9 +559,15 @@ class AgentService
 
     private function handleObtenerFichaTecnica(array $args): array
     {
-        $nombre = mb_strtolower(trim($args['nombre_producto']));
+        $nombre = mb_strtolower(trim($args['nombre_producto'] ?? ''));
 
-        $ficha = DB::table('fichas_tecnicas')
+        // La receta enlazada al producto de Inventario manda sobre buscarla por el nombre
+        // (el nombre de la ficha del Excel casi nunca es el del producto).
+        $ficha = ! empty($args['ficha_id'])
+            ? DB::table('fichas_tecnicas')->where('id', $args['ficha_id'])->first()
+            : null;
+
+        $ficha ??= DB::table('fichas_tecnicas')
             ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($nombre)])
             ->orderByRaw('CHAR_LENGTH(nombre) ASC')
             ->first();
@@ -2844,6 +2850,7 @@ class AgentService
             $toolData = $this->handleObtenerFichaTecnica(array_filter([
                 'nombre_producto' => $nombre,
                 'puestos_nuevo'   => $numPuestos,
+                'ficha_id'        => $this->recetaDelProducto((int) $productoId),
             ]));
             $toolUsado = 'ficha_tecnica';
 
@@ -2893,10 +2900,16 @@ class AgentService
             $cambioMedidas = $tieneMedidas;
         }
 
+        $soloRetapizado = $productoId && $cambioTela && ! $cambioMedidas;
+        $soloAltura     = $productoId && $cambioMedidas && ! $cambioTela;
+
+        // Con "solo retapizado" o "solo ajuste" la receta que arma la IA es SOLO lo del
+        // cambio (tela + tapicero, o el ajuste), no el mueble entero: su costo no se puede
+        // comparar contra lo que cuesta fabricar la ficha completa.
+        $costoEsDelCambio = $soloRetapizado || $soloAltura;
+
         // ── Construir el contexto para la IA ─────────────────────────────────
         if ($productoId) {
-            $soloRetapizado = $cambioTela && !$cambioMedidas;
-            $soloAltura     = $cambioMedidas && !$cambioTela;
 
             $cambiosTexto = [];
             if ($cambioTela)    $cambiosTexto[] = $soloRetapizado ? 'SOLO retapizado (mueble ya fabricado en stock)' : 'cambio de tela/material';
@@ -2976,7 +2989,9 @@ class AgentService
             $bom,
             $fichasRef,
             $categoria ?: null,
+            $costoEsDelCambio,
         );
+        $resultado['costo_es_del_cambio'] = $costoEsDelCambio;
 
         if ($chequeo['requiere_revision']) {
             $resultado['requiere_revision'] = true;
@@ -2987,14 +3002,16 @@ class AgentService
 
         // Registrar el estimado para el bucle de aprendizaje (Fase 5). Best-effort: si falla,
         // la cotización se entrega igual. Solo se guardan cotizaciones de fabricación, no
-        // restauraciones (esas van por otra ruta).
-        $estimadoId = $this->fewShot->registrar(
+        // restauraciones (esas van por otra ruta). Tampoco el costo de un solo cambio
+        // (retapizado, ajuste): no es el costo de un mueble y enseñaría cifras falsas.
+        $estimadoId = $costoEsDelCambio ? null : $this->fewShot->registrar(
             trim("{$nombre} {$descripcion}") ?: $nombre,
             $categoria ?: null,
             $bom,
             (int) $resultado['precio_fabricacion'],
             (bool) ($resultado['requiere_revision'] ?? false),
             array_filter(['largo' => $largoCm, 'ancho' => $anchoCm, 'alto' => $altoCm]),
+            $nombre,
         );
 
         return array_merge([
@@ -3003,6 +3020,22 @@ class AgentService
             'bom'         => $bom,
             'estimado_id' => $estimadoId,
         ], $resultado);
+    }
+
+    /**
+     * La ficha enlazada a un producto en Costos: la receta del producto, o si solo tiene
+     * recetas por versión, la primera (Nueva orden todavía no manda qué versión se cotiza).
+     */
+    private function recetaDelProducto(int $productoId): ?int
+    {
+        if (! $productoId || ! \Illuminate\Support\Facades\Schema::hasColumn('fichas_tecnicas', 'producto_id')) return null;
+
+        $q = DB::table('fichas_tecnicas')->where('producto_id', $productoId)->where('costo_total', '>', 0);
+        if (\App\Services\Costos\RecetasDeProductos::hayVersiones()) {
+            $q->orderByRaw('CASE WHEN variante_config_id IS NULL THEN 0 ELSE 1 END');
+        }
+
+        return $q->orderBy('id')->value('id');
     }
 
     /**
@@ -3501,7 +3534,8 @@ TARIFAS DE PERSONAL POR HORA:
 REGLAS:
 - precio_sugerido_venta = precio_fabricacion × 1.8 (margen estándar de servicio)
 - precio_fabricacion = total materiales + total mano de obra
-- Cantidad de piezas a restaurar: {$cantidad} (multiplica costos proporcionales si aplica)
+- Cotiza UNA SOLA pieza: todas las cifras son por unidad. El sistema multiplica por la cantidad
+  de la orden; si tú también multiplicas, se cobra doble.
 - Mano de obra: usa las tarifas disponibles. Si el trabajo combina varias operaciones (ej: tapizado + laca), suma cada proceso por separado
 - Materiales: solo los que el trabajo realmente requiere (tela, espuma, laca, barniz, puntillas, etc.). Si no se especifica el material, usa un estimado razonable para el mueble
 - Si hay imagen del mueble: analiza su estado, tamaño estimado y componentes para refinar el estimado
@@ -3509,9 +3543,12 @@ REGLAS:
 - desglose_materiales puede estar vacío [] si el trabajo es solo mano de obra (ej: solo laca)
 SYSTEM;
 
+        // La cantidad NO va al modelo. Nueva orden pone lo que devuelve como precio
+        // UNITARIO del ítem y la orden lo multiplica por la cantidad: cuando el modelo
+        // ya traía el total de las N piezas, 2 sillas se cobraban como 4.
         $userText = "Mueble: {$nombre}\n";
         if ($trabajo) $userText .= "Trabajo solicitado: {$trabajo}\n";
-        $userText .= "Cantidad: {$cantidad} pieza(s)";
+        $userText .= 'Cotiza el precio de UNA pieza.';
 
         $messages = [['role' => 'system', 'content' => $system]];
         $messages[] = $boceto
@@ -3539,7 +3576,13 @@ SYSTEM;
                 return ['ok' => false, 'error' => 'No se pudo calcular. Agrega más detalles del trabajo a realizar.'];
             }
 
-            return array_merge(['ok' => true, 'tool_usado' => 'restauracion'], $decoded);
+            // `por_unidad` + `cantidad`: la pantalla dice "c/u" cuando son varias piezas
+            return array_merge($decoded, [
+                'ok'         => true,
+                'tool_usado' => 'restauracion',
+                'por_unidad' => true,
+                'cantidad'   => $cantidad,
+            ]);
         } catch (\Throwable $e) {
             \Log::error('calcularPrecioRestauracion', ['err' => $e->getMessage()]);
             return ['ok' => false, 'error' => 'Error al consultar la IA. Intenta de nuevo.'];

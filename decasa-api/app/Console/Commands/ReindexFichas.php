@@ -25,7 +25,9 @@ class ReindexFichas extends Command
             $query->whereNull('embedding');
         }
 
-        $fichas = $query->get(['id', 'nombre', 'categoria']);
+        $fichas = $query->get(\App\Services\Costos\RecetasDeProductos::hayDescripcion()
+            ? ['id', 'nombre', 'descripcion', 'categoria']
+            : ['id', 'nombre', 'categoria']);
 
         if ($fichas->isEmpty()) {
             $this->info('No hay fichas por indexar. Usa --todas para regenerarlas.');

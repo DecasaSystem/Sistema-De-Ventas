@@ -90,7 +90,7 @@ const lista = computed(() => filtro.value === 'todas' ? vinculadas.value : vincu
       <button v-for="f in lista" :key="f.id" @click="emit('abrir', f.id)"
         class="w-full flex items-center gap-3 px-3 py-3 hover:bg-gray-50 text-left">
         <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-800 truncate">{{ f.producto_nombre }}</p>
+          <p class="text-sm font-medium text-gray-800 truncate">{{ f.producto_nombre }}<template v-if="f.version_nombre"> · {{ f.version_nombre }}</template></p>
           <p class="text-xs text-gray-400 truncate">Ficha: {{ f.nombre }}</p>
           <p class="text-xs text-gray-500 mt-0.5 tabular-nums">
             Cuesta {{ formatPeso(f.costo_total) }}, se vende a {{ formatPeso(f.producto_precio) }}

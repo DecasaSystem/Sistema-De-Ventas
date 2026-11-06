@@ -25,14 +25,41 @@ class SanityChecker
      * @param array      $bom               Receta (para saber si es híbrido).
      * @param Collection $fichasRef         Fichas similares que se usaron de referencia.
      */
-    public function revisar(int $precioFabricacion, array $bom, Collection $fichasRef, ?string $categoria = null): array
-    {
+    public function revisar(
+        int $precioFabricacion,
+        array $bom,
+        Collection $fichasRef,
+        ?string $categoria = null,
+        bool $costoEsDelCambio = false,
+    ): array {
         $motivos = [];
 
         if ($precioFabricacion <= 0) {
             return [
                 'requiere_revision' => true,
                 'motivos'           => ['No se pudo construir un desglose con materiales del catálogo.'],
+            ];
+        }
+
+        // ── Cambio sobre un mueble del catálogo (solo retapizado o solo ajuste) ──
+        // La receta es SOLO el cambio, así que siempre queda muy por debajo de la ficha
+        // completa: compararla contra la ficha (o contra el más barato de la categoría)
+        // la mandaba a revisión casi siempre. Lo único absurdo aquí es que el cambio
+        // cueste más que fabricar el mueble entero.
+        if ($costoEsDelCambio) {
+            $completo = (float) ($fichasRef->first()->costo_total ?? 0);
+
+            if ($completo > 0 && $precioFabricacion > $completo) {
+                $motivos[] = sprintf(
+                    'El cambio ($%s) cuesta más que fabricar el mueble completo según su ficha ($%s).',
+                    number_format($precioFabricacion, 0, ',', '.'),
+                    number_format($completo, 0, ',', '.'),
+                );
+            }
+
+            return [
+                'requiere_revision' => ! empty($motivos),
+                'motivos'           => $motivos,
             ];
         }
 

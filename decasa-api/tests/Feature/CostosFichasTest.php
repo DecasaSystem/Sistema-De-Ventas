@@ -358,10 +358,11 @@ class CostosFichasTest extends TestCase
         $id   = $this->ficha('SOFA M', [['descripcion' => 'TELA', 'cantidad' => 10, 'precio_unitario' => 50000]]);
         $prod = DB::table('productos')->insertGetId(['nombre' => 'Sofá Milán', 'precio_base' => 1500000]);
 
+        // Al vincular toma el nombre del producto (2026-11-06)
         $this->actingAs($this->ebanista)->patchJson("/api/fichas-tecnicas/{$id}/producto", ['producto_id' => $prod])
-            ->assertOk()->assertJsonPath('producto.nombre', 'Sofá Milán');
+            ->assertOk()->assertJsonPath('producto.nombre', 'Sofá Milán')->assertJsonPath('nombre', 'SOFÁ MILÁN');
 
-        $r = $this->actingAs($this->ebanista)->getJson('/api/fichas-tecnicas?search=sofa m');
+        $r = $this->actingAs($this->ebanista)->getJson('/api/fichas-tecnicas?search=mil');
         $r->assertOk()->assertJsonPath('fichas.0.producto_id', $prod)
           ->assertJsonPath('fichas.0.producto_nombre', 'Sofá Milán');
         $this->assertEquals(1500000, $r->json('fichas.0.producto_precio'));
@@ -452,5 +453,91 @@ class CostosFichasTest extends TestCase
         ]]]);
 
         $this->assertSame(['pintor', 'carpintero'], array_column($bom['componentes'][0]['mano_obra'], 'cargo'));
+    }
+
+    // ── Revisión del 2026-11-06 ──────────────────────────────────────────────
+
+    public function test_guardar_una_ficha_abierta_desde_antes_no_devuelve_los_precios_viejos(): void
+    {
+        $mat = DB::table('materiales')->insertGetId(['nombre' => 'TRIPLEX', 'unidad' => 'LAMINA', 'precio_unitario' => 100000]);
+        DB::table('salarios_cargo')->insert(['cargo' => 'carpintero', 'tarifa_hora' => 15000]);
+        $tarifa = DB::table('tarifas_proceso')->insertGetId(['proceso' => 'armado', 'cargo' => 'carpintero']);
+        $id = $this->ficha('MESA', [
+            ['descripcion' => 'TRIPLEX', 'cantidad' => 2, 'unidad' => 'LAMINA', 'precio_unitario' => 80000, 'material_id' => $mat],
+            ['descripcion' => 'armado', 'cantidad' => 4, 'unidad' => 'horas', 'precio_unitario' => 12000,
+             'es_mano_obra' => true, 'tarifa_proceso_id' => $tarifa],
+        ]);
+        [$itMat, $itMo] = DB::table('ficha_tecnica_items')->orderBy('id')->pluck('id')->all();
+
+        // La pantalla manda lo que tenía al abrir: $80.000 la lámina y $12.000 la hora
+        $this->actingAs($this->ebanista)->patchJson("/api/fichas-tecnicas/{$id}/items", [
+            'foto_url' => 'https://res.cloudinary.com/x/mesa.jpg',
+            'items'    => [
+                ['id' => $itMat, 'cantidad' => 2, 'precio_unitario' => 80000],
+                ['id' => $itMo,  'cantidad' => 4, 'precio_unitario' => 12000],
+            ],
+        ])->assertOk();
+
+        $this->assertEquals(100000, DB::table('ficha_tecnica_items')->where('id', $itMat)->value('precio_unitario'));
+        $this->assertEquals(15000, DB::table('ficha_tecnica_items')->where('id', $itMo)->value('precio_unitario'));
+        $this->assertEquals(2 * 100000 + 4 * 15000, DB::table('fichas_tecnicas')->value('costo_total'));
+    }
+
+    public function test_un_material_del_catalogo_toma_el_precio_del_catalogo_y_lo_libre_el_escrito(): void
+    {
+        $mat = DB::table('materiales')->insertGetId(['nombre' => 'ESPUMA', 'unidad' => 'LAMINA', 'precio_unitario' => 50000]);
+
+        $this->actingAs($this->ebanista)->postJson('/api/fichas-tecnicas', [
+            'nombre' => 'PUFF', 'categoria' => 'BUTACOS',
+            'items'  => [
+                ['descripcion' => 'ESPUMA', 'cantidad' => 1, 'precio_unitario' => 1, 'material_id' => $mat],
+                // Escrito a mano con el nombre de un material: también es ese material
+                ['descripcion' => 'espuma', 'cantidad' => 1, 'precio_unitario' => 2],
+                ['descripcion' => 'BOTONES ESPECIALES', 'cantidad' => 4, 'precio_unitario' => 3000],
+            ],
+        ])->assertCreated();
+
+        $precios = DB::table('ficha_tecnica_items')->orderBy('id')->pluck('precio_unitario')->map(fn ($p) => (float) $p)->all();
+        $this->assertSame([50000.0, 50000.0, 3000.0], $precios);
+        $this->assertEquals(112000, DB::table('fichas_tecnicas')->value('costo_total'));
+    }
+
+    public function test_cambiar_la_unidad_del_material_actualiza_la_unidad_que_ve_el_cotizador(): void
+    {
+        Schema::table('materiales', fn (Blueprint $t) => $t->string('unidad_norm', 20)->nullable());
+        $supervisor = Usuario::forceCreate(['nombre' => 'Sup', 'rol' => 'supervisor', 'acceso_costos' => true, 'created_at' => now()]);
+
+        $id = $this->actingAs($supervisor)->postJson('/api/materiales', [
+            'nombre' => 'TRIPLEX 15', 'unidad' => 'LÁMINA DE 18 MM', 'precio_unitario' => 90000,
+        ])->assertCreated()->json('id');
+        $this->assertSame('lamina', DB::table('materiales')->where('id', $id)->value('unidad_norm'));
+
+        $this->actingAs($supervisor)->patchJson("/api/materiales/{$id}", [
+            'nombre' => 'TRIPLEX 15', 'unidad' => 'METROS', 'precio_unitario' => 90000,
+        ])->assertOk();
+        $this->assertSame('metro', DB::table('materiales')->where('id', $id)->value('unidad_norm'));
+
+        $this->assertSame('unidad', \App\Support\UnidadMaterial::normalizar('und'));
+        $this->assertSame('otro', \App\Support\UnidadMaterial::normalizar('CHAPILLA [CTMS]'));
+        $this->assertNull(\App\Support\UnidadMaterial::normalizar(''));
+    }
+
+    public function test_no_se_puede_crear_ni_renombrar_un_material_con_un_nombre_que_ya_existe(): void
+    {
+        $supervisor = Usuario::forceCreate(['nombre' => 'Sup', 'rol' => 'supervisor', 'acceso_costos' => true, 'created_at' => now()]);
+        $tela  = DB::table('materiales')->insertGetId(['nombre' => 'TELA LINO', 'precio_unitario' => 30000]);
+        $otra  = DB::table('materiales')->insertGetId(['nombre' => 'TELA PANA', 'precio_unitario' => 25000]);
+
+        $this->actingAs($supervisor)->postJson('/api/materiales', ['nombre' => ' tela lino ', 'precio_unitario' => 1])
+            ->assertStatus(422)->assertJsonPath('existente_id', $tela);
+
+        $this->actingAs($supervisor)->patchJson("/api/materiales/{$otra}", ['nombre' => 'TELA LINO', 'precio_unitario' => 25000])
+            ->assertStatus(422);
+
+        // Sin renombrar se puede seguir editando, aunque ya hubiera dos repetidos de antes
+        DB::table('materiales')->insert(['nombre' => 'TELA PANA', 'precio_unitario' => 25000]);
+        $this->actingAs($supervisor)->patchJson("/api/materiales/{$otra}", ['nombre' => 'TELA PANA', 'precio_unitario' => 26000])
+            ->assertOk();
+        $this->assertSame(3, DB::table('materiales')->count());
     }
 }

@@ -10,8 +10,10 @@ class FichaTecnica extends Model
 
     protected $fillable = [
         'nombre',
+        'descripcion',          // el nombre que tenía antes de vincularla a un producto
         'categoria',
         'producto_id',
+        'variante_config_id',   // la versión del producto (null = la receta del producto)
         'costo_materiales',
         'costo_mano_obra',
         'costo_total',
@@ -37,6 +39,12 @@ class FichaTecnica extends Model
     public function producto()
     {
         return $this->belongsTo(Producto::class);
+    }
+
+    /** Versión del producto (la cama de 1.40) cuya receta es esta ficha. */
+    public function varianteConfig()
+    {
+        return $this->belongsTo(ProductoVarianteConfig::class, 'variante_config_id');
     }
 
     /** Recalcula los totales de una ficha a partir de sus ítems. */

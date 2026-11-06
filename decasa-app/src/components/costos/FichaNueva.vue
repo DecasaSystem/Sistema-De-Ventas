@@ -10,6 +10,7 @@ import api from '@/api'
 import { crearFicha } from '@/api/fichas'
 import { useToast } from '@/composables/useToast'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
 import PanelCostos from './PanelCostos.vue'
 import CostoBarra from './CostoBarra.vue'
@@ -18,17 +19,26 @@ import PickerMaterial from './PickerMaterial.vue'
 import PickerTarifa from './PickerTarifa.vue'
 import { useCostos } from './useCostos'
 
-defineProps({ categorias: { type: Array, default: () => [] } })
+const props = defineProps({
+  categorias: { type: Array, default: () => [] },
+  // Receta de un producto de Inventario: { producto, version, categoria_ficha }.
+  // El nombre, la categoría y la foto salen de allá (no hay que escribirlos dos veces).
+  destino:    { type: Object, default: null },
+})
 const emit = defineEmits(['cerrar', 'creada'])
 
 const toast = useToast()
 const { formatPeso, tarifaHoraDe, nombreProceso } = useCostos()
 
-const nombre     = ref('')
-const categoria  = ref('')
+const producto   = props.destino?.producto ?? null
+const version    = props.destino?.version ?? null
+const nombre     = ref(producto ? [producto.nombre, version?.opcion].filter(Boolean).join(' ').toUpperCase() : '')
+const categoria  = ref(producto ? (props.destino.categoria_ficha || producto.categoria || '') : '')
 const items      = ref([])
 const foto       = ref(null)
+// Sin foto propia se muestra la del producto (no se copia: sigue a la de Inventario)
 const fotoUrl    = ref('')
+const fotoProducto = producto?.foto_url ? cloudinaryOpt(producto.foto_url, 160) : ''
 const creando    = ref(false)
 const pickerMaterial = ref(false)
 const pickerTarifa   = ref(false)
@@ -36,7 +46,8 @@ let tmp = 0
 
 const totalMat = computed(() => items.value.filter(i => !i.es_mano_obra).reduce((s, i) => s + i.subtotal, 0))
 const totalMO  = computed(() => items.value.filter(i =>  i.es_mano_obra).reduce((s, i) => s + i.subtotal, 0))
-const hayAlgo  = computed(() => nombre.value.trim() || items.value.length)
+// Lo que vino del producto no cuenta como "algo escrito"
+const hayAlgo  = computed(() => items.value.length || foto.value || (!producto && nombre.value.trim()))
 
 function agregar(campos) {
   const item = { _tmp: ++tmp, cantidad: 1, unidad: null, precio_unitario: 0, subtotal: 0, es_mano_obra: false, material_id: null, tarifa_proceso_id: null, ...campos }
@@ -92,6 +103,8 @@ async function crear() {
       nombre:    nombre.value.trim().toUpperCase(),
       categoria: categoria.value.trim().toUpperCase(),
       foto_url:  urlFoto,
+      producto_id:        producto?.id ?? null,
+      variante_config_id: version?.config_id ?? null,
       items: items.value.map((i, orden) => ({
         seccion:           null,
         descripcion:       i.descripcion,
@@ -115,13 +128,15 @@ async function crear() {
 </script>
 
 <template>
-  <PanelCostos titulo="Nueva ficha técnica" subtitulo="Lo que cuesta fabricar un mueble" @cerrar="cerrar">
+  <PanelCostos :titulo="producto ? 'Receta del producto' : 'Nueva ficha técnica'"
+    :subtitulo="producto ? [producto.nombre, version?.opcion].filter(Boolean).join(' · ') : 'Lo que cuesta fabricar un mueble'"
+    @cerrar="cerrar">
     <template #acciones>
       <button @click="crear" :disabled="creando"
         class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
         <IconoS v-if="creando" class="w-3.5 h-3.5" />
         <CheckIcon v-else class="w-3.5 h-3.5" />
-        {{ creando ? 'Creando…' : 'Crear ficha' }}
+        {{ creando ? 'Creando…' : producto ? 'Crear receta' : 'Crear ficha' }}
       </button>
     </template>
 
@@ -130,7 +145,7 @@ async function crear() {
       <div class="flex gap-3">
         <label class="relative w-20 h-20 flex-shrink-0 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center cursor-pointer overflow-hidden hover:bg-gray-100"
           title="Foto del mueble (opcional)">
-          <img v-if="fotoUrl" :src="fotoUrl" alt="" class="absolute inset-0 w-full h-full object-cover" />
+          <img v-if="fotoUrl || fotoProducto" :src="fotoUrl || fotoProducto" alt="" class="absolute inset-0 w-full h-full object-cover" />
           <span v-else class="flex flex-col items-center text-gray-400">
             <PhotoIcon class="w-6 h-6" /><span class="text-[11px] mt-0.5">Foto</span>
           </span>

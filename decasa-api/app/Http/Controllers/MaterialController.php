@@ -42,8 +42,12 @@ class MaterialController extends Controller
             'precio_unitario' => 'required|numeric|min:0',
         ]);
 
+        if ($repetido = $this->otroConElNombre($data['nombre'])) {
+            return $this->yaExiste($repetido);
+        }
+
         $material = DB::transaction(function () use ($data) {
-            $material = Material::create($data);
+            $material = Material::create($data + $this->unidadNorm($data['unidad'] ?? null));
             // Los ítems que ya estaban escritos con este nombre pasan a ser de este material
             $this->enlazarPorNombre();
             return $material;
@@ -61,10 +65,23 @@ class MaterialController extends Controller
             'precio_unitario' => 'required|numeric|min:0',
         ]);
 
+        // Solo al renombrar: si ya había dos con el mismo nombre (de antes), se pueden
+        // seguir editando; lo que no se deja es crear un repetido nuevo.
+        $renombra = isset($data['nombre'])
+            && mb_strtolower(trim($data['nombre'])) !== mb_strtolower(trim($material->nombre));
+        if ($renombra && ($repetido = $this->otroConElNombre($data['nombre'], $material->id))) {
+            return $this->yaExiste($repetido);
+        }
+
         $precioAnterior = (float) $material->precio_unitario;
         $precioNuevo    = (float) $data['precio_unitario'];
         $nombreAnterior = $material->nombre;
         $unidadAnterior = $material->unidad;
+
+        // La unidad que ve el cotizador sigue a la escrita (antes se quedaba con la vieja)
+        if (array_key_exists('unidad', $data) && $data['unidad'] !== $unidadAnterior) {
+            $data += $this->unidadNorm($data['unidad']);
+        }
 
         $usuarioId = $request->user()?->id;
 
@@ -251,7 +268,7 @@ class MaterialController extends Controller
                     'nombre'          => $item->nombre,
                     'unidad'          => $item->unidad,
                     'precio_unitario' => $item->precio_promedio,
-                ]);
+                ] + $this->unidadNorm($item->unidad));
                 $existentes->put($key, true);
                 $nuevos++;
             }
@@ -284,6 +301,35 @@ class MaterialController extends Controller
                         ->whereRaw("LOWER(TRIM({$alias}.descripcion)) = ?", [mb_strtolower(trim($nombre))]);
                   });
             });
+    }
+
+    /**
+     * Otro material que ya se llama así (sin mayúsculas ni espacios de los lados). Dos con
+     * el mismo nombre salen repetidos en el buscador y los ítems escritos a mano se enlazan
+     * siempre con el más viejo (`Material::idsPorNombre`): el otro queda sin usar.
+     */
+    private function otroConElNombre(string $nombre, ?int $salvo = null): ?Material
+    {
+        return Material::whereRaw('LOWER(TRIM(nombre)) = ?', [mb_strtolower(trim($nombre))])
+            ->when($salvo, fn ($q) => $q->where('id', '!=', $salvo))
+            ->orderBy('id')
+            ->first();
+    }
+
+    private function yaExiste(Material $repetido)
+    {
+        return response()->json([
+            'message'     => "Ya existe un material llamado «{$repetido->nombre}». Edita ese o usa otro nombre.",
+            'existente_id' => $repetido->id,
+        ], 422);
+    }
+
+    /** `unidad_norm` para guardar, si la tabla la tiene (los esquemas de las pruebas no siempre). */
+    private function unidadNorm(?string $unidad): array
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('materiales', 'unidad_norm')
+            ? ['unidad_norm' => \App\Support\UnidadMaterial::normalizar($unidad)]
+            : [];
     }
 
     /** Enlaza con el catálogo los ítems de material que se llaman como un material y no tienen material_id. */

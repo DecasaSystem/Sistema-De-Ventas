@@ -29,6 +29,7 @@ class FewShotProvider
         int $precioIa,
         bool $requirioRevision,
         array $medidas = [],
+        ?string $nombre = null,
     ): ?int {
         try {
             $embedding = $this->retriever->embed(trim($inputTexto . ' ' . ($categoria ?? '')));
@@ -36,7 +37,11 @@ class FewShotProvider
             $estimado = EstimadoIa::create([
                 'input_texto'       => mb_substr($inputTexto, 0, 500),
                 'categoria'         => $categoria,
-                'input_hash'        => EstimadoIa::hashInput($inputTexto, $categoria),
+                // El vínculo con la corrección va SOLO por el nombre del mueble: es lo único
+                // que la orden guarda igual. Antes iba con nombre + especificaciones y la
+                // categoría que calcula la pantalla; la corrección busca con el nombre del
+                // ítem y su categoría escrita, así que casi nunca se encontraban.
+                'input_hash'        => EstimadoIa::hashInput($nombre ?? $inputTexto, null),
                 'medidas'           => array_filter($medidas),
                 'bom_json'          => $bom,
                 'precio_ia'         => $precioIa,
@@ -55,7 +60,7 @@ class FewShotProvider
     /**
      * Registra la corrección de un ebanista sobre el estimado de la IA.
      *
-     * Vincula por hash grueso (categoría + nombre del mueble) con el estimado más reciente aún
+     * Vincula por hash grueso (nombre del mueble) con el estimado más reciente aún
      * sin corregir. No es un vínculo exacto — el estimado se generó antes de existir el orden_item
      * — pero para few-shot basta: se generó minutos antes de la consulta y comparte nombre y
      * categoría. IMPORTANTE: se compara COSTO contra COSTO (precio_ia es costo de fabricación, así
@@ -68,14 +73,20 @@ class FewShotProvider
         ?int $ordenItemId = null,
         ?int $usuarioId = null,
     ): bool {
-        if ($costoHumano <= 0) return false;
+        if ($costoHumano <= 0 || trim((string) $nombre) === '') return false;
 
-        $hash = EstimadoIa::hashInput($nombre, $categoria);
+        // Mismo vínculo que registrar(): solo el nombre (la categoría del ítem es la que
+        // escribió el vendedor y la del estimado la que resolvió la pantalla: difieren).
+        $hash = EstimadoIa::hashInput($nombre, null);
 
-        $estimado = EstimadoIa::where('input_hash', $hash)
-            ->whereNull('precio_humano')
-            ->orderByDesc('created_at')
-            ->first();
+        // Si este ítem ya tiene su estimado enlazado (una consulta respondida otra vez
+        // tras reabrirse), se corrige ese; si no, el más reciente sin corregir.
+        $estimado = ($ordenItemId ? EstimadoIa::where('orden_item_id', $ordenItemId)->first() : null)
+            ?? EstimadoIa::where('input_hash', $hash)
+                ->whereNull('precio_humano')
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->first();
 
         if (! $estimado) return false;
 

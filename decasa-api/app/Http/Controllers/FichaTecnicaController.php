@@ -6,6 +6,8 @@ use App\Models\FichaTecnica;
 use App\Models\FichaTecnicaItem;
 use App\Models\Material;
 use App\Services\Costos\FichaRetriever;
+use App\Services\Costos\RecetasDeProductos;
+use App\Support\PreciosVigentes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -25,6 +27,8 @@ class FichaTecnicaController extends Controller
             $query->where(function ($q) use ($term) {
                 $q->whereRaw('LOWER(ft.nombre) LIKE ?',    [$term])
                   ->orWhereRaw('LOWER(ft.categoria) LIKE ?', [$term]);
+                // Vinculada, el nombre del Excel quedó en la descripción: que se siga encontrando
+                if (RecetasDeProductos::hayDescripcion()) $q->orWhereRaw('LOWER(ft.descripcion) LIKE ?', [$term]);
             });
         }
 
@@ -32,14 +36,37 @@ class FichaTecnicaController extends Controller
             $query->where('ft.categoria', $categoria);
         }
 
+        $cols = [
+            'ft.id', 'ft.nombre', 'ft.categoria', 'ft.costo_materiales', 'ft.costo_mano_obra',
+            'ft.costo_total', 'ft.foto_url', 'ft.producto_id', 'p.nombre as producto_nombre',
+            'p.foto_url as producto_foto',
+        ];
+
+        // La receta de una versión (la cama de 1.40) se compara contra el precio de esa
+        // versión, no contra el del producto: `precio_adicional` es su precio completo
+        // (0 = el del producto).
+        if (RecetasDeProductos::hayVersiones()) {
+            $query->leftJoin('producto_variante_configs as vc', 'vc.id', '=', 'ft.variante_config_id')
+                  ->leftJoin('tipo_variante_opciones as vo', 'vo.id', '=', 'vc.opcion_id');
+            $cols[] = 'ft.variante_config_id';
+            $cols[] = 'vo.nombre as version_nombre';
+            // La receta general de un producto con medidas no es el costo de ninguna: sin
+            // precio con qué compararla (cada medida se vende a su precio).
+            $cols[] = DB::raw('CASE
+                WHEN ft.variante_config_id IS NULL AND EXISTS (
+                    SELECT 1 FROM producto_variante_configs c2
+                    JOIN tipos_variante t2 ON t2.id = c2.tipo_variante_id
+                    WHERE c2.producto_id = ft.producto_id AND t2.afecta_precio = 1) THEN NULL
+                WHEN vc.precio_adicional > 0 THEN vc.precio_adicional
+                ELSE p.precio_base END AS producto_precio');
+        } else {
+            $cols[] = 'p.precio_base as producto_precio';
+        }
+
         $fichas = $query
             ->orderBy('ft.categoria')
             ->orderBy('ft.nombre')
-            ->get([
-                'ft.id', 'ft.nombre', 'ft.categoria', 'ft.costo_materiales', 'ft.costo_mano_obra',
-                'ft.costo_total', 'ft.foto_url', 'ft.producto_id',
-                'p.nombre as producto_nombre', 'p.precio_base as producto_precio',
-            ]);
+            ->get($cols);
 
         // Lo que hay que revisar en cada ficha: ítems sin precio y materiales que no
         // están en el catálogo (no se actualizan cuando cambia el precio del material).
@@ -67,29 +94,89 @@ class FichaTecnicaController extends Controller
         ]);
     }
 
+    /**
+     * GET /fichas-tecnicas/productos — los productos de Inventario con su receta (o "sin
+     * receta", en espera) y las fichas sueltas con sugerencia. Ver RecetasDeProductos.
+     */
+    public function productos(RecetasDeProductos $recetas)
+    {
+        return response()->json($recetas->listado());
+    }
+
     public function show(FichaTecnica $fichaTecnica)
     {
-        return response()->json($fichaTecnica->load(['items', self::PRODUCTO]));
+        return response()->json($this->conMedidas($fichaTecnica->load($this->relaciones())));
     }
 
-    /** PATCH /fichas-tecnicas/{id}/producto — vincula (o desvincula, con null) el producto del catálogo. */
-    public function vincularProducto(Request $request, FichaTecnica $fichaTecnica)
+    /**
+     * `producto_con_medidas`: el producto tiene medidas (opciones que cambian el precio). Su
+     * receta general no es el costo de ninguna medida, y la pantalla no le saca margen.
+     */
+    private function conMedidas(FichaTecnica $ficha): FichaTecnica
+    {
+        $con = $ficha->producto_id && RecetasDeProductos::hayVersiones() && DB::table('producto_variante_configs as c')
+            ->join('tipos_variante as t', 't.id', '=', 'c.tipo_variante_id')
+            ->where('c.producto_id', $ficha->producto_id)->where('t.afecta_precio', true)->exists();
+
+        return $ficha->setAttribute('producto_con_medidas', $con);
+    }
+
+    /**
+     * PATCH /fichas-tecnicas/{id}/producto — vincula (o desvincula, con null) el producto
+     * del catálogo y, si se manda, la versión. Una sola receta por producto y versión.
+     */
+    public function vincularProducto(Request $request, FichaTecnica $fichaTecnica, RecetasDeProductos $recetas)
     {
         $data = $request->validate([
-            'producto_id' => 'present|nullable|integer|exists:productos,id',
+            'producto_id'        => 'present|nullable|integer|exists:productos,id',
+            'variante_config_id' => 'nullable|integer',
         ]);
 
-        $fichaTecnica->update(['producto_id' => $data['producto_id']]);
+        $configId = $data['producto_id'] ? ($data['variante_config_id'] ?? null) : null;
 
-        return response()->json($fichaTecnica->fresh()->load(self::PRODUCTO));
+        DB::transaction(function () use ($recetas, $fichaTecnica, $data, $configId) {
+            $recetas->validarLugar($data['producto_id'], $configId, $fichaTecnica->id);
+
+            // Toma el nombre y la foto del producto; el nombre que tenía queda de descripción
+            $fichaTecnica->update(
+                $recetas->camposAlVincular($fichaTecnica, $data['producto_id'], $configId)
+                + ['producto_id' => $data['producto_id']]
+                + $this->version($configId)
+            );
+        });
+
+        // El nombre y la descripción son lo que indexa el cotizador
+        if ($fichaTecnica->wasChanged('nombre') || $fichaTecnica->wasChanged('descripcion')) {
+            $this->indexarDespues($fichaTecnica->id);
+        }
+
+        return response()->json($this->conMedidas($fichaTecnica->fresh()->load($this->relaciones(false))));
     }
 
-    public function store(Request $request)
+    /** Producto y versión de la ficha, para mostrar (con la foto del producto si la ficha no tiene). */
+    private function relaciones(bool $items = true): array
+    {
+        $r = $items ? ['items', self::PRODUCTO] : [self::PRODUCTO];
+        if (RecetasDeProductos::hayVersiones()) $r[] = 'varianteConfig.opcion:id,nombre';
+
+        return $r;
+    }
+
+    /** La columna de la versión solo si existe (los esquemas de las pruebas no siempre). */
+    private function version(?int $configId): array
+    {
+        return RecetasDeProductos::hayVersiones() ? ['variante_config_id' => $configId] : [];
+    }
+
+    public function store(Request $request, RecetasDeProductos $recetas)
     {
         $data = $request->validate([
             'nombre'                  => 'required|string|max:255',
             'categoria'               => 'required|string|max:255',
             'foto_url'                => 'nullable|string|max:500',
+            // La receta de un producto de Inventario (y, si se manda, de una de sus versiones)
+            'producto_id'             => 'nullable|integer|exists:productos,id',
+            'variante_config_id'      => 'nullable|integer',
             'items'                   => 'required|array|min:1',
             'items.*.seccion'         => 'nullable|string',
             'items.*.descripcion'     => 'required|string',
@@ -104,30 +191,46 @@ class FichaTecnicaController extends Controller
             'items.*.tarifa_proceso_id' => 'nullable|integer|exists:tarifas_proceso,id',
         ]);
 
-        $ficha = DB::transaction(function () use ($data) {
+        $productoId = $data['producto_id'] ?? null;
+        $configId   = $productoId ? ($data['variante_config_id'] ?? null) : null;
+
+        $ficha = DB::transaction(function () use ($data, $recetas, $productoId, $configId) {
+            // Dentro de la transacción: dos personas creando la receta del mismo producto
+            $recetas->validarLugar($productoId, $configId);
+
             $ficha = FichaTecnica::create([
-                'nombre'     => $data['nombre'],
-                'categoria'  => $data['categoria'],
-                'foto_url'   => $data['foto_url'] ?? null,
-                'ruta_excel' => null,
-            ]);
+                // La receta de un producto se llama como el producto (y su versión)
+                'nombre'      => ($productoId ? $recetas->nombrePara($productoId, $configId) : null)
+                                 ?? mb_strtoupper(trim($data['nombre'])),
+                'categoria'   => mb_strtoupper(trim($data['categoria'])),
+                // Sin foto propia se muestra la del producto: no se copia, para que si
+                // cambian la foto en Inventario la receta la siga.
+                'foto_url'    => $data['foto_url'] ?? null,
+                'producto_id' => $productoId,
+                'ruta_excel'  => null,
+            ] + $this->version($configId));
 
             $porNombre = $this->materialesPorNombre($data['items']);
+            $vigentes  = new PreciosVigentes();
 
             foreach ($data['items'] as $orden => $item) {
                 $esManoObra = (bool) ($item['es_mano_obra'] ?? false);
+                $materialId = $esManoObra ? null : $this->materialDe($item, $porNombre);
+                $tarifaId   = $esManoObra ? ($item['tarifa_proceso_id'] ?? null) : null;
+                $precio     = $vigentes->de($materialId, $tarifaId) ?? $item['precio_unitario'];
+
                 FichaTecnicaItem::create([
                     'ficha_tecnica_id'  => $ficha->id,
                     'seccion'           => $item['seccion'] ?? null,
                     'descripcion'       => trim($item['descripcion']),
                     'cantidad'          => $item['cantidad'],
                     'unidad'            => $item['unidad'] ?? null,
-                    'precio_unitario'   => $item['precio_unitario'],
+                    'precio_unitario'   => $precio,
                     // El subtotal lo calcula el servidor, no se confía en el que manda el cliente
-                    'subtotal'          => round($item['cantidad'] * $item['precio_unitario'], 2),
+                    'subtotal'          => round($item['cantidad'] * $precio, 2),
                     'es_mano_obra'      => $esManoObra,
-                    'material_id'       => $esManoObra ? null : $this->materialDe($item, $porNombre),
-                    'tarifa_proceso_id' => $esManoObra ? ($item['tarifa_proceso_id'] ?? null) : null,
+                    'material_id'       => $materialId,
+                    'tarifa_proceso_id' => $tarifaId,
                     'orden'             => $orden,
                 ]);
             }
@@ -139,7 +242,7 @@ class FichaTecnicaController extends Controller
 
         $this->indexarDespues($ficha->id);
 
-        return response()->json($ficha->fresh()->load(['items', self::PRODUCTO]), 201);
+        return response()->json($this->conMedidas($ficha->fresh()->load($this->relaciones())), 201);
     }
 
     public function materialesSugeridos(Request $request)
@@ -166,6 +269,7 @@ class FichaTecnicaController extends Controller
     {
         $data = $request->validate([
             'nombre'                  => 'sometimes|string|max:255',
+            'descripcion'             => 'sometimes|nullable|string|max:2000',
             'categoria'               => 'sometimes|string|max:255',
             'foto_url'                => 'sometimes|nullable|string|max:500',
             'items'                   => 'present|array',
@@ -185,16 +289,23 @@ class FichaTecnicaController extends Controller
             'eliminar.*'              => 'integer',
         ]);
 
-        // Lo que el cotizador indexa: nombre, categoría y secciones (ver FichaRetriever::textoDeFicha)
+        // Lo que el cotizador indexa: nombre, descripción, categoría y secciones (ver FichaRetriever::textoDeFicha)
         $huella = fn () => [
-            $fichaTecnica->fresh()->only(['nombre', 'categoria']),
+            $fichaTecnica->fresh()->only(['nombre', 'descripcion', 'categoria']),
             FichaTecnicaItem::where('ficha_tecnica_id', $fichaTecnica->id)->distinct()->orderBy('seccion')->pluck('seccion')->all(),
         ];
         $huellaAntes = $huella();
 
         DB::transaction(function () use ($data, $fichaTecnica) {
             $camposActualizar = [];
-            if (!empty($data['nombre']))    $camposActualizar['nombre']    = mb_strtoupper(trim($data['nombre']));
+            // Vinculada a un producto, el nombre es el del producto (lo cambia Inventario):
+            // un nombre distinto que llegue de la pantalla no se guarda.
+            if (!empty($data['nombre']) && ! $fichaTecnica->producto_id) {
+                $camposActualizar['nombre'] = mb_strtoupper(trim($data['nombre']));
+            }
+            if (array_key_exists('descripcion', $data) && RecetasDeProductos::hayDescripcion()) {
+                $camposActualizar['descripcion'] = trim((string) $data['descripcion']) ?: null;
+            }
             if (!empty($data['categoria'])) $camposActualizar['categoria'] = mb_strtoupper(trim($data['categoria']));
             if (array_key_exists('foto_url', $data)) $camposActualizar['foto_url'] = $data['foto_url'];
             if (!empty($camposActualizar)) $fichaTecnica->update($camposActualizar);
@@ -211,6 +322,7 @@ class FichaTecnicaController extends Controller
                 $existentes->pluck('descripcion')->all(),
             ));
             $siguienteOrden = (int) $existentes->max('orden') + 1;
+            $vigentes       = new PreciosVigentes();
 
             foreach ($data['items'] as $itemData) {
                 $actual = ! empty($itemData['id']) ? $existentes->get($itemData['id']) : null;
@@ -228,11 +340,13 @@ class FichaTecnicaController extends Controller
 
                 if (! $actual) {
                     $esManoObra = (bool) ($itemData['es_mano_obra'] ?? false);
-                    FichaTecnicaItem::create($campos + [
+                    $materialId = $esManoObra ? null : $this->materialDe($itemData, $porNombre);
+                    $tarifaId   = $esManoObra ? ($itemData['tarifa_proceso_id'] ?? null) : null;
+                    FichaTecnicaItem::create($this->conPrecioVigente($campos, $vigentes, $materialId, $tarifaId) + [
                         'ficha_tecnica_id'  => $fichaTecnica->id,
                         'es_mano_obra'      => $esManoObra,
-                        'material_id'       => $esManoObra ? null : $this->materialDe($itemData, $porNombre),
-                        'tarifa_proceso_id' => $esManoObra ? ($itemData['tarifa_proceso_id'] ?? null) : null,
+                        'material_id'       => $materialId,
+                        'tarifa_proceso_id' => $tarifaId,
                         'orden'             => $siguienteOrden++,
                     ]);
                     continue;
@@ -243,7 +357,8 @@ class FichaTecnicaController extends Controller
                     $campos['material_id'] = $this->materialDe($itemData + ['descripcion' => $actual->descripcion], $porNombre);
                 }
 
-                $actual->update($campos);
+                $materialId = array_key_exists('material_id', $campos) ? $campos['material_id'] : $actual->material_id;
+                $actual->update($this->conPrecioVigente($campos, $vigentes, $materialId, $actual->tarifa_proceso_id));
             }
 
             if (! FichaTecnicaItem::where('ficha_tecnica_id', $fichaTecnica->id)->exists()) {
@@ -257,7 +372,7 @@ class FichaTecnicaController extends Controller
             $this->indexarDespues($fichaTecnica->id);
         }
 
-        return response()->json($fichaTecnica->fresh()->load(['items', self::PRODUCTO]));
+        return response()->json($this->conMedidas($fichaTecnica->fresh()->load($this->relaciones())));
     }
 
     /** DELETE /fichas-tecnicas/{id} — los ítems se van en cascada. */
@@ -271,24 +386,44 @@ class FichaTecnicaController extends Controller
     /**
      * POST /fichas-tecnicas/{id}/duplicar — copia la ficha con sus ítems (incluido el
      * vínculo con materiales y tarifas), para armar una variante sin empezar de cero.
-     * El producto no se copia: una variante suele ser otro producto del catálogo.
+     * El producto no se copia (no puede haber dos recetas del mismo lugar), salvo que se
+     * diga de cuál es la copia: "receta de la 1.60 a partir de la del producto".
+     * Los precios enlazados salen con el valor de hoy, como al guardar.
      */
-    public function duplicar(Request $request, FichaTecnica $fichaTecnica)
+    public function duplicar(Request $request, FichaTecnica $fichaTecnica, RecetasDeProductos $recetas)
     {
-        $data = $request->validate(['nombre' => 'nullable|string|max:255']);
+        $data = $request->validate([
+            'nombre'             => 'nullable|string|max:255',
+            'producto_id'        => 'nullable|integer|exists:productos,id',
+            'variante_config_id' => 'nullable|integer',
+        ]);
 
-        $copia = DB::transaction(function () use ($data, $fichaTecnica) {
+        $productoId = $data['producto_id'] ?? null;
+        $configId   = $productoId ? ($data['variante_config_id'] ?? null) : null;
+
+        $copia = DB::transaction(function () use ($data, $fichaTecnica, $recetas, $productoId, $configId) {
+            $recetas->validarLugar($productoId, $configId);
+
             $copia = FichaTecnica::create([
-                'nombre'    => mb_strtoupper(trim($data['nombre'] ?? '') ?: 'COPIA DE ' . $fichaTecnica->nombre),
-                'categoria' => $fichaTecnica->categoria,
-                'foto_url'  => $fichaTecnica->foto_url,
-            ]);
+                'nombre'      => ($productoId ? $recetas->nombrePara($productoId, $configId) : null)
+                                 ?? mb_strtoupper(trim($data['nombre'] ?? '') ?: 'COPIA DE ' . $fichaTecnica->nombre),
+                'categoria'   => $fichaTecnica->categoria,
+                // Copia de un producto: se ve la foto del producto, no se copia
+                'foto_url'    => $productoId ? null : $fichaTecnica->foto_url,
+                'producto_id' => $productoId,
+            ] + ($productoId ? $this->version($configId) : [])
+              + (RecetasDeProductos::hayDescripcion() ? ['descripcion' => $fichaTecnica->descripcion] : []));
 
+            $vigentes = new PreciosVigentes();
             foreach ($fichaTecnica->items as $item) {
-                FichaTecnicaItem::create($item->only([
+                $campos = $item->only([
                     'seccion', 'descripcion', 'cantidad', 'unidad', 'precio_unitario',
                     'subtotal', 'es_mano_obra', 'material_id', 'tarifa_proceso_id', 'orden',
-                ]) + ['ficha_tecnica_id' => $copia->id]);
+                ]);
+                FichaTecnicaItem::create(
+                    $this->conPrecioVigente($campos, $vigentes, $item->material_id, $item->tarifa_proceso_id)
+                    + ['ficha_tecnica_id' => $copia->id]
+                );
             }
 
             FichaTecnica::recalcularTotales($copia->id);
@@ -298,7 +433,26 @@ class FichaTecnicaController extends Controller
 
         $this->indexarDespues($copia->id);
 
-        return response()->json($copia->fresh()->load(['items', self::PRODUCTO]), 201);
+        return response()->json($this->conMedidas($copia->fresh()->load($this->relaciones())), 201);
+    }
+
+    /**
+     * El precio de un ítem enlazado (material del catálogo o trabajo de Tarifas) es el de
+     * hoy, no el que manda la pantalla. La pantalla manda lo que tenía al abrir la ficha:
+     * si mientras tanto cambió el precio del material o el incentivo del oficio, guardar
+     * (aunque fuera solo la foto) devolvía la ficha a los precios viejos sin que nadie
+     * lo notara. Y un precio escrito a mano en un ítem enlazado lo pisaba el próximo cambio
+     * del catálogo. Lo que no está enlazado sigue con el precio que se escribió.
+     */
+    private function conPrecioVigente(array $campos, PreciosVigentes $vigentes, ?int $materialId, ?int $tarifaId): array
+    {
+        $precio = $vigentes->de($materialId, $tarifaId);
+        if ($precio === null) return $campos;
+
+        return array_merge($campos, [
+            'precio_unitario' => $precio,
+            'subtotal'        => round((float) $campos['cantidad'] * $precio, 2),
+        ]);
     }
 
     /** Materiales del catálogo cuyo nombre coincide con la descripción de algún ítem. */

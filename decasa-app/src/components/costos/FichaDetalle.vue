@@ -171,6 +171,7 @@ async function guardar() {
 
     const { data } = await actualizarFicha(b.id, {
       nombre:    b.nombre,
+      descripcion: b.descripcion ?? null,
       categoria: b.categoria,
       ...(fotoUrl !== undefined ? { foto_url: fotoUrl } : {}),
       eliminar:  eliminados.value,
@@ -258,16 +259,39 @@ function elegirTarifa(p) {
 
 // ── Producto y margen ────────────────────────────────────────────────────────
 const vinculando = ref(false)
-const margen = computed(() => ficha.value?.producto ? margenDe(ficha.value.costo_total, ficha.value.producto.precio_base) : null)
+// La receta de una versión (la cama de 1.40) se compara con el precio de esa versión:
+// `precio_adicional` es su precio completo (0 = el del producto).
+const version     = computed(() => ficha.value?.variante_config ?? null)
+// Receta general de un producto con medidas: no es el costo de ninguna, no hay un precio con qué compararla
+const esGeneral   = computed(() => !!ficha.value?.producto_con_medidas && !version.value)
+const precioVenta = computed(() => {
+  if (!ficha.value?.producto || esGeneral.value) return null
+  const pv = Number(version.value?.precio_adicional) || 0
+  return pv > 0 ? pv : Number(ficha.value.producto.precio_base) || 0
+})
+const margen = computed(() => ficha.value?.producto && precioVenta.value ? margenDe(ficha.value.costo_total, precioVenta.value) : null)
+// Sin foto propia se ve la del producto de Inventario (no se copia: sigue a la de allá)
+const fotoVista   = computed(() => vista.value?.foto_url || (!editando.value ? ficha.value?.producto?.foto_url : null) || null)
 
-async function vincular(productoId) {
+// `sel` = { producto, version } del buscador, o null para quitar el producto.
+// Al vincular, el servidor le pone a la ficha el nombre y la foto del producto y deja el
+// nombre de antes como descripción: se toma todo de la respuesta.
+async function vincular(sel) {
   vinculando.value = true
   try {
-    const { data } = await vincularProducto(ficha.value.id, productoId)
-    ficha.value.producto_id = data.producto_id
-    ficha.value.producto    = data.producto
-    pickerProducto.value    = false
-    toast.success(productoId ? 'Producto vinculado' : 'Producto desvinculado')
+    const { data } = await vincularProducto(ficha.value.id, sel?.producto.id ?? null, sel?.version?.config_id ?? null)
+    const antes = ficha.value.nombre
+    Object.assign(ficha.value, {
+      producto_id:     data.producto_id,
+      producto:        data.producto,
+      variante_config: data.variante_config ?? null,
+      nombre:          data.nombre,
+      descripcion:     data.descripcion ?? null,
+      foto_url:        data.foto_url,
+    })
+    pickerProducto.value = false
+    toast.success(!sel ? 'Producto desvinculado'
+      : data.nombre !== antes ? `Vinculada: ahora se llama ${data.nombre}` : 'Producto vinculado')
     emit('actualizada', ficha.value)
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo vincular el producto.')
@@ -354,12 +378,16 @@ const { abrirFoto } = useVisorFoto()
     <AppSpinner v-if="cargando" />
 
     <div v-else-if="vista" class="p-4 space-y-4 pb-10">
-      <!-- Nombre y categoría, editables -->
+      <!-- Nombre y categoría, editables. Vinculada a un producto, el nombre es el de
+           Inventario: se cambia allá y aquí se sigue solo. -->
       <div v-if="editando" class="grid grid-cols-3 gap-3">
         <div class="col-span-2">
           <label for="ficha-nombre-ed" class="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
           <input id="ficha-nombre-ed" v-model="borrador.nombre" @input="hayCambios = true" type="text"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            :readonly="!!ficha.producto_id" :title="ficha.producto_id ? 'Es el nombre del producto en Inventario' : undefined"
+            :class="['w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500',
+              ficha.producto_id ? 'bg-gray-100 text-gray-500' : '']" />
+          <p v-if="ficha.producto_id" class="text-[11px] text-gray-400 mt-0.5">El de Inventario: se cambia allá</p>
         </div>
         <div>
           <label for="ficha-cat-ed" class="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
@@ -367,15 +395,25 @@ const { abrirFoto } = useVisorFoto()
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <datalist id="costos-categorias"><option v-for="c in categorias" :key="c" :value="c" /></datalist>
         </div>
+        <div class="col-span-3">
+          <label for="ficha-desc-ed" class="block text-xs font-medium text-gray-600 mb-1">Descripción <span class="font-normal text-gray-400">(opcional)</span></label>
+          <textarea id="ficha-desc-ed" v-model="borrador.descripcion" @input="hayCambios = true" rows="2"
+            placeholder="Medidas, madera, acabado… (al vincularla queda aquí el nombre que tenía)"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
       </div>
+      <!-- La descripción: casi siempre el nombre que tenía en el Excel antes de vincularla -->
+      <p v-else-if="vista.descripcion" class="text-sm text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
+        <span class="block text-xs text-gray-400">Descripción</span>{{ vista.descripcion }}
+      </p>
 
       <!-- Resumen: costo, de qué está hecho y contra qué precio se vende -->
       <section class="space-y-3">
         <div class="flex items-start gap-3">
           <div class="relative flex-shrink-0">
-            <button v-if="vista.foto_url" @click="!editando && abrirFoto(vista.foto_url, { nombre: vista.nombre })" :disabled="editando"
+            <button v-if="fotoVista" @click="!editando && abrirFoto(fotoVista, { nombre: vista.nombre })" :disabled="editando"
               class="block" aria-label="Ver foto en grande">
-              <img :src="fotoArchivo ? vista.foto_url : cloudinaryOpt(vista.foto_url, 160)" alt=""
+              <img :src="fotoArchivo ? fotoVista : cloudinaryOpt(fotoVista, 160)" alt=""
                 class="w-16 h-16 rounded-xl object-cover border border-gray-200" />
             </button>
             <div v-else class="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-gray-300">
@@ -387,7 +425,7 @@ const { abrirFoto } = useVisorFoto()
             <p class="text-2xl font-bold text-gray-900 tabular-nums leading-tight">{{ formatPeso(vista.costo_total) }}</p>
             <div v-if="editando" class="flex items-center gap-3 mt-1">
               <label class="text-xs font-medium text-blue-600 cursor-pointer hover:text-blue-800">
-                {{ vista.foto_url ? 'Cambiar foto' : 'Agregar foto' }}
+                {{ vista.foto_url ? 'Cambiar foto' : ficha.producto?.foto_url ? 'Usar otra foto' : 'Agregar foto' }}
                 <input type="file" accept="image/*" class="hidden" @change="onFoto" />
               </label>
               <button v-if="vista.foto_url" @click="quitarFoto" class="text-xs font-medium text-gray-400 hover:text-red-600">Quitar foto</button>
@@ -396,15 +434,18 @@ const { abrirFoto } = useVisorFoto()
         </div>
 
         <CostoBarra :materiales="vista.costo_materiales" :mano-obra="vista.costo_mano_obra"
-          :precio="ficha.producto?.precio_base ?? null" />
+          :precio="precioVenta" />
 
         <!-- Producto del catálogo -->
         <div v-if="ficha.producto" class="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2.5">
           <div class="flex-1 min-w-0">
-            <p class="text-xs text-gray-500">Se vende como</p>
-            <p class="text-sm font-medium text-gray-800 truncate">{{ ficha.producto.nombre }}</p>
-            <p class="text-xs text-gray-500">
-              a {{ formatPeso(ficha.producto.precio_base) }}<template v-if="margen"> · {{ TEXTO_MARGEN[margen.nivel].toLowerCase() }}</template>
+            <p class="text-xs text-gray-500">{{ version ? 'Receta de la medida' : esGeneral ? 'Receta general (de ninguna medida)' : 'Receta del producto' }}</p>
+            <p class="text-sm font-medium text-gray-800 truncate">
+              {{ ficha.producto.nombre }}<template v-if="version?.opcion"> · {{ version.opcion.nombre }}</template>
+            </p>
+            <p v-if="esGeneral" class="text-xs text-gray-500">Cada medida se vende a su precio: el margen va en la receta de cada una</p>
+            <p v-else class="text-xs text-gray-500">
+              precio de venta {{ formatPeso(precioVenta) }}<template v-if="margen"> · {{ TEXTO_MARGEN[margen.nivel].toLowerCase() }}</template>
             </p>
           </div>
           <span v-if="margen" :class="['text-sm font-bold rounded-lg px-2 py-1 tabular-nums', COLOR_MARGEN[margen.nivel]]">
@@ -481,6 +522,6 @@ const { abrirFoto } = useVisorFoto()
     @elegir="elegirTarifa" @cerrar="pickerTarifa = null" />
 
   <PickerProducto v-if="pickerProducto && ficha" :ficha="ficha" :ocupado="vinculando"
-    @elegir="p => vincular(p.id)" @cerrar="pickerProducto = false" />
+    @elegir="vincular" @cerrar="pickerProducto = false" />
 
 </template>

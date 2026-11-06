@@ -791,6 +791,63 @@ escribiendo precios (Fase 1b).
   columna; sin ella se manda el catálogo completo como antes). No se probó con el modelo real
   (`npm run eval` cuesta y no hay clave aquí). Comparar con dos fotos sube un poco los tokens de
   visión en los productos que tienen foto adicional.
+- **Revisión del módulo de Costos + 4 arreglos** (2026-11-06, **sin subir**, sin migración, rama
+  `claude/analisis-modulo-costos-aa07c1`; pedido del usuario). (1) Responder/ajustar una consulta de
+  costo dejaba `valor_total` = cantidad × precio a secas (perdía descuentos y contaba lo devuelto):
+  ahora `Orden::recalcularTotal()` + `sincronizarValorOrden`. (2) Aprendizaje: estimado y corrección
+  se enlazan **solo por el nombre** (`hashInput($nombre, null)`; antes nombre+especificaciones y
+  categorías distintas, casi nunca coincidían; en catálogo se usa el nombre del producto) y el
+  "Precio manual" del ebanista **ya no se aprende** (es precio de venta, no costo). Los estimados
+  viejos quedan con su hash viejo. (3) Restauración: la IA cotiza UNA pieza (antes daba el total y
+  la pantalla lo ponía como unitario: 2 sillas = 4). (4) "Solo retapizado / solo ajuste" de un
+  producto del catálogo (`costo_es_del_cambio`): `SanityChecker` solo marca si el cambio cuesta más
+  que la ficha completa, no se registra para aprender, y Nueva orden dice "Costo del cambio" sin el
+  botón "Usar fabricación". Tests en `CotizadorCostosArreglosTest`. **Preguntas abiertas para el
+  dueño** (no tocadas): cambio de tela = retapizado de stock o fabricación con otra tela; tela +
+  medidas a la vez aplica `catalogo_mas_costo` sobre una receta completa (catálogo + costo entero);
+  el vendedor ajusta el precio de una consulta sin aprobación; `/calcular-precio-item` sin
+  `acceso_costos` muestra precios de materiales; restauración con ×1,8 fijo y la IA escribiendo
+  cifras (Fase 1b); `enviar` no revisa el estado de la orden.
+  **Mismo día, segunda vuelta (fichas y materiales, sin migración):** (1) al guardar una ficha, el
+  precio de lo enlazado (material del catálogo o trabajo de Tarifas) lo pone el servidor
+  (`Support/PreciosVigentes`, misma regla que el recálculo de Materiales/Tarifas): antes la pantalla
+  mandaba los precios de cuando abrió la ficha y guardar devolvía los viejos. (2) El precio de un
+  material del catálogo ya no se edita en la ficha (como la mano de obra de Tarifas); lo escrito a
+  mano sin catálogo sí. Al guardar, una ficha vieja con un precio distinto al del catálogo queda con
+  el del catálogo. (3) `materiales.unidad_norm` se pone al crear, importar y cambiar la unidad
+  (`Support/UnidadMaterial`, mismo mapa que la migración de julio); la pantalla avisa que las
+  cantidades de las fichas no se convierten. (4) No se crea ni se renombra un material con un nombre
+  que ya existe (422 con `existente_id`); los repetidos de antes se pueden seguir editando. Tests al
+  final de `CostosFichasTest`. **Pendiente:** mano de obra sin trabajo de Tarifas no sigue el
+  incentivo (contar en producción), borrar material/ficha es borrado real (necesita migración), y las
+  dudas del dueño: márgenes contra precio con IVA, fichas por medida (se enlazan solo al producto),
+  secciones = partes o medidas, y si un material puede tener precio propio en una ficha.
+  **Mismo día, tercera vuelta: Costos conectado con Inventario** (pedido del usuario: "meterlo una
+  vez en inventario y que aparezca en costos", con la imagen, y los que no tienen materiales "en
+  espera"). Trae **migración** `2026_11_09_000001_fichas_por_version_del_producto` (solo agrega
+  `fichas_tecnicas.variante_config_id`). Diseño y decisiones en `docs/PROYECTO.md` §6.11. Por
+  defecto mío (**falta que el dueño confirme**): no se crean fichas vacías por producto (el "en
+  espera" sale de no tener ficha); recetas por versión opcionales (solo tipos con
+  `afecta_precio`); una receta por producto/versión (las repetidas de antes se marcan, no se
+  borran); los productos apagados no salen y sus fichas pasan a "sin producto". Finanzas y "Qué
+  fabricar" no se tocaron: siguen promediando / tomando la más barata de las fichas del producto,
+  que ahora puede incluir las de cada versión. Tests en `CostosConectadoConInventarioTest`.
+  **Regla del usuario (2026-11-06): el precio de Inventario es el precio de VENTA, ya con
+  ganancia; lo de Costos es el COSTO de fabricación.** Nunca usar uno como el otro: el margen es
+  venta ÷ costo. Las pantallas lo dicen ("venta" / "fabricar"). **El IVA no importa aquí**
+  (usuario, mismo día): la función de Costos es sacar el costo de fabricación con materiales y
+  mano de obra; el margen es solo una referencia. No volver a preguntar ni ajustar Márgenes por IVA.
+  **Vincular = tomar nombre y foto del producto** (usuario, mismo día): el nombre viejo queda de
+  descripción (migración `2026_11_09_000002_descripcion_en_fichas_tecnicas`, solo agrega). Detalle
+  en `docs/PROYECTO.md` §6.11. Por defecto mío (**falta confirmar**): la foto no se copia (se ve la
+  del producto y la sigue); vinculada, el nombre solo se cambia desde Inventario; renombrar la
+  opción de una variante (1.40 → 1,40) no renombra la receta de esa versión.
+  **Cada medida lleva su receta** (usuario, mismo día: "si es una cama hay varias medidas y no
+  todas cuestan lo mismo"): con medidas, la que no tiene receta queda en espera (ya no "usa la del
+  producto"); la general es solo plantilla, sin margen. Finanzas y "Qué fabricar" siguen
+  promediando / tomando la más barata de todas las fichas del producto (incluida la general): si
+  se usan en serio, cruzarlas por la medida vendida. Visto en
+  390 px, claro y oscuro, con servidor falso (sin probar contra datos reales).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -18,6 +18,7 @@ import TabMargenes from '@/components/costos/TabMargenes.vue'
 import TabPrecision from '@/components/costos/TabPrecision.vue'
 import FichaDetalle from '@/components/costos/FichaDetalle.vue'
 import FichaNueva from '@/components/costos/FichaNueva.vue'
+import RecetaProducto from '@/components/costos/RecetaProducto.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -44,9 +45,34 @@ function irA(id) {
 }
 
 // ── Paneles ──────────────────────────────────────────────────────────────────
-const categorias   = ref([])
 const fichaAbierta = ref(null)
 const creando      = ref(false)
+// Receta de un producto de Inventario: { producto, version, categoria_ficha } o null (ficha suelta)
+const destinoNueva = ref(null)
+
+// Lo que trajo la pestaña Productos: productos con su receta y fichas sueltas
+const recetas         = ref({ productos: [], sueltas: [] })
+const productoAbierto = ref(null)   // id
+const producto        = computed(() => recetas.value.productos.find(p => p.id === productoAbierto.value) ?? null)
+
+// Las categorías de las fichas (las del cotizador) para escoger al crear o editar una
+const categorias = computed(() => {
+  const todas = [
+    ...recetas.value.productos.flatMap(p => [...p.fichas, ...p.versiones.flatMap(v => v.fichas)].map(f => f.categoria)),
+    ...recetas.value.sueltas.map(f => f.categoria),
+  ]
+  return [...new Set(todas.filter(Boolean))].sort()
+})
+
+function nuevaSuelta() {
+  destinoNueva.value = null
+  creando.value      = true
+}
+
+function crearReceta(destino) {
+  destinoNueva.value = destino
+  creando.value      = true
+}
 
 // Las fichas cambiaron (se guardó una, cambió un precio o una tarifa): lo que
 // está a la vista se recarga; lo que no, se recarga solo al volver a abrirlo.
@@ -72,16 +98,18 @@ function onDuplicada(id) {
 }
 
 // Al cambiar de pestaña no se queda un panel abierto encima
-watch(pestana, () => { fichaAbierta.value = null })
+watch(pestana, () => { fichaAbierta.value = null; productoAbierto.value = null })
 </script>
 
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-4 pb-8">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-lg font-bold text-gray-800">Costos de producción</h2>
-      <button v-if="pestana === 'productos'" @click="creando = true"
-        class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors">
-        <PlusIcon class="w-3.5 h-3.5" />Nueva ficha
+      <!-- Los productos se crean en Inventario; esto es para una ficha que no es de ningún
+           producto (un mueble de referencia para el cotizador) -->
+      <button v-if="pestana === 'productos'" @click="nuevaSuelta" title="Ficha que no es de un producto de Inventario"
+        class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition-colors">
+        <PlusIcon class="w-3.5 h-3.5" />Ficha suelta
       </button>
     </div>
 
@@ -96,16 +124,19 @@ watch(pestana, () => { fichaAbierta.value = null })
 
     <KeepAlive :include="['TabProductos']">
       <TabProductos v-if="pestana === 'productos'" ref="refProductos"
-        @abrir="id => fichaAbierta = id" @categorias="c => categorias = c" />
+        @abrir="id => fichaAbierta = id" @producto="id => productoAbierto = id" @cargado="d => recetas = d" />
     </KeepAlive>
     <TabMateriales v-if="pestana === 'materiales'" @fichas-cambiaron="fichasCambiaron" />
     <TabTarifas    v-if="pestana === 'tarifas'" ref="refTarifas" @fichas-cambiaron="fichasCambiaron" />
     <TabMargenes   v-if="pestana === 'margenes'" ref="refMargenes" @abrir="id => fichaAbierta = id" />
     <TabPrecision  v-if="pestana === 'precision'" />
 
+    <RecetaProducto v-if="producto" :key="`p${producto.id}`" :producto="producto" :sueltas="recetas.sueltas"
+      @cerrar="productoAbierto = null" @abrir="id => fichaAbierta = id" @crear="crearReceta" @cambio="fichasCambiaron" />
+
     <FichaDetalle v-if="fichaAbierta" :key="fichaAbierta" :ficha-id="fichaAbierta" :categorias="categorias"
       @cerrar="fichaAbierta = null" @actualizada="fichasCambiaron" @eliminada="onEliminada" @abrir="onDuplicada" />
 
-    <FichaNueva v-if="creando" :categorias="categorias" @cerrar="creando = false" @creada="onCreada" />
+    <FichaNueva v-if="creando" :categorias="categorias" :destino="destinoNueva" @cerrar="creando = false" @creada="onCreada" />
   </div>
 </template>

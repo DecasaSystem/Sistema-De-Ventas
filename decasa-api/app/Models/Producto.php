@@ -29,6 +29,27 @@ class Producto extends Model
         'activo',
     ];
 
+    /**
+     * Renombrar el producto renombra sus recetas en Costos: la ficha vinculada se llama
+     * como el producto (ver RecetasDeProductos::camposAlVincular). Si falla, el producto se
+     * guarda igual: es un nombre de Costos, no puede tumbar Inventario.
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (Producto $producto) {
+            if (! $producto->wasChanged('nombre')) return;
+
+            try {
+                $ids = app(\App\Services\Costos\RecetasDeProductos::class)->renombrarRecetasDe($producto->id);
+                foreach ($ids as $id) {
+                    dispatch(fn () => app(\App\Services\Costos\FichaRetriever::class)->indexarFicha($id))->afterResponse();
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Producto: no se renombraron sus recetas', ['producto' => $producto->id, 'err' => $e->getMessage()]);
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [

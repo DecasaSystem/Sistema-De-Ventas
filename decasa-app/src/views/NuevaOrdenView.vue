@@ -4781,11 +4781,11 @@ onBeforeUnmount(() => {
 
               <div v-if="restauracionCalc.resultado" class="bg-white rounded-lg border border-indigo-100 p-3 space-y-2">
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-gray-500">Costo del servicio</span>
+                  <span class="text-gray-500">Costo del servicio{{ restauracionCalc.resultado.cantidad > 1 ? ' (c/u)' : '' }}</span>
                   <span class="font-semibold text-gray-800">${{ (restauracionCalc.resultado.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>
                 </div>
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-gray-500">Precio sugerido al cliente</span>
+                  <span class="text-gray-500">Precio sugerido al cliente{{ restauracionCalc.resultado.cantidad > 1 ? ' (c/u)' : '' }}</span>
                   <span class="font-bold text-green-700">${{ (restauracionCalc.resultado.precio_sugerido_venta ?? 0).toLocaleString('es-CO') }}</span>
                 </div>
 
@@ -5553,12 +5553,20 @@ onBeforeUnmount(() => {
                   <p class="text-xs text-red-600 italic">Envía una consulta de costo antes de confirmar este precio con el cliente.</p>
                 </div>
 
+                <!-- Solo retapizado o solo ajuste sobre un producto del catálogo
+                     (`costo_es_del_cambio`): el costo es solo el del cambio. "Usar
+                     fabricación" pondría ese costo como precio de todo el mueble, por eso
+                     no se ofrece. Con precio de catálogo, el sugerido es catálogo + cambio. -->
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-gray-500">Costo fabricación</span>
+                  <span class="text-gray-500">
+                    {{ item._precioCalc.costo_es_del_cambio ? 'Costo del cambio' : 'Costo fabricación' }}{{ item._es_restauracion && item._precioCalc.cantidad > 1 ? ' (c/u)' : '' }}
+                  </span>
                   <span class="font-semibold text-gray-800">${{ (item._precioCalc.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>
                 </div>
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-gray-500">Precio venta sugerido</span>
+                  <span class="text-gray-500">
+                    {{ item._precioCalc.regla_venta === 'catalogo_mas_costo' ? 'Precio catálogo + cambio' : 'Precio venta sugerido' }}{{ item._es_restauracion && item._precioCalc.cantidad > 1 ? ' (c/u)' : '' }}
+                  </span>
                   <span class="font-bold text-green-700">${{ (item._precioCalc.precio_sugerido_venta ?? 0).toLocaleString('es-CO') }}</span>
                 </div>
 
@@ -5595,8 +5603,8 @@ onBeforeUnmount(() => {
                   </template>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 pt-1">
-                  <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
+                <div :class="['grid gap-2 pt-1', item._precioCalc.costo_es_del_cambio ? 'grid-cols-1' : 'grid-cols-2']">
+                  <button v-if="!item._precioCalc.costo_es_del_cambio" type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
                     {{ item._es_restauracion ? 'Usar costo' : 'Usar fabricación' }}
                   </button>
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_sugerido_venta)" class="btn-primary text-xs py-1.5">

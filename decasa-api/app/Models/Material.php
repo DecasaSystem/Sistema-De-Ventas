@@ -13,6 +13,7 @@ class Material extends Model
         'nombre',
         'descripcion',
         'unidad',
+        'unidad_norm',   // la pone el controlador con App\Support\UnidadMaterial
         'precio_unitario',
     ];
 

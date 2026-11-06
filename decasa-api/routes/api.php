@@ -979,6 +979,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
         Route::get('/fichas-tecnicas',                           [FichaTecnicaController::class, 'index']);
         Route::get('/fichas-tecnicas/materiales-sugeridos',      [FichaTecnicaController::class, 'materialesSugeridos']);
+        // Los productos de Inventario con su receta (o en espera) y las fichas sueltas
+        Route::get('/fichas-tecnicas/productos',                 [FichaTecnicaController::class, 'productos']);
         Route::get('/fichas-tecnicas/{fichaTecnica}',            [FichaTecnicaController::class, 'show']);
         Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
         Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);

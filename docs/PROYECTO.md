@@ -711,6 +711,36 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
 - **Fichas técnicas** (~306): receta real de cada mueble por secciones
   (esqueletería, tapicería, corte y costura, carpintería), con materiales y mano
   de obra (horas × tarifa de `salarios_cargo`, `tarifas_proceso`).
+- **Conectado con Inventario** (2026-11-06, `Services/Costos/RecetasDeProductos`,
+  `GET /fichas-tecnicas/productos`): el producto se crea una vez, en Inventario, y sale en
+  Costos → Productos con su foto, categoría y precio. Sin receta queda **"en espera"**
+  (no se crean fichas vacías: el cotizador, Márgenes y Finanzas no deben ver fichas en $0).
+  La ficha que se crea desde el producto nace enlazada (`producto_id`) con su nombre y la
+  categoría del cotizador que corresponda (`categoriaParaFicha`: "Sofás" → SOFAS); la foto
+  no se copia, se muestra la del producto. **Medidas (versiones)**: cada opción de un tipo de
+  variante que cambia el precio (la cama de 1.40, la de 1.60) lleva **su propia receta**
+  (`fichas_tecnicas.variante_config_id`, migración `2026_11_09_000001`), porque no todas
+  cuestan lo mismo (usuario, 2026-11-06). La que no la tiene está en espera: el producto sale
+  `incompleta` ("faltan N") hasta completarlas. Se arma rápido copiando la de otra medida
+  (`duplicar` con `producto_id` + `variante_config_id`). La receta general (sin versión) de un
+  producto con medidas es opcional: plantilla y referencia del cotizador; no es el costo de
+  ninguna medida y no lleva margen (`producto_con_medidas`, `producto_precio` null en la lista). **Una sola receta por producto y versión**
+  (`validarLugar`, 422). Márgenes compara la receta de una versión con el precio de esa
+  versión. Las fichas sin producto (o de un producto apagado) salen en "Fichas sin
+  producto" con sugerencia del producto y la medida a los que se parecen (palabras del
+  nombre + categoría + medida "1,40"). El cotizador, con `producto_id`, usa la receta
+  enlazada antes que buscarla por nombre (`AgentService::recetaDelProducto`). "Ficha
+  suelta" sigue existiendo para muebles de referencia que no son productos.
+  Al guardar una ficha, el precio de lo enlazado lo pone el servidor (`Support/PreciosVigentes`).
+  **Al vincular una ficha con un producto** (pedido del usuario, 2026-11-06;
+  `RecetasDeProductos::camposAlVincular`): la ficha toma el nombre del producto en mayúscula
+  (con la medida si es de una versión: "CAMA BALI 1.40"), el nombre que tenía queda en
+  `fichas_tecnicas.descripcion` (migración `2026_11_09_000002`; solo la primera vez, para guardar
+  el del Excel) y se le quita la foto propia para que se vea la del producto (si el producto no
+  tiene foto, se queda con la suya). Al desvincular conserva el nombre y, si no tenía foto, se
+  queda con la del producto. Mientras esté vinculada el nombre no se edita en Costos: renombrar
+  el producto en Inventario renombra sus recetas (`Producto::booted`). El cotizador indexa
+  también la descripción; el buscador de fichas busca en ella.
 - **Materiales** (~314) con unidad normalizada, historial de precios, duplicados marcados.
 - **Cotizador** (`POST /calcular-precio-item` y tool `cotizar_fabricacion` del chat):
   `FichaRetriever` (embeddings) → `BomBuilder` (LLM arma receta con IDs y
