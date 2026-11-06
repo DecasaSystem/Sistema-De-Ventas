@@ -789,12 +789,20 @@ onMounted(async () => {
         </div>
 
         <div v-if="resumenReserva.valor != null" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
-          <p class="text-xs text-gray-500">Valor en fábrica (a precio de venta)</p>
-          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenReserva.valor) }}</p>
-          <p v-if="resumenReserva.valor_apartado > 0" class="text-xs text-gray-500 mt-0.5">
-            {{ pesos(resumenReserva.valor_libre) }} disponible
-            · {{ pesos(resumenReserva.valor_apartado) }} ya vendido (apartado)
-          </p>
+          <!-- Lo grande es lo DISPONIBLE; lo apartado ya lo compró un cliente
+               y espera entrega (dueño, 2026-11-06). -->
+          <p class="text-xs text-gray-500">Disponible para vender en fábrica (a precio de venta)</p>
+          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenReserva.valor_libre) }}</p>
+          <div class="mt-1 space-y-0.5 text-xs text-gray-500">
+            <p class="flex justify-between gap-2">
+              <span>Apartado (comprado, sin entregar)</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenReserva.valor_apartado) }}</span>
+            </p>
+            <p class="flex justify-between gap-2">
+              <span>Total en fábrica</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenReserva.valor) }}</span>
+            </p>
+          </div>
           <p v-if="resumenReserva.sin_marcar > 0" class="text-[11px] text-amber-600 mt-1 leading-snug">
             {{ resumenReserva.sin_marcar }} unidad{{ resumenReserva.sin_marcar === 1 ? '' : 'es' }}
             sin medida u opción marcada: se cuenta{{ resumenReserva.sin_marcar === 1 ? '' : 'n' }} al precio del producto.
@@ -803,7 +811,9 @@ onMounted(async () => {
 
         <!-- "Todas": cuánto hay en cada categoría. Tocar una la abre. -->
         <div v-if="!categoriaFiltro && resumenReserva.por_categoria?.length" class="mt-3">
-          <p class="text-xs text-gray-400 mb-1">Por categoría</p>
+          <p class="text-xs text-gray-400 mb-1">
+            Por categoría<span v-if="resumenReserva.valor != null"> · disponible para vender</span>
+          </p>
           <ul class="divide-y divide-gray-100">
             <li v-for="c in resumenReserva.por_categoria" :key="c.categoria">
               <button
@@ -816,8 +826,9 @@ onMounted(async () => {
                   {{ c.unidades }} u.
                   <span v-if="c.apartadas > 0" class="text-gray-400">({{ c.apartadas }} apart.)</span>
                 </span>
-                <span v-if="c.valor != null" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap" :title="pesos(c.valor)">
-                  {{ pesosCortos(c.valor) }}
+                <span v-if="c.valor != null" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap"
+                  :title="`${pesos(c.valor_libre)} disponible` + (c.valor_apartado > 0 ? ` · ${pesos(c.valor_apartado)} apartado` : '')">
+                  {{ pesosCortos(c.valor_libre) }}
                 </span>
               </button>
             </li>

@@ -2638,16 +2638,24 @@ onMounted(async () => {
         </p>
 
         <!-- Cuánta plata hay: unidades × precio de venta, cada variante a su
-             precio (la 1.60 vale lo de la 1.60). Solo el supervisor. -->
+             precio (la 1.60 vale lo de la 1.60). Solo el supervisor.
+             Lo grande es lo DISPONIBLE (lo que se puede vender); lo apartado ya
+             lo compró un cliente y está esperando entrega (dueño, 2026-11-06). -->
         <div v-if="verPlataInventario" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
           <p class="text-xs text-gray-500">
-            Valor {{ esVistaGlobal ? 'en todas las tiendas' : 'en esta tienda' }} (a precio de venta)
+            Disponible para vender {{ esVistaGlobal ? 'en todas las tiendas' : 'en esta tienda' }} (a precio de venta)
           </p>
-          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenCategoria.valor) }}</p>
-          <p v-if="resumenCategoria.valor_apartado > 0" class="text-xs text-gray-500 mt-0.5">
-            {{ pesos(resumenCategoria.valor_libre) }} disponible
-            · {{ pesos(resumenCategoria.valor_apartado) }} ya vendido (apartado)
-          </p>
+          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenCategoria.valor_libre) }}</p>
+          <div class="mt-1 space-y-0.5 text-xs text-gray-500">
+            <p class="flex justify-between gap-2">
+              <span>Apartado (comprado, sin entregar)</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenCategoria.valor_apartado) }}</span>
+            </p>
+            <p class="flex justify-between gap-2">
+              <span>Total en {{ esVistaGlobal ? 'las tiendas' : 'la tienda' }}</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenCategoria.valor) }}</span>
+            </p>
+          </div>
           <p v-if="resumenCategoria.sin_marcar > 0" class="text-[11px] text-amber-600 mt-1 leading-snug">
             {{ resumenCategoria.sin_marcar }} unidad{{ resumenCategoria.sin_marcar === 1 ? '' : 'es' }}
             sin medida u opción marcada: se cuenta{{ resumenCategoria.sin_marcar === 1 ? '' : 'n' }} al precio del producto.
@@ -2691,8 +2699,9 @@ onMounted(async () => {
               <span v-if="t.cantidad_reservada > 0" class="text-[10px] opacity-70">
                 (+{{ t.cantidad_reservada }} apartado{{ t.cantidad_reservada === 1 ? '' : 's' }})
               </span>
-              <span v-if="verPlataInventario && t.valor > 0" class="font-semibold text-emerald-700" :title="pesos(t.valor)">
-                · {{ pesosCortos(t.valor) }}
+              <span v-if="verPlataInventario && t.valor_libre > 0" class="font-semibold text-emerald-700"
+                :title="`${pesos(t.valor_libre)} disponible` + (t.valor_apartado > 0 ? ` · ${pesos(t.valor_apartado)} apartado` : '')">
+                · {{ pesosCortos(t.valor_libre) }}
               </span>
             </span>
           </div>
@@ -2700,7 +2709,9 @@ onMounted(async () => {
 
         <!-- "Todas": cuánto hay en cada categoría. Tocar una la abre. -->
         <div v-if="!categoriaFiltro && resumenCategoria.por_categoria?.length" class="mt-3">
-          <p class="text-xs text-gray-400 mb-1">Por categoría</p>
+          <p class="text-xs text-gray-400 mb-1">
+            Por categoría<span v-if="verPlataInventario"> · disponible para vender</span>
+          </p>
           <ul class="divide-y divide-gray-100">
             <li v-for="c in resumenCategoria.por_categoria" :key="c.categoria">
               <button
@@ -2715,8 +2726,9 @@ onMounted(async () => {
                   {{ c.unidades }} u.
                   <span v-if="c.apartadas > 0" class="text-gray-400">({{ c.apartadas }} apart.)</span>
                 </span>
-                <span v-if="verPlataInventario" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap" :title="pesos(c.valor)">
-                  {{ pesosCortos(c.valor) }}
+                <span v-if="verPlataInventario" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap"
+                  :title="`${pesos(c.valor_libre)} disponible` + (c.valor_apartado > 0 ? ` · ${pesos(c.valor_apartado)} apartado` : '')">
+                  {{ pesosCortos(c.valor_libre) }}
                 </span>
               </button>
             </li>

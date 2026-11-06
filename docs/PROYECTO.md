@@ -320,7 +320,9 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   `precio_variante` lo reemplaza). Los ejes (tela, cada tipo de opción) no se suman: se usa el que
   cambia el precio, con más unidades marcadas, y las opciones antes que la tela si empatan; lo sin
   marcar va al precio del producto (la tarjeta avisa cuántas). Un reparto que se pasa del stock se
-  recorta. Lo apartado se dice aparte ("ya vendido"). Sin promociones (precio de lista), solo
+  recorta. La cifra grande es lo **disponible para vender**; debajo, lo apartado (comprado, sin
+  entregar) y el total. Las pastillas por tienda y la lista por categoría muestran lo disponible y
+  van de más a menos disponible (dueño, 2026-11-06). Sin promociones (precio de lista), solo
   tiendas activas y productos activos. El Excel pide `con_valor=1` (la API lo ignora si no es
   supervisor) y su "Valor en tienda" sale de la misma cuenta (antes era precio base × unidades);
   a los demás les sale sin esa columna. Prueba: `ValorInventarioTest`.

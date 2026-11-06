@@ -248,8 +248,9 @@ class InventarioController extends Controller
             $respuesta['por_tienda'] = $porTienda->map(fn ($t) => $t + self::cifrasDeValor(
                 $porTiendaValor[$t['tienda_id']] ?? []
             ))
-                // Con la plata a la vista, la tienda que más vale primero.
-                ->sort(fn ($a, $b) => [$b['valor'], $b['stock_libre']] <=> [$a['valor'], $a['stock_libre']])
+                // Con la plata a la vista, la tienda con más para vender primero.
+                ->sort(fn ($a, $b) => [$b['valor_libre'], $b['valor'], $b['stock_libre']]
+                                  <=> [$a['valor_libre'], $a['valor'], $a['stock_libre']])
                 ->values();
 
             if ($categoria === null) {

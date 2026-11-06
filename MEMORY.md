@@ -848,7 +848,7 @@ escribiendo precios (Fase 1b).
   promediando / tomando la más barata de todas las fichas del producto (incluida la general): si
   se usan en serio, cruzarlas por la medida vendida. Visto en
   390 px, claro y oscuro, con servidor falso (sin probar contra datos reales).
-- **Valor del inventario en pesos** (2026-11-06, **sin subir**, sin migración, rama
+- **Valor del inventario en pesos** (2026-11-06, **subido a `main`** ese día, commit 7fdc9fc, sin migración, rama
   `claude/inventory-monetary-value-2820f6`). Pedido del dueño: en Inventario, por categoría y en
   "Todas", además de cuántos hay, cuánta plata es ("31 sofás a 1 millón = 31 millones"), por tienda
   y en total, "teniendo en cuenta las variantes"; lo mismo en Reserva. Regla en
@@ -856,8 +856,9 @@ escribiendo precios (Fase 1b).
   (sin promociones), nunca costo. **La plata la ven solo los supervisores** (dueño, 2026-11-06),
   en Inventario, en Reserva (tener `acceso_reserva` no basta) y en el Excel de Inventario (antes
   le mostraba "Valor en tienda" a todos; ahora a los demás les sale sin esa columna). Los demás ven
-  las unidades. Por defecto mío (**falta que el dueño confirme**): lo apartado se cuenta dentro del
-  valor y se dice aparte como "ya vendido"; la tienda cerrada no cuenta.
+  las unidades. **La cifra grande es lo disponible para vender** (dueño, mismo día); lo apartado
+  (comprado, sin entregar) y el total van debajo. Por defecto mío (**falta confirmar**): la tienda
+  cerrada no cuenta.
   No cambió ninguna regla de plata.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.

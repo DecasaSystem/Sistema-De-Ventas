@@ -251,7 +251,10 @@ class ValorInventario
             }
         }
 
-        $porValor = fn ($a, $b) => $b['valor'] <=> $a['valor'] ?: $b['unidades'] <=> $a['unidades'];
+        // Primero lo que más hay para vender (lo disponible, no lo apartado:
+        // es la cifra grande de la pantalla), luego el total y las unidades.
+        $porValor = fn ($a, $b) => [$b['valor'] - $b['valor_apartado'], $b['valor'], $b['unidades']]
+                               <=> [$a['valor'] - $a['valor_apartado'], $a['valor'], $a['unidades']];
 
         $tiendas = array_map($cerrar, array_values($porTienda));
         usort($tiendas, $porValor);
