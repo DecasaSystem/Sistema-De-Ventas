@@ -121,16 +121,25 @@ class TrasladoController extends Controller
         // A la Bodega Fábrica también se traslada: lo que llega queda en la
         // Reserva y de ahí se vuelve a surtir. Allá no hay vendedores, así
         // que lo recibe quien maneja la Reserva.
+        // Un supervisor también puede quedar para recibirlo (dueño, 2026-11-07),
+        // en la Reserva y en una tienda.
         $aReserva = DB::table('tiendas')
             ->where('id', $data['tienda_destino_id'])->where('es_fabrica', true)->exists();
-        if ($aReserva && ! empty($data['vendedor_validador_id'])) {
-            $puedeRecibir = DB::table('usuarios')
+        if (! empty($data['vendedor_validador_id'])) {
+            if ($esVendedor && (int) $data['vendedor_validador_id'] === (int) $user->id) {
+                return response()->json(['message' => 'El traslado lo tiene que recibir otra persona, no quien lo manda.'], 422);
+            }
+            $validador = DB::table('usuarios')
                 ->where('id', $data['vendedor_validador_id'])
                 ->where('activo', true)
-                ->where('acceso_reserva', true)
-                ->exists();
+                ->first(['rol', 'acceso_reserva']);
+            $puedeRecibir = $validador && ($validador->rol === 'supervisor' || ($aReserva
+                ? (bool) $validador->acceso_reserva
+                : $validador->rol === 'vendedor'));
             if (! $puedeRecibir) {
-                return response()->json(['message' => 'Lo que va a la Reserva lo tiene que recibir alguien con acceso a Reserva.'], 422);
+                return response()->json(['message' => $aReserva
+                    ? 'Lo que va a la Reserva lo tiene que recibir alguien con acceso a Reserva o un supervisor.'
+                    : 'El traslado lo tiene que recibir un vendedor o un supervisor activo.'], 422);
             }
         }
 
@@ -373,9 +382,20 @@ class TrasladoController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        // Sin aviso: quien recibe acaba de aceptarlo con el dedo y ya lo sabe.
-        // La tienda de origen no, y a ella le bajó el stock.
-        AvisoTraslado::refrescarInventario($traslado);
+        // Si lo aceptó alguien de la tienda destino, ya lo sabe: solo se refresca
+        // (la tienda de origen tiene que ver que le bajó el stock). Si lo aceptó
+        // un supervisor, la gente de esa tienda no se ha enterado de que le
+        // llegó mercancía: se le avisa como cuando el supervisor traslada.
+        $esDeAlla = $user->rol !== 'supervisor' && (
+            (int) $user->tienda_default_id === (int) $traslado->tienda_destino_id
+            || DB::table('tiendas')->where('id', $traslado->tienda_destino_id)->where('es_fabrica', true)->exists()
+        );
+        $traslado->load('items');   // con las cantidades aceptadas
+        if ($esDeAlla) {
+            AvisoTraslado::refrescarInventario($traslado);
+        } else {
+            AvisoTraslado::llegada($traslado, $user->id);
+        }
 
         $aceptadosParcial = $cantidadesMap->isNotEmpty() && $traslado->items->some(
             fn($i) => $cantidadesMap->has($i->id) && $cantidadesMap[$i->id] < $i->cantidad

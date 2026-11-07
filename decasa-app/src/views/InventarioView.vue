@@ -2346,9 +2346,10 @@ const tPendCantidades     = ref({})     // { item.id: cantidad_aceptada }
 const tPendAceptandoLoad  = ref(false)
 
 async function cargarTrasladosPendientes() {
-  // Lo que se manda a la Bodega Fábrica lo recibe quien maneja la Reserva,
-  // que no tiene por qué ser vendedor.
-  if (auth.usuario?.rol !== 'vendedor' && !auth.usuario?.acceso_reserva) return
+  // Se pregunta siempre: el servidor solo devuelve los que le tocan a uno.
+  // Quien recibe puede ser un vendedor, quien maneja la Reserva o un
+  // supervisor; antes al supervisor le llegaba el aviso y en Inventario no
+  // le salía nada para aceptar.
   try {
     const { data } = await getTrasladosPendientes()
     trasladosPend.value = data

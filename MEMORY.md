@@ -865,6 +865,17 @@ escribiendo precios (Fase 1b).
   (comprado, sin entregar) y el total van debajo. Por defecto mío (**falta confirmar**): la tienda
   cerrada no cuenta.
   No cambió ninguna regla de plata.
+- **Traslados: un supervisor también puede recibirlos** (dueño, 2026-11-07, **sin subir**, sin
+  migración, rama `claude/traslado-modulo-inventario-f24b9e`). La Reserva como **destino** ya
+  existía (2431961); como **origen no** (dueño: para eso está Surtir desde Reserva). Ahora quien
+  manda (todo el que no es supervisor) puede escoger como receptor a un supervisor, a la tienda y
+  a la Reserva (`SurtidoController::vendedoresTienda`, que también usa Surtir). El servidor valida
+  quién puede recibir (vendedor o supervisor activo; en la Reserva, acceso a Reserva o supervisor)
+  y que nadie se reciba su propio traslado. Arreglos de paso: Inventario no le mostraba al
+  supervisor los traslados pendientes (le llegaba el aviso y no tenía dónde aceptar); si acepta
+  alguien que no es de la tienda destino, a esa tienda le llega "Llegó mercancía"; y la pantalla
+  de Traslado le saltaba el paso del receptor a quien tiene `acceso_surtir` sin rol vendedor (422).
+  Tests en `TrasladoLoRecibeUnSupervisorTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

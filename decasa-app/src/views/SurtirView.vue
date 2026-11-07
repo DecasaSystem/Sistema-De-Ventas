@@ -185,7 +185,7 @@ function onTelaChange(item, v) {
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 // El botón "Traslado" del Home llega con ?tab=traslado para abrir directo
 // ahí, en vez de aterrizar siempre en "Nuevo surtido" y obligar a buscarla.
-const tabActivo = ref(route.query.tab || (auth.usuario?.rol === 'vendedor' ? 'traslado' : 'nuevo'))
+const tabActivo = ref(route.query.tab || (auth.isSupervisor ? 'nuevo' : 'traslado'))
 
 // ── Wizard paso ──────────────────────────────────────────────────────────────
 const paso = ref(1)
@@ -690,7 +690,11 @@ const tCargandoValidador = ref(false)
 
 // Vendedor: número de pasos = 4 (incluye paso 3 de validador)
 // Supervisor: 3 pasos
-const tEsVendedor = computed(() => auth.usuario?.rol === 'vendedor')
+// "Vendedor" aquí es todo el que no es supervisor (igual que el servidor):
+// con acceso_surtir también entra quien no tiene el rol vendedor, y a él el
+// servidor le exige quién recibe. Antes la pantalla le saltaba ese paso y el
+// traslado se caía con un 422.
+const tEsVendedor = computed(() => !auth.isSupervisor)
 
 // historial traslados
 const tHistorial      = ref([])
@@ -729,7 +733,8 @@ watch(tDestinoId, async (tid) => {
   tCargandoValidador.value = true
   try {
     const { data } = await getVendedoresTienda(tid)
-    tVendedoresDest.value = data
+    // Quien manda no puede ser quien recibe (el servidor también lo frena).
+    tVendedoresDest.value = data.filter(v => v.id !== auth.usuario?.id)
   } catch {} finally {
     tCargandoValidador.value = false
   }
@@ -840,7 +845,7 @@ async function cargarHistorialTraslados() {
 onMounted(async () => {
   const { data } = await getTiendas()
   tiendas.value = data.filter(t => !t.es_fabrica)
-  if (auth.usuario?.rol === 'vendedor' && auth.usuario?.tienda_default_id) {
+  if (tEsVendedor.value && auth.usuario?.tienda_default_id) {
     await tSeleccionarOrigen(auth.usuario.tienda_default_id)
   } else {
     cargarRecomendaciones()
@@ -1403,7 +1408,7 @@ onMounted(async () => {
                 :key="v.id"
                 :value="v.id"
               >
-                {{ v.nombre }}{{ v.tienda_default_id !== tid ? ` — ${v.tienda_default?.nombre ?? 'otra tienda'}` : '' }}
+                {{ v.nombre }}{{ v.rol === 'supervisor' ? ' — Supervisor' : (v.tienda_default_id !== tid ? ` — ${v.tienda_default?.nombre ?? 'otra tienda'}` : '') }}
               </option>
             </select>
             <p v-if="cargandoVendedores" class="text-xs text-gray-400 mt-1.5">Cargando vendedores...</p>
@@ -1745,10 +1750,11 @@ onMounted(async () => {
             class="flex items-center gap-3 px-4 py-3 cursor-pointer"
           >
             <input type="radio" :value="v.id" v-model="tValidadorId" class="w-4 h-4 text-blue-600" />
-            <div>
+            <div class="min-w-0 flex-1">
               <p class="text-sm font-medium text-gray-800">{{ v.nombre }}</p>
               <p v-if="v.tienda_default?.nombre" class="text-xs text-gray-400">{{ v.tienda_default.nombre }}</p>
             </div>
+            <span v-if="v.rol === 'supervisor'" class="rounded-full text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-700 flex-shrink-0">Supervisor</span>
           </label>
           <p v-if="!tCargandoValidador && !tVendedoresDest.length" class="px-4 py-3 text-xs text-gray-400 text-center">
             {{ tAReserva ? 'No hay nadie activo con acceso a Reserva.' : 'No hay vendedores activos en la tienda destino.' }}

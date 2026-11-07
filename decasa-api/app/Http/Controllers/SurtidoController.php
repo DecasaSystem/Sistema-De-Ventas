@@ -639,22 +639,27 @@ class SurtidoController extends Controller
     {
         // En la Bodega Fábrica no hay vendedores: lo que llega ahí entra a la
         // Reserva, y quien lo recibe es quien maneja la Reserva.
+        //
+        // Los supervisores también pueden recibir (dueño, 2026-11-07): a veces
+        // quien está para aceptar lo que llega es un supervisor y no un
+        // vendedor. Van después de la gente de esa tienda.
         if (Tienda::where('id', $tiendaId)->where('es_fabrica', true)->exists()) {
             return response()->json(
                 Usuario::with('tiendaDefault:id,nombre')
-                    ->where('acceso_reserva', true)
+                    ->where(fn($q) => $q->where('acceso_reserva', true)->orWhere('rol', 'supervisor'))
                     ->where('activo', true)
+                    ->orderByRaw("CASE WHEN rol = 'supervisor' THEN 1 ELSE 0 END")
                     ->orderBy('nombre')
-                    ->get(['id', 'nombre', 'email', 'tienda_default_id'])
+                    ->get(['id', 'nombre', 'email', 'rol', 'tienda_default_id'])
             );
         }
 
         $vendedores = Usuario::with('tiendaDefault:id,nombre')
-            ->where('rol', 'vendedor')
+            ->whereIn('rol', ['vendedor', 'supervisor'])
             ->where('activo', true)
-            ->orderByRaw('CASE WHEN tienda_default_id = ? THEN 0 ELSE 1 END', [$tiendaId])
+            ->orderByRaw("CASE WHEN rol = 'supervisor' THEN 1 WHEN tienda_default_id = ? THEN 0 ELSE 2 END", [$tiendaId])
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'email', 'tienda_default_id']);
+            ->get(['id', 'nombre', 'email', 'rol', 'tienda_default_id']);
 
         return response()->json($vendedores);
     }
