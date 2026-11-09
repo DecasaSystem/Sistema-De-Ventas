@@ -19,6 +19,14 @@ class Cliente extends Model
         'tienda_id',
         'categorias_interes',
         'notas_interes',
+        // Datos que pide la DIAN para la factura electrónica (Facturación electrónica).
+        'tipo_documento',
+        'dv',
+        'tipo_persona',
+        'regimen',
+        'ciudad',
+        'departamento',
+        'alegra_contacto_id',
     ];
 
     protected $hidden = [];

@@ -876,6 +876,19 @@ escribiendo precios (Fase 1b).
   alguien que no es de la tienda destino, a esa tienda le llega "Llegó mercancía"; y la pantalla
   de Traslado le saltaba el paso del receptor a quien tiene `acceso_surtir` sin rol vendedor (422).
   Tests en `TrasladoLoRecibeUnSupervisorTest`.
+- **Facturación electrónica con Alegra** (2026-11-09, **implementada, sin subir**, rama
+  `claude/alegra-billing-integration-a51e78`, trae **migración** `2026_11_10_000001_facturacion_electronica`,
+  solo agrega). Detalle en `docs/plan-facturacion-alegra.md`. Decisiones del dueño ese día: se
+  factura **al entregar**, **las FV2 no se facturan**, el **facturador revisa** la orden y toca
+  Facturar, y **todo personalizable** desde el programa (Ajustes del módulo, solo supervisor). Viene
+  apagado y en "solo borrador". Necesita `ALEGRA_EMAIL`/`ALEGRA_TOKEN` en Render. Por defecto mío
+  (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
+  pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
+  del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la
+  orden sale en "Diferencias" y la nota se hace en Alegra). Trampa: Alegra no tiene idempotencia;
+  nunca reintentar un POST /invoices sin pasar por `EmitirFactura` (busca por la marca
+  `[DECASA-ORDEN-ID]` antes de crear otra). El `vendor` del worktree venía incompleto: se copió el
+  del repo principal.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

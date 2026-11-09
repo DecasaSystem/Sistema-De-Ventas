@@ -54,6 +54,9 @@ const routes = [
   { path: '/stats/vendedor/:id', name: 'stats-vendedor', component: () => import('@/views/StatsVendedorDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/costos', name: 'costos', component: () => import('@/views/CostosView.vue'), meta: { requiresAuth: true, requiresCostos: true } },
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
+  // Facturación electrónica con Alegra: lista, revisión de cada orden y Ajustes.
+  { path: '/facturacion-electronica', name: 'facturacion-electronica', component: () => import('@/views/FacturacionElectronicaView.vue'), meta: { requiresAuth: true, requiresFacturaElectronica: true } },
+  { path: '/facturacion-electronica/ordenes/:id', name: 'factura-orden', component: () => import('@/views/FacturaOrdenView.vue'), meta: { requiresAuth: true, requiresFacturaElectronica: true } },
   { path: '/reserva', name: 'reserva', component: () => import('@/views/ReservaView.vue'), meta: { requiresAuth: true, requiresReserva: true } },
   { path: '/redes',       name: 'redes',       component: () => import('@/views/RedesView.vue'),       meta: { requiresAuth: true, requiresRedes: true } },
   // Métricas no es un módulo aparte: va junto con Redes.
@@ -155,6 +158,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
+  if (to.meta.requiresFacturaElectronica && !auth.puedeFacturarElectronica) return { name: 'dashboard' }
   if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }
   if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
   if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }

@@ -859,6 +859,26 @@ Route::middleware('auth:sanctum')->group(function () {
     // Facturación (vendedores con facturacion=true)
     Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
 
+    // Facturación electrónica con Alegra (docs/plan-facturacion-alegra.md). El
+    // permiso (facturador o supervisor; Ajustes solo supervisor) se revisa en el
+    // controlador. Rutas literales antes de las de {id}.
+    Route::prefix('facturacion-electronica')->controller(\App\Http\Controllers\FacturacionElectronicaController::class)->group(function () {
+        Route::get('/estado',              'estado');
+        Route::get('/pendientes',          'pendientes');
+        Route::get('/facturas',            'facturas');
+        Route::get('/reglas',              'reglas');
+        Route::put('/reglas',              'guardarReglas');
+        Route::get('/alegra/catalogos',    'catalogos');
+        Route::get('/alegra/items',        'itemsAlegra');
+        Route::get('/alegra/contactos',    'contactosAlegra');
+        Route::put('/clientes/{id}',       'guardarCliente')->whereNumber('id');
+        Route::get('/ordenes/{id}',        'detalle')->whereNumber('id');
+        Route::post('/ordenes/{id}/facturar', 'facturar')->whereNumber('id')->middleware('throttle:20,1');
+        Route::post('/ordenes/{id}/externa',  'registrarExterna')->whereNumber('id');
+        Route::post('/facturas/{id}/actualizar',          'actualizar')->whereNumber('id');
+        Route::post('/facturas/{id}/diferencia-resuelta', 'diferenciaResuelta')->whereNumber('id');
+    });
+
     // Agente de IA
     Route::post('/agent/chat',           [AgentController::class,   'chat'])->middleware('throttle:30,1');
     Route::post('/calcular-precio-item', [PrecioItemController::class, 'calcular'])->middleware('throttle:20,1');

@@ -1,0 +1,402 @@
+<?php
+
+namespace App\Services\Facturacion;
+
+use App\Models\Cliente;
+use App\Models\FacturaElectronica;
+use App\Models\Orden;
+use App\Models\Pago;
+use App\Models\Usuario;
+use App\Services\Alegra\ClienteAlegra;
+use App\Services\Alegra\RespuestaAlegra;
+use App\Services\Alegra\SinRespuestaDeAlegra;
+use App\Support\Esquema;
+use App\Support\ReglasFacturacion;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Facturar en Alegra: la única puerta (el botón del facturador y la tarea
+ * automática pasan por aquí).
+ *
+ * Lo más delicado es no facturar dos veces. Una factura emitida ante la DIAN
+ * no se borra (solo se anula con nota crédito) y Alegra no tiene llave de
+ * idempotencia, así que:
+ *  1. Dentro de una transacción con lockForUpdate se marca la fila "enviando"
+ *     ANTES de llamar a Alegra: un segundo clic (o dos facturadores a la vez)
+ *     encuentra la fila tomada y se frena.
+ *  2. En las observaciones de la factura va una marca ([DECASA-ORDEN-123]).
+ *     Si Alegra no respondió, la fila queda "incierta" y el siguiente intento
+ *     primero busca esa marca en Alegra: si la factura sí se creó, se adopta
+ *     en vez de crear otra.
+ *  3. Si Alegra creó un borrador (rechazo de la DIAN, modo borrador), el
+ *     siguiente intento lo borra y lo vuelve a crear con los datos corregidos.
+ *     Un borrador no es legal: borrarlo no deja huecos en la numeración DIAN.
+ */
+class EmitirFactura
+{
+    /** Minutos que una fila "enviando" se considera de otra persona. */
+    private const MINUTOS_TOMADA = 3;
+
+    public function __construct(private ClienteAlegra $alegra) {}
+
+    /**
+     * @param string[] $aceptadas códigos de las advertencias que la persona revisó
+     * @throws NoSePuedeFacturar
+     */
+    public function facturar(Orden $orden, ?Pago $pago, ?Usuario $usuario, array $aceptadas = [], bool $automatico = false): FacturaElectronica
+    {
+        // Lo ya facturado se dice primero: después de emitir, los pagos quedan
+        // marcados y la revisión hablaría de "facturado a mano" en vez de eso.
+        $existente = FacturaElectronica::where('clave', FacturaElectronica::claveDe($orden, $pago))->first();
+        if ($existente && $existente->estaHecha()) {
+            throw new NoSePuedeFacturar('Esta ya está facturada' . ($existente->numero ? " ({$existente->numero})" : '') . '.', 409);
+        }
+
+        $armado = ArmarFactura::de($orden, $pago);
+
+        if (! $armado['se_puede']) {
+            $bloqueos = array_values(array_filter($armado['alertas'], fn ($a) => $a['tipo'] === 'bloqueo'));
+            throw new NoSePuedeFacturar($bloqueos[0]['mensaje'] ?? 'No se puede facturar todavía.', 422, $armado['alertas']);
+        }
+        $sinAceptar = array_values(array_diff($armado['advertencias'], $aceptadas));
+        if ($sinAceptar) {
+            throw new NoSePuedeFacturar(
+                $automatico ? 'Tiene advertencias: la revisa el facturador.' : 'Hay advertencias sin revisar: márcalas como revisadas.',
+                422, $armado['alertas'], $sinAceptar,
+            );
+        }
+
+        $factura = $this->tomar($armado, $usuario);
+
+        try {
+            if ($adoptada = $this->resolverIntentoAnterior($factura)) {
+                return $adoptada;
+            }
+
+            $contactoId = $this->contacto($orden->cliente, $armado);
+            $envio = $armado['factura'] + ['client' => ['id' => $contactoId]];
+            $factura->update(['envio' => $envio, 'alegra_contacto_id' => $contactoId]);
+
+            $res = $this->alegra->crearFactura($envio);
+
+            return $this->guardarRespuesta($factura, $res, $armado);
+        } catch (SinRespuestaDeAlegra $e) {
+            $factura->update(['estado' => 'incierta', 'error' => $e->getMessage()
+                . ' No se sabe si Alegra la creó: al volver a intentar, el sistema primero la busca allá.']);
+
+            return $factura->fresh();
+        } catch (NoSePuedeFacturar $e) {
+            $factura->update(['estado' => 'error', 'error' => $e->getMessage()]);
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('[facturacion] error inesperado', ['clave' => $factura->clave, 'error' => $e->getMessage()]);
+            $factura->update(['estado' => 'error', 'error' => 'Error inesperado: ' . $e->getMessage()]);
+
+            return $factura->fresh();
+        }
+    }
+
+    /** Toma la fila (o la crea) para que nadie más facture lo mismo a la vez. */
+    private function tomar(array $armado, ?Usuario $usuario): FacturaElectronica
+    {
+        return DB::transaction(function () use ($armado, $usuario) {
+            $f = FacturaElectronica::where('clave', $armado['clave'])->lockForUpdate()->first();
+
+            if ($f && $f->estaHecha()) {
+                throw new NoSePuedeFacturar('Esta ya está facturada' . ($f->numero ? " ({$f->numero})" : '') . '.', 409);
+            }
+            if ($f && $f->estado === 'enviando' && $f->updated_at?->gt(now()->subMinutes(self::MINUTOS_TOMADA))) {
+                throw new NoSePuedeFacturar('Otra persona la está facturando en este momento. Espera un momento y actualiza.', 409);
+            }
+
+            $datos = [
+                'orden_id'      => $armado['orden_id'],
+                'pago_id'       => $armado['pago_id'],
+                'tipo'          => 'factura',
+                'estado'        => 'enviando',
+                'modo'          => $armado['modo'],
+                'base'          => $armado['totales']['base'],
+                'iva'           => $armado['totales']['iva'],
+                'total'         => $armado['totales']['total'],
+                'valor_sistema' => $armado['totales']['valor_sistema'],
+                'usuario_id'    => $usuario?->id,
+                'advertencias_aceptadas' => $armado['advertencias'],
+                'error'         => null,
+            ];
+
+            if ($f) {
+                // Fuerza updated_at aunque nada más cambie: "enviando" se mide con eso.
+                $f->fill($datos);
+                $f->updated_at = now();
+                $f->save();
+
+                return $f;
+            }
+
+            return FacturaElectronica::create(['clave' => $armado['clave']] + $datos);
+        });
+    }
+
+    /**
+     * Lo que quedó de un intento anterior. Si la factura en realidad sí salió,
+     * se adopta y se devuelve; si quedó en borrador, se borra para hacerla bien.
+     */
+    private function resolverIntentoAnterior(FacturaElectronica $f): ?FacturaElectronica
+    {
+        $id = $f->alegra_id;
+
+        // Un intento anterior llegó a mandar la factura (el contacto solo se
+        // guarda justo antes) pero no quedó su id: buscarla por la marca antes
+        // de crear otra.
+        if (! $id && $f->alegra_contacto_id) {
+            $id = $this->buscarPorMarca($f);
+        }
+        if (! $id) return null;
+
+        $res = $this->alegra->verFactura($id);
+        if ($res->status === 404) {
+            $f->update(['alegra_id' => null]);
+
+            return null;
+        }
+        if (! $res->ok) {
+            throw new NoSePuedeFacturar('No se pudo revisar en Alegra la factura anterior (' . $res->error . '). Intenta de nuevo.', 502);
+        }
+
+        $estado = strtolower((string) ($res->json['status'] ?? ''));
+        if ($estado === 'draft') {
+            $borrar = $this->alegra->borrarFactura($id);
+            if (! $borrar->ok && $borrar->status !== 404) {
+                throw new NoSePuedeFacturar('Alegra no dejó borrar el borrador anterior (' . $borrar->error . ').', 502);
+            }
+            $f->update(['alegra_id' => null]);
+
+            return null;
+        }
+
+        // Ya no es borrador: sí quedó hecha. Se adopta.
+        return $this->guardarRespuesta($f, new RespuestaAlegra(true, 200, $res->json, null), null);
+    }
+
+    /** Una factura del cliente con la marca de esta orden/pago, creada en Alegra. */
+    private function buscarPorMarca(FacturaElectronica $f): ?string
+    {
+        $marca = $f->pago_id ? "[DECASA-PAGO-{$f->pago_id}]" : "[DECASA-ORDEN-{$f->orden_id}]";
+        $fechas = array_unique(array_filter([
+            $f->envio['date'] ?? null,
+            now('America/Bogota')->toDateString(),
+        ]));
+        foreach ($fechas as $fecha) {
+            foreach ($this->alegra->facturasDelCliente($f->alegra_contacto_id, $fecha) as $inv) {
+                if (str_contains((string) ($inv['observations'] ?? ''), $marca) && ! empty($inv['id'])) {
+                    return (string) $inv['id'];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** El id del contacto en Alegra: el guardado, uno con la misma identificación o uno nuevo. */
+    private function contacto(?Cliente $cliente, array $armado): string
+    {
+        $datos = $armado['cliente'];
+        if ($datos['alegra_contacto_id']) return (string) $datos['alegra_contacto_id'];
+
+        $documento = $datos['documento'];
+        foreach ($this->alegra->buscarContactos($documento) as $c) {
+            $ident = $c['identificationObject']['number'] ?? $c['identification'] ?? null;
+            if ($ident !== null && preg_replace('/\D/', '', (string) $ident) === preg_replace('/\D/', '', $documento) && ! empty($c['id'])) {
+                $this->recordarContacto($cliente, (string) $c['id']);
+
+                return (string) $c['id'];
+            }
+        }
+
+        $payload = array_filter($datos['alegra'], fn ($v) => $v !== null);
+        $res = $this->alegra->crearContacto($payload);
+        if (! $res->ok || empty($res->json['id'])) {
+            throw new NoSePuedeFacturar('Alegra no aceptó el cliente: ' . ($res->error ?? 'sin detalle') . '. Revisa los datos del cliente.', 422);
+        }
+        $this->recordarContacto($cliente, (string) $res->json['id']);
+
+        return (string) $res->json['id'];
+    }
+
+    private function recordarContacto(?Cliente $cliente, string $id): void
+    {
+        if ($cliente && Esquema::columna('clientes', 'alegra_contacto_id')) {
+            $cliente->forceFill(['alegra_contacto_id' => $id])->save();
+        }
+    }
+
+    private function guardarRespuesta(FacturaElectronica $f, RespuestaAlegra $res, ?array $armado): FacturaElectronica
+    {
+        $json = is_array($res->json) ? $res->json : [];
+
+        if (! $res->ok) {
+            // Con generateStamp y un rechazo, Alegra crea la factura en borrador y
+            // devuelve el error junto con ella.
+            $creada = self::facturaDentro($json);
+            $f->update([
+                'estado'    => $creada ? 'rechazada' : 'error',
+                'alegra_id' => $creada['id'] ?? $f->alegra_id,
+                'respuesta' => $json,
+                'error'     => $res->error ?? 'Alegra no la aceptó.',
+            ]);
+            $this->avisarSiFalla($f, $armado);
+
+            return $f->fresh();
+        }
+
+        $estadoDian = self::estadoDian($json);
+        $esBorrador = strtolower((string) ($json['status'] ?? '')) === 'draft';
+        $estado = match (true) {
+            $esBorrador                                => ReglasFacturacion::emite() && $f->modo === 'emitir' ? 'rechazada' : 'borrador_alegra',
+            $estadoDian && str_contains($estadoDian, 'REJECTED') => 'rechazada',
+            $estadoDian && (str_contains($estadoDian, 'WAITING') || $estadoDian === 'PENDING') => 'pendiente_dian',
+            default                                    => 'emitida',
+        };
+
+        $f->update([
+            'estado'      => $estado,
+            'alegra_id'   => (string) ($json['id'] ?? $f->alegra_id),
+            'numero'      => self::numero($json) ?? $f->numero,
+            'cufe'        => $json['stamp']['cufe'] ?? $json['cufe'] ?? $f->cufe,
+            'estado_dian' => $estadoDian ?? $f->estado_dian,
+            'total'       => isset($json['total']) && is_numeric($json['total']) ? (float) $json['total'] : $f->total,
+            'respuesta'   => $json,
+            'error'       => $estado === 'rechazada' ? ('La DIAN la rechazó: ' . ($json['stamp']['errors'][0] ?? $json['stamp']['message'] ?? 'revisa en Alegra')) : null,
+            'emitida_at'  => in_array($estado, ['emitida', 'pendiente_dian'], true) ? now() : $f->emitida_at,
+        ]);
+
+        if (in_array($estado, ['emitida', 'pendiente_dian'], true)) {
+            $this->despuesDeEmitir($f);
+        }
+
+        return $f->fresh();
+    }
+
+    /** PDF, correo al cliente y la marca vieja de "facturado" en los pagos. */
+    private function despuesDeEmitir(FacturaElectronica $f): void
+    {
+        try {
+            $ver = $this->alegra->verFactura($f->alegra_id, ['pdf']);
+            if ($ver->ok && ($pdf = self::pdf($ver->json))) {
+                $f->update(['pdf_url' => mb_substr($pdf, 0, 500)]);
+            }
+        } catch (\Throwable $e) {
+            Log::info('[facturacion] sin PDF por ahora', ['id' => $f->alegra_id, 'error' => $e->getMessage()]);
+        }
+
+        if (ReglasFacturacion::get('enviar_correo')) {
+            $correo = $f->orden?->cliente?->email;
+            if ($correo) {
+                try {
+                    $this->alegra->enviarPorCorreo($f->alegra_id, [$correo]);
+                } catch (\Throwable $e) {
+                    Log::info('[facturacion] no se mandó el correo', ['id' => $f->alegra_id, 'error' => $e->getMessage()]);
+                }
+            }
+        }
+
+        // El flujo viejo de Facturación (tomar / marcar facturada) sigue vivo:
+        // que no le quede ese pago como pendiente de facturar a mano.
+        if (Esquema::columna('pagos', 'facturacion_hecha_at')) {
+            Pago::where('orden_id', $f->orden_id)
+                ->when($f->pago_id, fn ($q) => $q->where('id', $f->pago_id))
+                ->whereNull('facturacion_hecha_at')
+                ->where('monto', '>', 0)
+                ->update(['facturacion_hecha_at' => now(), 'facturacion_tomada_por' => $f->usuario_id]);
+        }
+    }
+
+    /** Vuelve a preguntarle a Alegra cómo va (pendiente de la DIAN, incierta). */
+    public function actualizar(FacturaElectronica $f): FacturaElectronica
+    {
+        if (! $f->alegra_id && $f->estado === 'incierta' && $f->alegra_contacto_id) {
+            $id = $this->buscarPorMarca($f);
+            if (! $id) {
+                $f->update(['error' => 'No está en Alegra: se puede volver a facturar.']);
+
+                return $f->fresh();
+            }
+            $f->update(['alegra_id' => $id]);
+        }
+        if (! $f->alegra_id) return $f;
+
+        $res = $this->alegra->verFactura($f->alegra_id, ['pdf']);
+        if ($res->status === 404) {
+            $f->update(['estado' => 'error', 'alegra_id' => null, 'error' => 'Ya no está en Alegra (la borraron allá).']);
+
+            return $f->fresh();
+        }
+        if (! $res->ok) {
+            throw new NoSePuedeFacturar('Alegra no respondió bien: ' . $res->error, 502);
+        }
+        $f = $this->guardarRespuesta($f, $res, null);
+        if (($pdf = self::pdf($res->json)) && ! $f->pdf_url) $f->update(['pdf_url' => mb_substr($pdf, 0, 500)]);
+
+        return $f->fresh();
+    }
+
+    private function avisarSiFalla(FacturaElectronica $f, ?array $armado): void
+    {
+        // Solo si la hizo la tarea automática: quien tocó el botón ya lo está viendo.
+        if ($f->usuario_id) return;
+        try {
+            foreach (\App\Services\AvisoFacturacion::destinatarios() as $d) {
+                \App\Services\NotificacionService::crear(
+                    tipo: 'factura_electronica',
+                    titulo: 'No salió una factura electrónica',
+                    mensaje: 'Orden ' . ($armado['referencia'] ?? $f->orden_id) . ': ' . $f->error,
+                    datos: ['orden_id' => $f->orden_id, 'factura_id' => $f->id, 'pago_id' => $f->pago_id],
+                    usuarioId: $d->id,
+                );
+            }
+        } catch (\Throwable) {
+        }
+    }
+
+    // ── Leer la respuesta de Alegra (con cuidado: no todo está documentado) ──
+
+    public static function facturaDentro(array $json): ?array
+    {
+        foreach (['invoice', 'data', 'object'] as $k) {
+            if (isset($json[$k]['id'])) return $json[$k];
+        }
+
+        return isset($json['id'], $json['status']) ? $json : null;
+    }
+
+    public static function estadoDian(array $json): ?string
+    {
+        $s = $json['stamp'] ?? null;
+        $v = is_array($s) ? ($s['legalStatus'] ?? $s['status'] ?? null) : null;
+
+        return $v ? strtoupper((string) $v) : null;
+    }
+
+    public static function numero(array $json): ?string
+    {
+        $nt = $json['numberTemplate'] ?? null;
+        if (is_array($nt) && array_is_list($nt)) $nt = $nt[0] ?? null;
+        if (is_array($nt)) {
+            if (! empty($nt['fullNumber'])) return (string) $nt['fullNumber'];
+            if (isset($nt['number'])) return ($nt['prefix'] ?? '') . $nt['number'];
+        }
+
+        return isset($json['number']) ? (string) $json['number'] : null;
+    }
+
+    public static function pdf($json): ?string
+    {
+        if (! is_array($json)) return null;
+        foreach (['pdf', 'pdfUrl', 'urlPdf'] as $k) {
+            if (! empty($json[$k]) && is_string($json[$k])) return $json[$k];
+        }
+
+        return null;
+    }
+}

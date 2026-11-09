@@ -296,6 +296,12 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   (independiente de a quién se abona la venta). Pagos cobrados en una entrega se
   marcan aparte (`caja:cobros-de-entrega`).
 - `FacturacionController`: lista para vendedores con `facturacion = true`.
+- **Facturación electrónica con Alegra** (2026-11-09): `FacturacionElectronicaController`,
+  `Services/Facturacion/*`, `Services/Alegra/ClienteAlegra`, reglas en `Support/ReglasFacturacion`
+  (todo editable en Facturación electrónica → Ajustes, solo supervisor). La orden entregada le sale
+  al facturador, la revisa con sus pruebas y toca Facturar. Tabla `facturas_electronicas` (clave
+  única por orden o pago: nunca dos facturas de lo mismo). Pantallas `FacturacionElectronicaView`,
+  `FacturaOrdenView`. Detalle completo en `docs/plan-facturacion-alegra.md`.
 
 ### 6.5 Inventario y variantes
 `InventarioController`, `VarianteController`, `ProductoVarianteConfigController`,

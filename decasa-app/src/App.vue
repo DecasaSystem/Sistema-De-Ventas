@@ -53,6 +53,7 @@ import {
   CalculatorIcon,
   BanknotesIcon,
   DocumentCurrencyDollarIcon,
+  DocumentCheckIcon,
   DocumentTextIcon,
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
@@ -344,6 +345,8 @@ const navItems = computed(() => {
     if (auth.tieneAccesoComisiones) {
       items.push({ name: 'comisiones', modulo: 'comisiones', label: 'Bonificaciones', icon: ReceiptPercentIcon })
     }
+    // El supervisor la ve siempre: es quien la prende y la configura en Ajustes.
+    items.push({ name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon })
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
     return modulos.soloVisibles(items)
   }
@@ -363,6 +366,7 @@ const navItems = computed(() => {
     return modulos.soloVisibles([
       { name: 'dashboard',    modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
       { name: 'facturacion',  modulo: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
+      { name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon },
       { name: 'ordenes',      modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'clientes',     modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
       { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
@@ -525,6 +529,11 @@ function destinoNotificacion(tipo, datos) {
       return { name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} }
     }
     if (tipo === 'paso_produccion' && auth.tieneAccesoPasos) return { name: 'mis-pasos' }
+    // "Orden pendiente de facturación" con la facturación electrónica prendida,
+    // o una factura electrónica que no salió: a la revisión de la factura.
+    if ((datos.factura_electronica || tipo === 'factura_electronica') && auth.puedeFacturarElectronica) {
+      return { name: 'factura-orden', params: { id: datos.orden_id }, query: datos.pago_id ? { pago: datos.pago_id } : {} }
+    }
     return { name: 'orden-detalle', params: { id: datos.orden_id } }
   }
   // El cliente firmó el enlace de una orden que todavía no se ha creado: a

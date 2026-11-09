@@ -42,6 +42,16 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
     ],
 
+    // Facturación electrónica (docs/plan-facturacion-alegra.md). El correo y el
+    // token salen de Alegra → Configuración → "API - Integraciones con otros
+    // sistemas" y van SOLO en las variables de Render, nunca en el repo.
+    'alegra' => [
+        'url'     => env('ALEGRA_URL', 'https://api.alegra.com/api/v1'),
+        'email'   => env('ALEGRA_EMAIL'),
+        'token'   => env('ALEGRA_TOKEN'),
+        'timeout' => (int) env('ALEGRA_TIMEOUT', 60),
+    ],
+
     'cloudinary' => [
         'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
         'api_key'    => env('CLOUDINARY_API_KEY'),

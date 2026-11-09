@@ -1,0 +1,135 @@
+# Facturación electrónica con Alegra
+
+Estado: **implementado el 2026-11-09, sin subir** (rama `claude/alegra-billing-integration-a51e78`).
+Trae **migración** `2026_11_10_000001_facturacion_electronica` (solo crea `facturas_electronicas` y
+agrega columnas opcionales a `clientes`). Viene **apagado**: hasta que un supervisor lo prenda y se
+pongan las credenciales, el sistema funciona como antes.
+
+---
+
+## 1. Lo que pidió el dueño (2026-11-09)
+
+- Se factura **al final, cuando la orden se entrega**.
+- **Las FV2 no se facturan.**
+- **Antes de facturar, el facturador revisa**: la orden entregada le aparece en una lista, entra, ve
+  toda la información y las pruebas, y toca **Facturar**; en ese momento sale en Alegra.
+- **Todo personalizable desde el programa** ("puede que algún día cambien la manera de facturar"):
+  si las FV2, las restauraciones o las de independientes se facturan; si se factura al entregar, al
+  principio o por cada pago; si hace falta la revisión.
+
+## 2. Cómo funciona
+
+```
+Orden entregada ──► Facturación electrónica → "Por facturar" (QueSeFactura, según Ajustes)
+                      │
+                      ▼
+               Revisión (FacturaOrdenView ← ArmarFactura)
+               cliente fiscal · líneas sin IVA + IVA · pagos con comprobantes · fotos de entrega
+               · cambios de plata · alertas (bloqueos / advertencias a marcar)
+                      │  [✓ Revisé]  [Facturar]
+                      ▼
+               EmitirFactura: toma la fila (lock) → contacto en Alegra (busca por cédula o lo crea)
+               → POST /invoices (+ stamp si "Mandar a la DIAN") → número, CUFE, estado DIAN, PDF
+               → marca los pagos como facturados (el flujo viejo de Facturación queda al día)
+```
+
+| Pieza | Archivo |
+|---|---|
+| Reglas (Ajustes) | `app/Support/ReglasFacturacion.php` (clave `facturacion_electronica` en `configuracion`) |
+| Qué está por facturar | `app/Services/Facturacion/QueSeFactura.php` |
+| Armar y revisar la factura | `app/Services/Facturacion/ArmarFactura.php` |
+| Mandarla a Alegra | `app/Services/Facturacion/EmitirFactura.php` |
+| HTTP con Alegra | `app/Services/Alegra/ClienteAlegra.php` |
+| API | `FacturacionElectronicaController`, rutas `/facturacion-electronica/*` |
+| Factura automática | comando `facturacion:emitir-pendientes` (cada 5 min; no hace nada si la revisión está prendida) |
+| Pantallas | `FacturacionElectronicaView`, `FacturaOrdenView`, `components/facturacion/FacturacionAjustes.vue` |
+| Pruebas | `tests/Feature/FacturacionElectronicaTest.php` (22, con Alegra simulado) |
+
+Quién: facturan el facturador (`usuarios.facturacion`) y los supervisores; **solo un supervisor
+cambia los Ajustes**.
+
+## 3. Ajustes (todo lo personalizable)
+
+| Ajuste | De fábrica | Qué hace |
+|---|---|---|
+| Prendida | No | Apagada no sale nada en la lista |
+| Modo | **Solo borrador** | Borrador: se crea en Alegra sin ir a la DIAN (para probar). "Mandar a la DIAN": ya es legal |
+| Desde | hoy al prenderla | Lo de antes ya se facturó a mano |
+| Cuándo | Al entregar | Al entregar · apenas entra el primer pago · una factura por cada pago |
+| FV2 / restauraciones / independientes | No / Sí / Sí | Si esas órdenes se facturan |
+| Revisión del facturador | Sí | Apagada, lo que no tiene advertencias sale solo |
+| Cliente sin cédula | Pedirla | O facturar a "Consumidor final" (contacto escogido de Alegra) |
+| IVA, IVA en restauraciones | 19 %, sí | |
+| Decimales del precio sin IVA | 2 | Más decimales = total más exacto |
+| Registrar pagos en Alegra | Sí | Cada pago entra a la caja/banco escogido |
+| Días de crédito | 30 | Si queda saldo, sale a crédito |
+| Alerta de precio | 50 % | "Se les fue un cero": precio lejos del de lista |
+| Cambio de plata reciente | 24 h | Pide mirar otra vez |
+| Correo al cliente | No | Alegra le manda la factura |
+| Nota del PDF | "Orden de venta {orden}" | |
+| Alegra | — | numeración (general y por tienda), impuesto de IVA, producto genérico de ventas y de restauraciones, caja/banco por medio de pago (general y por tienda), medio de pago DIAN y de Alegra por medio |
+
+## 4. Las cuentas (criterio contable)
+
+- Los precios del sistema **traen el IVA**: a Alegra va el precio **sin IVA** (`precio ÷ 1,19`) y el
+  impuesto aparte.
+- Los descuentos (manual y condicionado) se **reparten en proporción** entre los productos, para que
+  la factura sume exactamente lo que el cliente paga (`valor_total`). Si por decimales hay más de $1
+  de diferencia, se avisa.
+- Lo devuelto (`devuelto_en`) no va; lo que vale $0 (regalos) tampoco, y se avisa.
+- Restauración = servicio (ítem de servicio de Alegra); FV2 "sin descontar IVA" = sin IVA.
+- Contado si ya pagó todo; crédito si queda saldo.
+- Cliente: CC/NIT/CE/PP…, el **dígito de verificación del NIT se calcula solo** (algoritmo DIAN), el
+  nombre se parte en nombres/apellidos (se ve en la revisión), dirección/municipio/departamento
+  (los pide la DIAN; si faltan en el cliente, se toman de la orden).
+
+## 5. Revisión: bloqueos y advertencias
+
+**Bloquean** (no se puede facturar): faltan datos del cliente, Alegra sin conectar o sin producto/IVA
+escogido, un pago sin caja de Alegra, solicitud de cambio sin decidir, valor $0, la regla dice que
+no se factura.
+
+**Hay que marcarlas** (se guardan en la factura como aceptadas): precio lejos del de lista, la plata
+cambió hace poco, queda saldo (sale a crédito), pagos marcados facturados a mano, reembolso o pagos
+de más (los pagos no se registran), diferencia por decimales, consumidor final.
+
+## 6. Nunca dos facturas de lo mismo
+
+Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:
+1. `facturas_electronicas.clave` ("orden:ID" / "pago:ID") es única y la fila se toma con
+   `lockForUpdate` antes de llamar a Alegra (doble clic o dos personas = 409).
+2. Las observaciones llevan `[DECASA-ORDEN-ID]`. Si Alegra no responde, la factura queda
+   **incierta** y el siguiente intento la busca primero allá (por cliente y fecha) y la adopta.
+3. Si la DIAN la rechaza, Alegra deja un borrador: el reintento lo borra y lo rehace con los datos
+   corregidos (un borrador no gasta numeración DIAN).
+
+## 7. Cuando cambia la plata después de facturar
+
+La factura no cambia sola. La orden sale en **Diferencias** (se compara el valor de hoy con el que
+tenía al facturar) y el aviso de "Cambió la plata" lo dice. El facturador hace la nota crédito (si
+bajó) o la factura por la diferencia (si subió) **en Alegra** y la marca resuelta con una nota.
+Emitir la nota crédito desde el sistema es lo siguiente (Fase 2, §9).
+
+## 8. Para ponerlo a andar
+
+1. En Alegra → Configuración → "API - Integraciones con otros sistemas": correo y token.
+2. En Render: variables `ALEGRA_EMAIL` y `ALEGRA_TOKEN` (nunca en el repo).
+3. Subir (trae migración).
+4. Un supervisor, en Facturación electrónica → Ajustes: escoge numeración, IVA, producto genérico
+   ("Venta de muebles"), cajas/bancos por medio de pago; deja **Solo borrador** y prende.
+5. Unas semanas comparando los borradores con lo que se hace a mano.
+6. Cambiar a **Mandar a la DIAN**.
+
+## 9. Pendiente / por confirmar
+
+- **Con una cuenta real de Alegra** (no hay aquí): el nombre exacto de los campos del CUFE y del PDF
+  en la respuesta (se leen con cuidado: `stamp.cufe`, `stamp.legalStatus`, `pdf`), y el formato del
+  400 con la factura en borrador. Las pruebas usan lo documentado.
+- **Fase 2**: nota crédito desde el sistema (reembolsos, cambio de producto, valor que bajó),
+  webhooks de Alegra.
+- **Con el contador**: el modo "por cada pago" (factura de anticipo) y el trato de Addi.
+- Por defecto mío (**falta que el dueño confirme**): ventas de independientes y restauraciones sí se
+  facturan; sin cédula se pide la cédula; los pagos se registran en Alegra.
+
+Fuentes: [developer.alegra.com](https://developer.alegra.com/) (autenticación Basic, límite 150/min,
+`POST /invoices` con `stamp.generateStamp`, catálogo de Colombia).
