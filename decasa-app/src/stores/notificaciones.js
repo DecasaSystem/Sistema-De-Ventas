@@ -19,12 +19,43 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     noLeidasAtras.value = Math.max(0, noLeidasServidor.value - cargadas)
   }
 
-  async function cargar() {
-    const { data } = await notificacionesApi.listar()
-    items.value = data.items
-    siguiente.value = data.siguiente
-    noLeidasServidor.value = data.no_leidas
-    recalcularAtras()
+  /**
+   * Trae la primera página y la JUNTA con lo que ya se ve; no la reemplaza.
+   *
+   * Antes se pedía una sola vez al abrir la app y cada pedido pisaba la lista:
+   *  - en el celular la app queda abierta días; el WebSocket se cae en segundo
+   *    plano y lo que llegaba mientras tanto solo salía en el push. Al abrir la
+   *    app desde el push, la campana no lo tenía: parecía que se había borrado;
+   *  - un aviso que entraba por el WebSocket mientras la lista venía en camino
+   *    desaparecía al llegar la respuesta (que se armó antes de ese aviso);
+   *  - lo de "Ver anteriores" se perdía.
+   * Ahora: lo de la página manda (leída o no, por si se leyó en otro aparato);
+   * lo más nuevo que la respuesta (llegó en vivo) se queda; lo anterior a la
+   * página (las de "Ver anteriores") también. Solo sale lo que estaba en el
+   * rango de la página y el servidor ya no trae: lo borró la persona en otro aparato.
+   */
+  let pidiendo = null
+  function cargar() {
+    if (pidiendo) return pidiendo
+    pidiendo = (async () => {
+      const { data } = await notificacionesApi.listar()
+      const pagina = data.items ?? []
+      const ids    = new Set(pagina.map(n => n.id))
+      // La página es "las 50 más nuevas"; las urgentes de atrás vienen aparte y no marcan el rango.
+      const rango  = pagina.filter(n => !data.siguiente || n.id >= data.siguiente).map(n => n.id)
+      const desde  = Math.min(...rango)
+      const hasta  = Math.max(...rango)
+
+      // Sin ninguna en el servidor: las borró todas (en otro aparato).
+      const quedan = !rango.length ? [] : items.value.filter(n =>
+        !ids.has(n.id) && (n.id > hasta || (data.siguiente && n.id < desde)))
+      items.value = [...pagina, ...quedan].sort((a, b) => b.id - a.id)
+      // Si ya se habían pedido las anteriores, se sigue desde donde se iba.
+      if (!siguiente.value || !quedan.some(n => n.id < desde)) siguiente.value = data.siguiente
+      noLeidasServidor.value = data.no_leidas
+      recalcularAtras()
+    })().finally(() => { pidiendo = null })
+    return pidiendo
   }
 
   async function cargarMas() {

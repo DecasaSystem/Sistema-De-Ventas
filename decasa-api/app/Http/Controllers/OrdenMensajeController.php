@@ -126,8 +126,11 @@ class OrdenMensajeController extends Controller
         ]);
 
         // Uno mismo no cuenta como mencionado aunque venga en la lista
+        // En enteros: si llegan como texto ("5"), el aviso decía "Mensaje nuevo"
+        // en vez de "Te preguntaron" (la comparación de abajo es estricta).
         $mencionados = collect($data['mencionados'] ?? [])
-            ->unique()->reject(fn ($uid) => (int) $uid === $usuario->id)
+            ->map(fn ($uid) => (int) $uid)
+            ->unique()->reject(fn ($uid) => $uid === (int) $usuario->id)
             ->values()->all();
 
         // La lista completa; la primera también en `imagen_url` (lo de antes).
@@ -165,27 +168,39 @@ class OrdenMensajeController extends Controller
      * Entonces se avisa a:
      *   - los mencionados en ESTE mensaje (aviso directo: "te preguntaron"),
      *   - quien ya escribió antes en el hilo — se metió en la conversación,
+     *   - a quien ya le preguntaron antes en el hilo, aunque no haya contestado:
+     *     el vendedor arrobaba a Admin, Admin no respondía, el vendedor volvía a
+     *     escribir "¿?" sin arrobar y a Admin ya no le llegaba nada,
      *   - el vendedor de la orden y su covendedor, que son los dueños del tema
      *     aunque todavía no hayan escrito.
      *
-     * Menos el que escribe, claro. Y los supervisores que nunca han entrado
-     * siguen sin ser molestados: ven el hilo si abren la orden.
+     * Menos el que escribe, claro, y las cuentas desactivadas. Los supervisores
+     * que nunca han entrado siguen sin ser molestados: ven el hilo si abren la orden.
      */
     private function notificar(Orden $orden, Usuario $autor, OrdenMensaje $msg, array $mencionados): void
     {
-        $yaEscribieron = OrdenMensaje::where('orden_id', $orden->id)
+        $anteriores = OrdenMensaje::where('orden_id', $orden->id)
             ->where('id', '!=', $msg->id)
-            ->pluck('usuario_id')->all();
+            ->get(['usuario_id', 'mencionados']);
+
+        $yaEscribieron     = $anteriores->pluck('usuario_id')->all();
+        $yaLesPreguntaron  = $anteriores->pluck('mencionados')->flatten()->filter()->all();
 
         $deLaOrden = array_filter([$orden->vendedor_id, $orden->covendedor_id]);
 
         $destinos = collect($mencionados)
             ->merge($yaEscribieron)
+            ->merge($yaLesPreguntaron)
             ->merge($deLaOrden)
             ->map(fn ($x) => (int) $x)
             ->unique()
-            ->reject(fn ($uid) => $uid === $autor->id)
+            ->reject(fn ($uid) => $uid === (int) $autor->id)
             ->values();
+
+        // Una sola consulta para saber quién sigue activo (cada una son ~200 ms).
+        $activos = $destinos->isEmpty() ? [] : Usuario::whereIn('id', $destinos)
+            ->where('activo', true)->pluck('id')->map(fn ($x) => (int) $x)->all();
+        $destinos = $destinos->filter(fn ($uid) => in_array($uid, $activos, true))->values();
 
         $ref     = $orden->referencia;
         $resumen = $msg->mensaje !== ''

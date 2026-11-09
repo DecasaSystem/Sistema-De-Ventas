@@ -118,8 +118,28 @@ function refrescarPermisos() {
   auth.fetchMe()
 }
 
+/**
+ * La campana se pone al día al volver a la app (una vez cada 30 s como mucho)
+ * y cada 2 min mientras se mira. El WebSocket se cae con la app en segundo
+ * plano y lo que llegó en ese rato solo estaba en el push: al abrir la app
+ * desde el push, la campana no lo tenía y parecía que se había borrado.
+ */
+let ultimaCampana = 0
+function refrescarCampana(forzar = false) {
+  if (!auth.isAuthenticated || document.visibilityState !== 'visible') return
+  const ahora = Date.now()
+  if (!forzar && ahora - ultimaCampana < 30_000) return
+  ultimaCampana = ahora
+  notif.cargar().catch(() => {})
+}
+let relojCampana = null
+
 function onSwMessage(e) {
+  // Llegó un push con la app abierta: la campana lo trae ya (por si el
+  // WebSocket está caído).
+  if (e.data?.type === 'push-recibido') { refrescarCampana(true); return }
   if (e.data?.type === 'push-click') {
+    refrescarCampana(true)
     const destino = destinoNotificacion(e.data.tipo, e.data.datos)
     router.push(destino ?? { name: 'dashboard' })
   }
@@ -179,8 +199,15 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refrescarPermisos)
   window.addEventListener('focus', refrescarPermisos)
   navigator.serviceWorker?.addEventListener('message', onSwMessage)
+  // La carga del inicio ya la hace el watch de isAuthenticated.
+  ultimaCampana = Date.now()
+  document.addEventListener('visibilitychange', alVolverCampana)
+  relojCampana = setInterval(() => refrescarCampana(), 120_000)
 })
+function alVolverCampana() { refrescarCampana() }
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', alVolverCampana)
+  clearInterval(relojCampana)
   document.removeEventListener('click', abrirEnlaceDeFoto)
   navigator.serviceWorker?.removeEventListener('message', onSwMessage)
   document.removeEventListener('visibilitychange', refrescarPermisos)

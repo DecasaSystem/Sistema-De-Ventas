@@ -1093,6 +1093,18 @@ Decisiones del dueño del 2026-10-08:
   culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
   no tiene celular registrado para push.
 
+- **"Las notificaciones recientes se borran solas"** (2026-11-09, **sin subir**, sin migración,
+  rama `claude/notificaciones-ordenes-chat-51d65d`). El servidor nunca borra avisos (solo la
+  persona con la papelera o "Limpiar"). Lo que pasaba era en la campana: se pedía **una sola
+  vez** al abrir la app y cada pedido **reemplazaba** la lista. En el celular la app queda abierta
+  días, el WebSocket se cae en segundo plano y lo que llegaba solo salía en el push: al abrir desde
+  el push la campana no lo tenía. Ahora `stores/notificaciones.cargar()` **junta** (no pisa lo que
+  llegó en vivo ni lo de "Ver anteriores"; quita solo lo que se borró en otro aparato) y App.vue la
+  pone al día al volver a la app, cada 2 min y cuando el service worker avisa `push-recibido`
+  (sw.js `decasa-v20`). Chat de la orden: ahora también le llega a quien **ya arrobaron antes** en
+  el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
+  dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
+
 - **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
   `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con
   cotización por vencer/vencida (dueño, 2026-11-04: "es solo para las personas que las
