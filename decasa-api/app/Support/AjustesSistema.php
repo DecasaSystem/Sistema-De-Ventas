@@ -49,6 +49,17 @@ class AjustesSistema
      */
     public const DIAS_AVISO_ENTREGA = 'avisar_entrega_dias_antes';
 
+    /**
+     * Vender la medida con la tela por definir ("1.40 · tela por definir") y
+     * frenar el despacho hasta que alguien la escoja con "Definir tela".
+     * Dueño, 2026-11-06: en Decasa casi siempre la tela se anota en las notas,
+     * y hay productos importados (sillas Nube: cuero o tela) donde no hay
+     * tela que escoger; "no quitarlo, pero poderlo desactivar" (otra empresa
+     * sí lo usaría). Apagado: la medida se vende sola, sin aviso ni botón, y
+     * se despacha como cualquier producto. Prendido es como funcionaba antes.
+     */
+    public const PEDIR_TELA = 'ventas_tela_por_definir';
+
     /** Los días que se pueden escoger en la pantalla. */
     public const DIAS_AVISO_POSIBLES = [1, 2, 3];
 
@@ -59,6 +70,7 @@ class AjustesSistema
         self::CALIFICAR_TALLER           => true,
         self::DECLARACION_ESPECIALES     => true,
         self::DECLARACION_PERSONALIZADOS => false,
+        self::PEDIR_TELA                 => true,
     ];
 
     public static function activo(string $clave): bool
@@ -123,7 +135,20 @@ class AjustesSistema
             'declaracion_disenos_especiales' => self::activo(self::DECLARACION_ESPECIALES),
             'declaracion_personalizados'     => self::activo(self::DECLARACION_PERSONALIZADOS),
             'avisar_entrega_dias_antes'      => self::diasAvisoEntrega(),
+            'tela_por_definir'               => self::pideTela(),
         ];
+    }
+
+    /**
+     * ¿Se exige definir la tela de lo que se vendió solo por la medida?
+     * Las pruebas de entregas montan el esquema a mano y a veces sin
+     * `configuracion`: ahí vale lo de fábrica (prendido).
+     */
+    public static function pideTela(): bool
+    {
+        if (! Esquema::tabla('configuracion')) return true;
+
+        return self::activo(self::PEDIR_TELA);
     }
 
     public static function calificaTaller(): bool

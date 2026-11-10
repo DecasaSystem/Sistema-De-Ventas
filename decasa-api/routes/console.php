@@ -82,6 +82,34 @@ Artisan::command('comisiones:recalcular-pedido', function () {
     if ($r) $this->info("Recalculado: {$r['actualizadas']} cambiaron de estado, {$r['revaluadas']} revaluadas.");
 })->purpose('Corre el recálculo de comisiones que alguien pidió con el botón');
 
+// Facturación electrónica sin revisión (Facturación electrónica → Ajustes →
+// "El facturador revisa antes": apagado). De fábrica está prendido y esta
+// tarea no hace nada. Solo factura lo que no tiene ninguna advertencia; lo
+// demás se queda en "Por facturar" para que lo mire una persona.
+Artisan::command('facturacion:emitir-pendientes', function () {
+    if (! \App\Support\ReglasFacturacion::activo() || \App\Support\ReglasFacturacion::get('requiere_revision')) return;
+
+    $emitir = app(\App\Services\Facturacion\EmitirFactura::class);
+    $hechas = 0;
+    foreach (\App\Services\Facturacion\QueSeFactura::pendientes()->take(20) as $p) {
+        // Un intento que falló lo resuelve una persona, no la tarea.
+        if ($p['factura'] && in_array($p['factura']->estado, ['rechazada', 'error', 'incierta'], true)) continue;
+        try {
+            $f = $emitir->facturar($p['orden'], $p['pago'], null, [], true);
+            if (in_array($f->estado, ['emitida', 'pendiente_dian', 'borrador_alegra'], true)) $hechas++;
+        } catch (\App\Services\Facturacion\NoSePuedeFacturar) {
+            // Tiene advertencias o le falta algo: queda para el facturador.
+        }
+    }
+    if ($hechas) $this->info("Facturadas: {$hechas}");
+})->purpose('Factura sola lo pendiente cuando la revisión del facturador está apagada');
+
+Schedule::command('facturacion:emitir-pendientes')
+    ->everyFiveMinutes()
+    ->name('facturacion-emitir-pendientes')
+    ->withoutOverlapping(30)
+    ->runInBackground();
+
 Schedule::command('comisiones:recalcular-pedido')
     ->everyMinute()
     ->name('comisiones-recalcular-pedido')

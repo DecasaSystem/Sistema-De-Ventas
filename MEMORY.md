@@ -721,7 +721,12 @@ escribiendo precios (Fase 1b).
   agregarle un `increment` a `inventario_variante_configs.cantidad_reservada`. (3) Si ninguna
   medida del producto tiene stock anotado en esa tienda, no se frena por medida (manda el total).
   `completarBorrador` (camino viejo) sigue sin revisar stock, como antes. Tests en
-  `VentaPorMedidaSinTelaTest`. Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
+  `VentaPorMedidaSinTelaTest`. **Se puede apagar** (dueño, 2026-11-06, **sin subir**, sin migración):
+  Gestión → Ajustes → Ventas, clave `ventas_tela_por_definir` (de fábrica prendido). En Decasa la
+  tela va en las notas y hay importados (sillas Nube: cuero/tela) sin tela que escoger; "no
+  quitarlo, que otra empresa lo use". Apagado: la medida se vende sola, sin aviso ni botón, y lo
+  ya marcado también se despacha (`OrdenItem::esperaTela()`; no tocar `tela_por_definir` directo
+  para frenar el despacho). Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
   falla solo el día 20 de cada mes (sus dos fechas caen el mismo día); no es de este cambio.
 - **Cambio de producto entregado, con reemplazo** (2026-10-21, **subido a `main`** ese día, rama
   `claude/order-detail-return-function-8db111`, trae **migración**
@@ -849,6 +854,42 @@ escribiendo precios (Fase 1b).
   promediando / tomando la más barata de todas las fichas del producto (incluida la general): si
   se usan en serio, cruzarlas por la medida vendida. Visto en
   390 px, claro y oscuro, con servidor falso (sin probar contra datos reales).
+- **Valor del inventario en pesos** (2026-11-06, **subido a `main`** ese día, commit 7fdc9fc, sin migración, rama
+  `claude/inventory-monetary-value-2820f6`). Pedido del dueño: en Inventario, por categoría y en
+  "Todas", además de cuántos hay, cuánta plata es ("31 sofás a 1 millón = 31 millones"), por tienda
+  y en total, "teniendo en cuenta las variantes"; lo mismo en Reserva. Regla en
+  `Support/ValorInventario` (detalle en `docs/PROYECTO.md` §6.5). Es **precio de venta de lista**
+  (sin promociones), nunca costo. **La plata la ven solo los supervisores** (dueño, 2026-11-06),
+  en Inventario, en Reserva (tener `acceso_reserva` no basta) y en el Excel de Inventario (antes
+  le mostraba "Valor en tienda" a todos; ahora a los demás les sale sin esa columna). Los demás ven
+  las unidades. **La cifra grande es lo disponible para vender** (dueño, mismo día); lo apartado
+  (comprado, sin entregar) y el total van debajo. Por defecto mío (**falta confirmar**): la tienda
+  cerrada no cuenta.
+  No cambió ninguna regla de plata.
+- **Traslados: un supervisor también puede recibirlos** (dueño, 2026-11-07, **sin subir**, sin
+  migración, rama `claude/traslado-modulo-inventario-f24b9e`). La Reserva como **destino** ya
+  existía (2431961); como **origen no** (dueño: para eso está Surtir desde Reserva). Ahora quien
+  manda (todo el que no es supervisor) puede escoger como receptor a un supervisor, a la tienda y
+  a la Reserva (`SurtidoController::vendedoresTienda`, que también usa Surtir). El servidor valida
+  quién puede recibir (vendedor o supervisor activo; en la Reserva, acceso a Reserva o supervisor)
+  y que nadie se reciba su propio traslado. Arreglos de paso: Inventario no le mostraba al
+  supervisor los traslados pendientes (le llegaba el aviso y no tenía dónde aceptar); si acepta
+  alguien que no es de la tienda destino, a esa tienda le llega "Llegó mercancía"; y la pantalla
+  de Traslado le saltaba el paso del receptor a quien tiene `acceso_surtir` sin rol vendedor (422).
+  Tests en `TrasladoLoRecibeUnSupervisorTest`.
+- **Facturación electrónica con Alegra** (2026-11-09, **implementada, sin subir**, rama
+  `claude/alegra-billing-integration-a51e78`, trae **migración** `2026_11_10_000001_facturacion_electronica`,
+  solo agrega). Detalle en `docs/plan-facturacion-alegra.md`. Decisiones del dueño ese día: se
+  factura **al entregar**, **las FV2 no se facturan**, el **facturador revisa** la orden y toca
+  Facturar, y **todo personalizable** desde el programa (Ajustes del módulo, solo supervisor). Viene
+  apagado y en "solo borrador". Necesita `ALEGRA_EMAIL`/`ALEGRA_TOKEN` en Render. Por defecto mío
+  (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
+  pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
+  del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la
+  orden sale en "Diferencias" y la nota se hace en Alegra). Trampa: Alegra no tiene idempotencia;
+  nunca reintentar un POST /invoices sin pasar por `EmitirFactura` (busca por la marca
+  `[DECASA-ORDEN-ID]` antes de crear otra). El `vendor` del worktree venía incompleto: se copió el
+  del repo principal.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -1065,6 +1106,18 @@ Decisiones del dueño del 2026-10-08:
   guarda igual) y el título lleva la fecha ("Día de pago (20 de octubre): …"). Antes de
   culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
   no tiene celular registrado para push.
+
+- **"Las notificaciones recientes se borran solas"** (2026-11-09, **sin subir**, sin migración,
+  rama `claude/notificaciones-ordenes-chat-51d65d`). El servidor nunca borra avisos (solo la
+  persona con la papelera o "Limpiar"). Lo que pasaba era en la campana: se pedía **una sola
+  vez** al abrir la app y cada pedido **reemplazaba** la lista. En el celular la app queda abierta
+  días, el WebSocket se cae en segundo plano y lo que llegaba solo salía en el push: al abrir desde
+  el push la campana no lo tenía. Ahora `stores/notificaciones.cargar()` **junta** (no pisa lo que
+  llegó en vivo ni lo de "Ver anteriores"; quita solo lo que se borró en otro aparato) y App.vue la
+  pone al día al volver a la app, cada 2 min y cuando el service worker avisa `push-recibido`
+  (sw.js `decasa-v20`). Chat de la orden: ahora también le llega a quien **ya arrobaron antes** en
+  el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
+  dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
 - **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
   `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con

@@ -148,6 +148,9 @@ export const useAuthStore = defineStore('auth', () => {
   const tieneAccesoPasos   = computed(() => !!usuario.value?.tiene_pasos_produccion)
 
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
+  // Facturación electrónica: el facturador (con cualquier rol) y los
+  // supervisores. La misma regla que FacturacionElectronicaController::puedeFacturar.
+  const puedeFacturarElectronica = computed(() => isSupervisor.value || !!usuario.value?.facturacion)
   // La misma regla que el backend (Usuario::soloVeSusOrdenes): solo ve lo
   // suyo y lo que le compartieron, no la operación entera.
   const esVendedorLimitado = computed(() =>
@@ -539,7 +542,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated, isSupervisor,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
-    isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeReglasComision, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
+    isFacturador, puedeFacturarElectronica, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeReglasComision, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,

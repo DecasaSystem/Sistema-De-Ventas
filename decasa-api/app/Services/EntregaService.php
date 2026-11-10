@@ -70,7 +70,7 @@ class EntregaService
     {
         return $orden->itemsEntregables()
             // Vendido con la medida y sin tela: no se sabe cuál cargar.
-            ->reject(fn (OrdenItem $i) => (bool) $i->tela_por_definir)
+            ->reject(fn (OrdenItem $i) => $i->esperaTela())
             ->mapWithKeys(fn (OrdenItem $i) => [$i->id => $i->pendienteEntregar()])
             ->all();
     }
@@ -83,7 +83,7 @@ class EntregaService
      */
     public static function faltaDefinirTela(Orden $orden): ?string
     {
-        $item = $orden->items->first(fn (OrdenItem $i) => $i->tela_por_definir && $i->pendienteEntregar() > 0);
+        $item = $orden->items->first(fn (OrdenItem $i) => $i->esperaTela() && $i->pendienteEntregar() > 0);
         if (! $item) return null;
 
         return self::mensajeTelaPorDefinir($item->nombre_custom ?: ($item->producto?->nombre ?? 'un producto'));
@@ -118,7 +118,7 @@ class EntregaService
             }
             $nombre = $item->nombre_custom ?: ($item->producto?->nombre ?? 'ese producto');
 
-            if ($item->tela_por_definir && $item->pendienteEntregar() > 0) {
+            if ($item->esperaTela() && $item->pendienteEntregar() > 0) {
                 return self::mensajeTelaPorDefinir($nombre);
             }
             if (! isset($entregables[$id])) {

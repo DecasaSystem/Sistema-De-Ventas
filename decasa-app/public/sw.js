@@ -1,6 +1,6 @@
 // Subir este número en cada cambio del service worker: al activarse borra los
 // caches con otro nombre, y así no queda nada de la versión anterior.
-const CACHE_NAME = 'decasa-v19'
+const CACHE_NAME = 'decasa-v20'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -16,7 +16,14 @@ self.addEventListener('push', (event) => {
     data: { datos: payload.datos ?? {}, tipo: payload.tipo ?? null },
     vibrate: [200, 100, 200],
   }
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(title, options),
+    // Si la app está abierta, que la campana lo traiga ya: con el WebSocket
+    // caído (pasa en segundo plano) el aviso solo estaba en el push.
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((list) => list.forEach((c) => c.postMessage({ type: 'push-recibido' })))
+      .catch(() => {}),
+  ]))
 })
 
 self.addEventListener('notificationclick', (event) => {

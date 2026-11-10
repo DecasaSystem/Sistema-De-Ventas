@@ -115,6 +115,35 @@ class ChatOrdenNotificacionTest extends TestCase
         $this->assertSame('Admin: Sí, hay', $n->mensaje);
     }
 
+    public function test_al_que_le_preguntaron_le_sigue_llegando_aunque_no_haya_contestado(): void
+    {
+        Queue::fake();
+
+        $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id]]);
+        // Admin no contesta; Paola insiste sin arrobar
+        $this->escribir($this->paola, ['mensaje' => '¿?'])->assertCreated();
+
+        $avisos = Notificacion::where('usuario_id', $this->admin->id)->orderBy('id')->get();
+        $this->assertCount(2, $avisos);
+        $this->assertSame('Paola: ¿?', $avisos[1]->mensaje);
+        // Al otro supervisor, que nadie arrobó, sigue sin llegarle
+        $this->assertSame(0, Notificacion::where('usuario_id', $this->otroSup->id)->count());
+    }
+
+    public function test_mencion_como_texto_dice_te_preguntaron_y_no_avisa_a_inactivos(): void
+    {
+        Queue::fake();
+        $inactivo = Usuario::forceCreate(['nombre' => 'Ex', 'rol' => 'supervisor', 'activo' => false]);
+
+        $this->escribir($this->paola, [
+            'mensaje' => 'Hola', 'mencionados' => [(string) $this->admin->id, $inactivo->id],
+        ])->assertCreated();
+
+        $this->assertSame('Te preguntaron en la orden FV2-150',
+            Notificacion::where('usuario_id', $this->admin->id)->sole()->titulo);
+        $this->assertSame(0, Notificacion::where('usuario_id', $inactivo->id)->count());
+    }
+
     public function test_una_foto_sola_tambien_avisa(): void
     {
         Queue::fake();

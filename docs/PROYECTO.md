@@ -296,6 +296,12 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   (independiente de a quién se abona la venta). Pagos cobrados en una entrega se
   marcan aparte (`caja:cobros-de-entrega`).
 - `FacturacionController`: lista para vendedores con `facturacion = true`.
+- **Facturación electrónica con Alegra** (2026-11-09): `FacturacionElectronicaController`,
+  `Services/Facturacion/*`, `Services/Alegra/ClienteAlegra`, reglas en `Support/ReglasFacturacion`
+  (todo editable en Facturación electrónica → Ajustes, solo supervisor). La orden entregada le sale
+  al facturador, la revisa con sus pruebas y toca Facturar. Tabla `facturas_electronicas` (clave
+  única por orden o pago: nunca dos facturas de lo mismo). Pantallas `FacturacionElectronicaView`,
+  `FacturaOrdenView`. Detalle completo en `docs/plan-facturacion-alegra.md`.
 
 ### 6.5 Inventario y variantes
 `InventarioController`, `VarianteController`, `ProductoVarianteConfigController`,
@@ -310,6 +316,22 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
     (`producto_variante_configs` + `inventario_variante_configs`).
   - **Combinaciones** de opciones (`inventario_variante_combinaciones`).
   - El desglose nunca supera el total (`Support/StockVariantes`).
+- **Total y valor del inventario** (2026-11-06, tarjeta arriba de la lista; `Support/ValorInventario`,
+  `GET /inventario/resumen-categoria`, `GET /reserva/resumen`). Con una categoría da sus
+  unidades (en tienda / apartado / disponible) y en "Todas las tiendas" cuánto hay en cada una;
+  en "Todas" las categorías da el total de todo y el reparto por categoría (tocar una la abre).
+  **Solo al supervisor** (dueño, 2026-11-06; también en Reserva y en el Excel) le dice además
+  **cuánta plata es a precio de venta**: cada producto y tienda por su cuenta, cada unidad al precio de su variante
+  (medida = `precio_adicional` como precio completo, 0 = el del producto; tela con
+  `precio_variante` lo reemplaza). Los ejes (tela, cada tipo de opción) no se suman: se usa el que
+  cambia el precio, con más unidades marcadas, y las opciones antes que la tela si empatan; lo sin
+  marcar va al precio del producto (la tarjeta avisa cuántas). Un reparto que se pasa del stock se
+  recorta. La cifra grande es lo **disponible para vender**; debajo, lo apartado (comprado, sin
+  entregar) y el total. Las pastillas por tienda y la lista por categoría muestran lo disponible y
+  van de más a menos disponible (dueño, 2026-11-06). Sin promociones (precio de lista), solo
+  tiendas activas y productos activos. El Excel pide `con_valor=1` (la API lo ignora si no es
+  supervisor) y su "Valor en tienda" sale de la misma cuenta (antes era precio base × unidades);
+  a los demás les sale sin esa columna. Prueba: `ValorInventarioTest`.
 - **Venta por juego** (comedor de 6 sillas = juego o piezas sueltas).
 - **Productos únicos** (piezas irrepetibles ya vendidas).
 - **Auditoría de descuadres** (supervisor): reservas fantasma y entregas que no

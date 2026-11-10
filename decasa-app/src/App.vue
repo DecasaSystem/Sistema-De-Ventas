@@ -53,6 +53,7 @@ import {
   CalculatorIcon,
   BanknotesIcon,
   DocumentCurrencyDollarIcon,
+  DocumentCheckIcon,
   DocumentTextIcon,
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
@@ -118,8 +119,28 @@ function refrescarPermisos() {
   auth.fetchMe()
 }
 
+/**
+ * La campana se pone al día al volver a la app (una vez cada 30 s como mucho)
+ * y cada 2 min mientras se mira. El WebSocket se cae con la app en segundo
+ * plano y lo que llegó en ese rato solo estaba en el push: al abrir la app
+ * desde el push, la campana no lo tenía y parecía que se había borrado.
+ */
+let ultimaCampana = 0
+function refrescarCampana(forzar = false) {
+  if (!auth.isAuthenticated || document.visibilityState !== 'visible') return
+  const ahora = Date.now()
+  if (!forzar && ahora - ultimaCampana < 30_000) return
+  ultimaCampana = ahora
+  notif.cargar().catch(() => {})
+}
+let relojCampana = null
+
 function onSwMessage(e) {
+  // Llegó un push con la app abierta: la campana lo trae ya (por si el
+  // WebSocket está caído).
+  if (e.data?.type === 'push-recibido') { refrescarCampana(true); return }
   if (e.data?.type === 'push-click') {
+    refrescarCampana(true)
     const destino = destinoNotificacion(e.data.tipo, e.data.datos)
     router.push(destino ?? { name: 'dashboard' })
   }
@@ -179,8 +200,15 @@ onMounted(() => {
   document.addEventListener('visibilitychange', refrescarPermisos)
   window.addEventListener('focus', refrescarPermisos)
   navigator.serviceWorker?.addEventListener('message', onSwMessage)
+  // La carga del inicio ya la hace el watch de isAuthenticated.
+  ultimaCampana = Date.now()
+  document.addEventListener('visibilitychange', alVolverCampana)
+  relojCampana = setInterval(() => refrescarCampana(), 120_000)
 })
+function alVolverCampana() { refrescarCampana() }
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', alVolverCampana)
+  clearInterval(relojCampana)
   document.removeEventListener('click', abrirEnlaceDeFoto)
   navigator.serviceWorker?.removeEventListener('message', onSwMessage)
   document.removeEventListener('visibilitychange', refrescarPermisos)
@@ -317,6 +345,8 @@ const navItems = computed(() => {
     if (auth.tieneAccesoComisiones) {
       items.push({ name: 'comisiones', modulo: 'comisiones', label: 'Bonificaciones', icon: ReceiptPercentIcon })
     }
+    // El supervisor la ve siempre: es quien la prende y la configura en Ajustes.
+    items.push({ name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon })
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
     return modulos.soloVisibles(items)
   }
@@ -336,6 +366,7 @@ const navItems = computed(() => {
     return modulos.soloVisibles([
       { name: 'dashboard',    modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
       { name: 'facturacion',  modulo: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
+      { name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon },
       { name: 'ordenes',      modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'clientes',     modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
       { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
@@ -498,6 +529,11 @@ function destinoNotificacion(tipo, datos) {
       return { name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} }
     }
     if (tipo === 'paso_produccion' && auth.tieneAccesoPasos) return { name: 'mis-pasos' }
+    // "Orden pendiente de facturación" con la facturación electrónica prendida,
+    // o una factura electrónica que no salió: a la revisión de la factura.
+    if ((datos.factura_electronica || tipo === 'factura_electronica') && auth.puedeFacturarElectronica) {
+      return { name: 'factura-orden', params: { id: datos.orden_id }, query: datos.pago_id ? { pago: datos.pago_id } : {} }
+    }
     return { name: 'orden-detalle', params: { id: datos.orden_id } }
   }
   // El cliente firmó el enlace de una orden que todavía no se ha creado: a

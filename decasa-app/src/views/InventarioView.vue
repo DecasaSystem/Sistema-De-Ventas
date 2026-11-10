@@ -1031,7 +1031,7 @@ async function categoriaRenombrada({ de, a, juntadaCon }) {
   await cargarCategorias()
   if (!tiendaId.value) return
   cargarInventario(true)
-  if (categoriaFiltro.value) cargarResumenCategoria()
+  cargarResumenCategoria()
 }
 
 function seleccionarCategoria(cat) {
@@ -1047,21 +1047,45 @@ function seleccionarCategoria(cat) {
 const resumenCategoria         = ref(null)
 const cargandoResumenCategoria = ref(false)
 
-async function cargarResumenCategoria() {
-  resumenCategoria.value = null
-  if (!tiendaId.value || !categoriaFiltro.value) return
+// En "Todas" también: el total de todo el inventario y cuánto hay en cada
+// categoría. Al supervisor le dice además cuánta plata es (unidades × precio
+// de venta, cada variante a su precio: ver ValorInventario en la API).
+//
+// `silencioso`: al llegar un cambio de inventario en vivo se recalcula sin
+// borrar la tarjeta (si no, parpadea cada vez que alguien vende algo).
+async function cargarResumenCategoria({ silencioso = false } = {}) {
+  if (!silencioso) resumenCategoria.value = null
+  if (!tiendaId.value) return
 
-  cargandoResumenCategoria.value = true
+  const tienda = String(tiendaId.value)
+  const cat    = categoriaFiltro.value
+  if (!silencioso) cargandoResumenCategoria.value = true
   try {
-    const { data } = await getResumenCategoria(tiendaId.value, categoriaFiltro.value)
-    // Puede haber cambiado de categoría mientras la respuesta viajaba; si ya
-    // no es la que se está mirando, se descarta para no pisar la correcta.
-    if (categoriaFiltro.value === data.categoria) resumenCategoria.value = data
+    const { data } = await getResumenCategoria(tiendaId.value, cat)
+    // Puede haber cambiado de categoría o de tienda mientras la respuesta
+    // viajaba; si ya no es lo que se está mirando, se descarta.
+    if (categoriaFiltro.value === (data.categoria ?? '') && categoriaFiltro.value === cat
+        && String(tiendaId.value) === tienda) {
+      resumenCategoria.value = data
+    }
   } catch {
-    resumenCategoria.value = null
+    if (!silencioso) resumenCategoria.value = null
   } finally {
     cargandoResumenCategoria.value = false
   }
+}
+
+const verPlataInventario = computed(() => auth.isSupervisor && resumenCategoria.value?.valor != null)
+
+/** "$ 31 M", "$ 1,5 M", "$ 850 mil": para las pastillas, donde no cabe la cifra entera. */
+function pesosCortos(v) {
+  const n = Number(v) || 0
+  if (Math.abs(n) >= 1e6) {
+    const m = n / 1e6
+    return `$ ${m.toLocaleString('es-CO', { maximumFractionDigits: m >= 100 ? 0 : 1 })} M`
+  }
+  if (Math.abs(n) >= 1e3) return `$ ${Math.round(n / 1e3).toLocaleString('es-CO')} mil`
+  return pesos(n)
 }
 
 async function cargarInventario(reset = false) {
@@ -1219,7 +1243,7 @@ async function exportarExcelInventario() {
     let lastP = 1
     const todos = []
     do {
-      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, 200, filtrosInv())
+      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, 200, { ...filtrosInv(), conValor: true })
       todos.push(...(data.data ?? []))
       lastP = data.last_page ?? 1
       page++
@@ -1241,6 +1265,10 @@ async function exportarExcelInventario() {
       || num(b.stock_libre) - num(a.stock_libre)
       || (a.producto?.nombre ?? '').localeCompare(b.producto?.nombre ?? '', 'es')
 
+    // Lo que vale cada producto lo calcula la API con sus variantes (la cama de
+    // 1.60 a lo de la 1.60, no al precio base). Si no llega, el de antes.
+    const valorDe = it => it.valor != null ? num(it.valor) : num(it.producto?.precio_base) * num(it.cantidad_disponible)
+
     const aFila = it => ({
       'Producto':   it.producto?.nombre ?? '',
       'En tienda':  num(it.cantidad_disponible),
@@ -1250,7 +1278,7 @@ async function exportarExcelInventario() {
       // lugar interesa en cuántas tiendas está repartido.
       ...(global ? { 'En tiendas': num(it.tiendas_count) } : { 'Mínimo': num(it.stock_minimo) }),
       'Precio':     num(it.producto?.precio_base),
-      'Valor en tienda': num(it.producto?.precio_base) * num(it.cantidad_disponible),
+      'Valor en tienda': valorDe(it),
     })
 
     const grupos = new Map()
@@ -1268,7 +1296,7 @@ async function exportarExcelInventario() {
         reservado:  items.reduce((s, i) => s + num(i.cantidad_reservada), 0),
         libre:      items.reduce((s, i) => s + num(i.stock_libre), 0),
         agotados:   items.filter(i => num(i.cantidad_disponible) === 0).length,
-        valor:      items.reduce((s, i) => s + num(i.producto?.precio_base) * num(i.cantidad_disponible), 0),
+        valor:      items.reduce((s, i) => s + valorDe(i), 0),
       }))
       .sort((a, b) => b.disponible - a.disponible || a.cat.localeCompare(b.cat, 'es'))
 
@@ -1311,7 +1339,7 @@ async function exportarExcelInventario() {
             'Apartado':   num(t.cantidad_reservada),
             'Disponible': disp - num(t.cantidad_reservada),
             'Precio':     precio,
-            'Valor en tienda': precio * disp,
+            'Valor en tienda': t.valor != null ? num(t.valor) : precio * disp,
           })
         }
       }
@@ -1344,6 +1372,13 @@ async function exportarExcelInventario() {
       ? 'todas'
       : (tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? 'tienda')
         .toLowerCase().replace(/\s+/g, '_')
+    // La plata del inventario es solo para el supervisor (dueño, 2026-11-06):
+    // al resto le sale el Excel con unidades y precio, sin "Valor en tienda".
+    if (!auth.isSupervisor) {
+      for (const h of hojas) {
+        h.filas = h.filas.map(({ 'Valor en tienda': _valor, ...resto }) => resto)
+      }
+    }
     exportarExcelHojas(hojas, { nombreArchivo: `inventario_${nombreTienda}` })
   } catch (e) {
     toast.error('No se pudo generar el Excel. Intenta de nuevo.')
@@ -2311,9 +2346,10 @@ const tPendCantidades     = ref({})     // { item.id: cantidad_aceptada }
 const tPendAceptandoLoad  = ref(false)
 
 async function cargarTrasladosPendientes() {
-  // Lo que se manda a la Bodega Fábrica lo recibe quien maneja la Reserva,
-  // que no tiene por qué ser vendedor.
-  if (auth.usuario?.rol !== 'vendedor' && !auth.usuario?.acceso_reserva) return
+  // Se pregunta siempre: el servidor solo devuelve los que le tocan a uno.
+  // Quien recibe puede ser un vendedor, quien maneja la Reserva o un
+  // supervisor; antes al supervisor le llegaba el aviso y en Inventario no
+  // le salía nada para aceptar.
   try {
     const { data } = await getTrasladosPendientes()
     trasladosPend.value = data
@@ -2370,8 +2406,9 @@ onMounted(async () => {
   cargarTrasladosPendientes()
   if (tiendaId.value) {
     await cargarInventario(true)
-    // La categoría puede venir recordada de antes: su total también.
-    if (categoriaFiltro.value) cargarResumenCategoria()
+    // La categoría puede venir recordada de antes: su total también (y en
+    // "Todas", el de todo el inventario).
+    cargarResumenCategoria()
   }
 
   listen('inventario', 'inventario.actualizado', (e) => {
@@ -2383,6 +2420,7 @@ onMounted(async () => {
       variantesCardAbiertas.value = {}
       vcConfigsCard.value = {}
       cargarInventario(true)
+      cargarResumenCategoria({ silencioso: true })
     }
   })
 
@@ -2469,7 +2507,7 @@ onMounted(async () => {
       <label class="block text-xs font-medium text-gray-500 mb-1">Tienda</label>
       <select
         v-model="tiendaId"
-        @change="categoriaFiltro = ''; resumenCategoria = null; if (tiendaId === 'todas' && existenciaInv === 'bajo_minimo') existenciaInv = ''; cargarInventario(true)"
+        @change="categoriaFiltro = ''; resumenCategoria = null; if (tiendaId === 'todas' && existenciaInv === 'bajo_minimo') existenciaInv = ''; cargarInventario(true); cargarResumenCategoria()"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="">Seleccionar tienda...</option>
@@ -2587,18 +2625,43 @@ onMounted(async () => {
     <!-- Total de la categoría: la lista de abajo llega paginada, así que este
          número no sale de sumar lo que ya cargó en pantalla -- es una consulta
          aparte contra toda la categoría (ver cargarResumenCategoria). -->
-    <div v-if="categoriaFiltro" class="bg-white border border-gray-200 rounded-xl p-3">
+    <div v-if="tiendaId" class="bg-white border border-gray-200 rounded-xl p-3">
       <div v-if="cargandoResumenCategoria" class="flex items-center gap-2 text-xs text-gray-400 py-1">
         <span class="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
         Calculando el total...
       </div>
       <template v-else-if="resumenCategoria">
         <p class="text-sm font-semibold text-gray-800">
-          {{ CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro }}
+          {{ categoriaFiltro ? (CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro) : 'Todo el inventario' }}
           <span class="font-normal text-gray-400">
             · {{ resumenCategoria.productos }} producto{{ resumenCategoria.productos === 1 ? '' : 's' }}
           </span>
         </p>
+
+        <!-- Cuánta plata hay: unidades × precio de venta, cada variante a su
+             precio (la 1.60 vale lo de la 1.60). Solo el supervisor.
+             Lo grande es lo DISPONIBLE (lo que se puede vender); lo apartado ya
+             lo compró un cliente y está esperando entrega (dueño, 2026-11-06). -->
+        <div v-if="verPlataInventario" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
+          <p class="text-xs text-gray-500">
+            Disponible para vender {{ esVistaGlobal ? 'en todas las tiendas' : 'en esta tienda' }} (a precio de venta)
+          </p>
+          <p class="text-xl font-bold text-emerald-700 leading-tight">{{ pesos(resumenCategoria.valor_libre) }}</p>
+          <div class="mt-1 space-y-0.5 text-xs text-gray-500">
+            <p class="flex justify-between gap-2">
+              <span>Apartado (comprado, sin entregar)</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenCategoria.valor_apartado) }}</span>
+            </p>
+            <p class="flex justify-between gap-2">
+              <span>Total en {{ esVistaGlobal ? 'las tiendas' : 'la tienda' }}</span>
+              <span class="font-semibold text-gray-700 whitespace-nowrap">{{ pesos(resumenCategoria.valor) }}</span>
+            </p>
+          </div>
+          <p v-if="resumenCategoria.sin_marcar > 0" class="text-[11px] text-amber-600 mt-1 leading-snug">
+            {{ resumenCategoria.sin_marcar }} unidad{{ resumenCategoria.sin_marcar === 1 ? '' : 'es' }}
+            sin medida u opción marcada: se cuenta{{ resumenCategoria.sin_marcar === 1 ? '' : 'n' }} al precio del producto.
+          </p>
+        </div>
         <div class="grid grid-cols-3 gap-2 text-center mt-2">
           <div class="bg-gray-50 rounded-lg p-1.5">
             <p class="text-lg font-bold text-gray-800">{{ resumenCategoria.cantidad_disponible }}</p>
@@ -2637,8 +2700,40 @@ onMounted(async () => {
               <span v-if="t.cantidad_reservada > 0" class="text-[10px] opacity-70">
                 (+{{ t.cantidad_reservada }} apartado{{ t.cantidad_reservada === 1 ? '' : 's' }})
               </span>
+              <span v-if="verPlataInventario && t.valor_libre > 0" class="font-semibold text-emerald-700"
+                :title="`${pesos(t.valor_libre)} disponible` + (t.valor_apartado > 0 ? ` · ${pesos(t.valor_apartado)} apartado` : '')">
+                · {{ pesosCortos(t.valor_libre) }}
+              </span>
             </span>
           </div>
+        </div>
+
+        <!-- "Todas": cuánto hay en cada categoría. Tocar una la abre. -->
+        <div v-if="!categoriaFiltro && resumenCategoria.por_categoria?.length" class="mt-3">
+          <p class="text-xs text-gray-400 mb-1">
+            Por categoría<span v-if="verPlataInventario"> · disponible para vender</span>
+          </p>
+          <ul class="divide-y divide-gray-100">
+            <li v-for="c in resumenCategoria.por_categoria" :key="c.categoria">
+              <button
+                type="button"
+                @click="categoriasDisponibles.includes(c.categoria) && seleccionarCategoria(c.categoria)"
+                class="w-full flex items-center gap-2 py-1.5 text-left hover:bg-gray-50 rounded"
+              >
+                <span class="flex-1 min-w-0 truncate text-sm text-gray-700">
+                  {{ CATEGORY_LABELS[c.categoria] ?? c.categoria }}
+                </span>
+                <span class="text-xs text-gray-500 whitespace-nowrap">
+                  {{ c.unidades }} u.
+                  <span v-if="c.apartadas > 0" class="text-gray-400">({{ c.apartadas }} apart.)</span>
+                </span>
+                <span v-if="verPlataInventario" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap"
+                  :title="`${pesos(c.valor_libre)} disponible` + (c.valor_apartado > 0 ? ` · ${pesos(c.valor_apartado)} apartado` : '')">
+                  {{ pesosCortos(c.valor_libre) }}
+                </span>
+              </button>
+            </li>
+          </ul>
         </div>
       </template>
     </div>

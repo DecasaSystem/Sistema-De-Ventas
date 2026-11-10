@@ -40,8 +40,8 @@ class TiposNotificacion
         ],
         'pagos' => [
             'nombre'      => 'Abonos y facturación',
-            'descripcion' => 'Cada pago registrado en una orden (a quien factura) y los cambios por garantía con diferencia para revisar la factura.',
-            'tipos'       => ['abono_registrado', 'facturar'],
+            'descripcion' => 'Cada pago registrado en una orden (a quien factura), los cambios por garantía con diferencia para revisar la factura y las facturas electrónicas que no salieron o que ya no cuadran.',
+            'tipos'       => ['abono_registrado', 'facturar', 'factura_electronica'],
         ],
         'cambios_dinero' => [
             'nombre'      => 'Cambios de plata en órdenes',

@@ -210,6 +210,14 @@ class VentaPorMedidaSinTelaTest extends TestCase
         ]);
     }
 
+    private function supervisor(): Usuario
+    {
+        return Usuario::create([
+            'nombre' => 'Supervisora', 'email' => 's' . rand() . '@d.com', 'password' => 'x', 'rol' => 'supervisor',
+            'created_at' => now(),
+        ]);
+    }
+
     private function venta(array $item): array
     {
         return [
@@ -334,6 +342,45 @@ class VentaPorMedidaSinTelaTest extends TestCase
         $this->assertStringContainsString('1.40', $item->variante_detalle);
         $this->assertStringContainsString('Beige', $item->variante_detalle);
         $this->assertSame(1, (int) DB::table('inventario_variantes')->where('variante_id', self::BEIGE)->value('cantidad_reservada'));
+    }
+
+    /**
+     * Dueño, 2026-11-06: en Decasa la tela va en las notas, y las sillas Nube
+     * (importadas, cuero o tela) no tienen tela que escoger. Apagado en
+     * Gestión → Ajustes, la medida se vende sola y se despacha.
+     */
+    public function test_apagado_en_ajustes_la_medida_se_vende_sola_y_se_despacha(): void
+    {
+        Schema::create('configuracion', function (Blueprint $t) {
+            $t->string('clave')->primary(); $t->text('valor');
+        });
+        $v = $this->vendedor();
+
+        // Una vendida con el ajuste prendido, antes de apagarlo.
+        $this->actingAs($v)
+            ->postJson('/api/ordenes', $this->venta(['combo_config_id' => self::M140, 'tela_por_definir' => true]))
+            ->assertCreated();
+        $vieja = OrdenItem::first();
+        $this->assertTrue($vieja->tela_por_definir);
+
+        $this->actingAs($this->supervisor())
+            ->patchJson('/api/ajustes-sistema', ['tela_por_definir' => false])
+            ->assertOk()
+            ->assertJsonPath('tela_por_definir', false);
+
+        // La nueva no lleva la marca aunque la pantalla la mande.
+        $this->actingAs($v)
+            ->postJson('/api/ordenes', $this->venta(['combo_config_id' => self::M140, 'tela_por_definir' => true, 'precio_unitario' => 1400000]))
+            ->assertCreated();
+        $nueva = OrdenItem::latest('id')->first();
+        $this->assertFalse($nueva->tela_por_definir);
+        $this->assertSame(self::M140, (int) $nueva->combo_config_id);
+
+        // La que ya esperaba la tela tampoco frena el despacho.
+        $orden = Orden::find($vieja->orden_id);
+        $orden->setRelation('items', collect([$vieja]));
+        $this->assertNull(EntregaService::faltaDefinirTela($orden));
+        $this->assertFalse($vieja->esperaTela());
     }
 
     public function test_no_se_define_una_tela_sin_stock(): void

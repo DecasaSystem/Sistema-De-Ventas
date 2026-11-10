@@ -95,6 +95,15 @@ class AvisoFacturacion
             . ($contexto ? " ({$contexto})" : '')
             . ' Saldo pendiente: ' . self::pesos($orden->saldoPendiente()) . '.';
 
+        // Ya tiene factura electrónica: la factura no se edita, hay que hacer
+        // nota crédito (si bajó) o factura por la diferencia (si subió). Se dice
+        // en el mismo aviso y la factura sale en "Con diferencias".
+        $fe = self::facturaElectronicaHecha($orden);
+        if ($fe) {
+            $mensaje .= " OJO: ya tiene la factura electrónica {$fe->numero}; la factura no cambia sola,"
+                . ' revisa en Facturación electrónica → Con diferencias si hace falta nota crédito.';
+        }
+
         foreach (self::destinatarios($autor->id) as $d) {
             NotificacionService::crear(
                 tipo:      'cambio_dinero',
@@ -131,6 +140,19 @@ class AvisoFacturacion
                 usuarioId: $d->id,
                 urgente:   true,
             );
+        }
+    }
+
+    /** La factura electrónica ya hecha de la orden completa, si tiene. */
+    public static function facturaElectronicaHecha(Orden $orden): ?\App\Models\FacturaElectronica
+    {
+        try {
+            if (! \App\Support\Esquema::tabla('facturas_electronicas')) return null;
+
+            return \App\Models\FacturaElectronica::where('clave', "orden:{$orden->id}")
+                ->whereIn('estado', \App\Models\FacturaElectronica::ESTADOS_HECHOS)->first();
+        } catch (\Throwable) {
+            return null;
         }
     }
 

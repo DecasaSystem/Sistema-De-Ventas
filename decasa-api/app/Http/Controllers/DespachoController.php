@@ -2061,7 +2061,10 @@ class DespachoController extends Controller
                     'facturar',
                     'Orden pendiente de facturación',
                     "Orden {$orden->referencia} de {$orden->cliente->nombre} fue entregada — pendiente de facturación",
-                    ['orden_id' => $item->orden_id],
+                    // Con la facturación electrónica prendida, el aviso abre la
+                    // revisión de la factura en vez del detalle de la orden.
+                    ['orden_id' => $item->orden_id]
+                        + (\App\Support\ReglasFacturacion::activo() ? ['factura_electronica' => true] : []),
                     $vendedor->id,
                 );
             }

@@ -27,6 +27,7 @@ class AjustesSistemaController extends Controller
             'calificar_trabajadores_taller'  => 'sometimes|boolean',
             'declaracion_disenos_especiales' => 'sometimes|boolean',
             'declaracion_personalizados'     => 'sometimes|boolean',
+            'tela_por_definir'               => 'sometimes|boolean',
             // Vacío vale: no avisar con anticipación (el "Entrega hoy" sigue).
             'avisar_entrega_dias_antes'      => 'sometimes|array',
             'avisar_entrega_dias_antes.*'    => 'integer|in:' . implode(',', AjustesSistema::DIAS_AVISO_POSIBLES),
@@ -40,6 +41,7 @@ class AjustesSistemaController extends Controller
             'calificar_trabajadores_taller'  => AjustesSistema::CALIFICAR_TALLER,
             'declaracion_disenos_especiales' => AjustesSistema::DECLARACION_ESPECIALES,
             'declaracion_personalizados'     => AjustesSistema::DECLARACION_PERSONALIZADOS,
+            'tela_por_definir'               => AjustesSistema::PEDIR_TELA,
         ];
         foreach ($claves as $campo => $clave) {
             if (array_key_exists($campo, $data)) AjustesSistema::definir($clave, (bool) $data[$campo]);
