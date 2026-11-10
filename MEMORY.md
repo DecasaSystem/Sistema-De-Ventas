@@ -890,6 +890,13 @@ escribiendo precios (Fase 1b).
   nunca reintentar un POST /invoices sin pasar por `EmitirFactura` (busca por la marca
   `[DECASA-ORDEN-ID]` antes de crear otra). El `vendor` del worktree venía incompleto: se copió el
   del repo principal.
+- **Costos: apartar importados y comprados** (2026-11-10, **sin subir**, trae **migración**
+  `2026_11_10_000002_productos_que_no_se_fabrican`, solo crea tabla; misma rama, ya con `main`
+  mezclado). Pedido del usuario: un botón para omitir los productos importados cuyo costo no se
+  sabe, clasificados como importado o comprado. Detalle en `docs/PROYECTO.md` §6.11. Por defecto
+  mío (**falta confirmar**): nota opcional; lo marca quien tiene acceso a Costos (o el ebanista);
+  un producto con una sola receta abre la ficha directo, así que el botón solo se ve en el panel
+  (productos en espera o con medidas). Tests en `CostosConectadoConInventarioTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

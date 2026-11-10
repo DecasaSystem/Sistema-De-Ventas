@@ -754,6 +754,13 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   enlazada antes que buscarla por nombre (`AgentService::recetaDelProducto`). "Ficha
   suelta" sigue existiendo para muebles de referencia que no son productos.
   Al guardar una ficha, el precio de lo enlazado lo pone el servidor (`Support/PreciosVigentes`).
+  **Importados y comprados** (2026-11-10, pedido del usuario: "omitir productos importados que no
+  sabemos sus costos"): en el panel del producto, "¿No se fabrica aquí?" → *Es importado* / *Se
+  compra hecho* con nota opcional (`PUT /fichas-tecnicas/productos/{id}/origen`, `origen` null lo
+  devuelve). Se guarda en `productos_no_fabricados` (migración `2026_11_10_000002`, tabla aparte
+  para no tocar `productos`, que leen los agentes). Estado `no_fabricado`: no cuenta en "En
+  espera", no sale en "Todas" sino en su filtro "Importados y comprados", y no se le sugieren
+  fichas sueltas. Sus recetas, si tenía, no se borran.
   **Al vincular una ficha con un producto** (pedido del usuario, 2026-11-06;
   `RecetasDeProductos::camposAlVincular`): la ficha toma el nombre del producto en mayúscula
   (con la medida si es de una versión: "CAMA BALI 1.40"), el nombre que tenía queda en

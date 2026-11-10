@@ -34,9 +34,44 @@ class RecetasDeProductos
     /** Palabras que no dicen qué mueble es ("CAMA DE 1.40 EN PINO" ≈ "CAMA PINO"). */
     private const RELLENO = ['de', 'del', 'la', 'el', 'los', 'las', 'en', 'con', 'sin', 'y', 'para', 'por', 'x', 'a', 'mts', 'mt', 'm', 'cm'];
 
+    /**
+     * Lo que no se fabrica en el taller (usuario, 2026-11-10): "productos que son importados y
+     * no sabemos sus costos". No quedan en espera de receta; se apartan con su origen.
+     */
+    public const ORIGENES = ['importado', 'comprado'];
+
     public static function hayVersiones(): bool
     {
         return Schema::hasColumn('fichas_tecnicas', 'variante_config_id');
+    }
+
+    public static function hayNoFabricados(): bool
+    {
+        return Schema::hasTable('productos_no_fabricados');
+    }
+
+    /**
+     * Marca un producto como importado o comprado hecho (no se le calcula costo), o le quita
+     * la marca con `$origen` null. Sus recetas, si tenía, no se tocan: si vuelve a fabricarse
+     * siguen ahí.
+     */
+    public function marcarOrigen(int $productoId, ?string $origen, ?string $nota, ?int $usuarioId): void
+    {
+        if (! $origen) {
+            DB::table('productos_no_fabricados')->where('producto_id', $productoId)->delete();
+            return;
+        }
+
+        DB::table('productos_no_fabricados')->updateOrInsert(
+            ['producto_id' => $productoId],
+            [
+                'origen'         => $origen,
+                'nota'           => trim((string) $nota) ?: null,
+                'marcado_por_id' => $usuarioId,
+                'updated_at'     => now(),
+                'created_at'     => now(),
+            ],
+        );
     }
 
     /**
@@ -54,8 +89,11 @@ class RecetasDeProductos
         $fichas    = $this->fichas();
         $porProducto = $fichas->whereNotNull('producto_id')->groupBy('producto_id');
         $activos   = $productos->keyBy('id');
+        $noFabricados = self::hayNoFabricados()
+            ? DB::table('productos_no_fabricados')->get(['producto_id', 'origen', 'nota'])->keyBy('producto_id')
+            : collect();
 
-        $filas = $productos->map(function ($p) use ($versiones, $porProducto) {
+        $filas = $productos->map(function ($p) use ($versiones, $porProducto, $noFabricados) {
             $suyas = $porProducto->get($p->id, collect());
             $base  = $suyas->whereNull('variante_config_id')->values();
 
@@ -87,7 +125,11 @@ class RecetasDeProductos
                 'repetida'    => $base->count() + $huerfanas->count() > 1,
                 'versiones'   => $vers->all(),
                 'faltan'      => $faltan,
-                'estado'      => $this->estado($todas, $vers->count(), $faltan),
+                // Importado o comprado hecho: no se le calcula costo de fabricación
+                'no_fabricado' => ($nf = $noFabricados->get($p->id))
+                    ? ['origen' => $nf->origen, 'nota' => $nf->nota]
+                    : null,
+                'estado'      => $nf ? 'no_fabricado' : $this->estado($todas, $vers->count(), $faltan),
             ];
         })->values();
 
@@ -96,8 +138,9 @@ class RecetasDeProductos
         $ocupados = $fichas->whereNotNull('producto_id')
             ->map(fn ($f) => $f->producto_id . ':' . ($f->variante_config_id ?? 0))->flip();
 
-        // Las palabras de cada producto se sacan una vez, no una por ficha suelta
-        $candidatos = $productos->map(fn ($p) => (object) [
+        // Las palabras de cada producto se sacan una vez, no una por ficha suelta. Los que no
+        // se fabrican no se sugieren: una ficha del Excel no es la receta de un importado.
+        $candidatos = $productos->reject(fn ($p) => $noFabricados->has($p->id))->map(fn ($p) => (object) [
             'p'      => $p,
             'tok'    => $this->palabras($p->nombre),
             'cat'    => rtrim(CategoriasProducto::clave($p->categoria), 's'),
@@ -119,6 +162,7 @@ class RecetasDeProductos
                 'incompleta' => $filas->where('estado', 'incompleta')->count(),
                 'revisar'    => $filas->where('estado', 'revisar')->count(),
                 'lista'      => $filas->where('estado', 'lista')->count(),
+                'no_fabricados' => $filas->where('estado', 'no_fabricado')->count(),
                 'sueltas'    => $sueltas->count(),
             ],
         ];

@@ -69,6 +69,10 @@ class CostosConectadoConInventarioTest extends TestCase
         Schema::create('salarios_cargo', function (Blueprint $t) {
             $t->id(); $t->string('cargo'); $t->decimal('tarifa_hora', 12, 2)->default(0); $t->timestamps();
         });
+        Schema::create('productos_no_fabricados', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id')->unique(); $t->string('origen', 20);
+            $t->string('nota')->nullable(); $t->unsignedBigInteger('marcado_por_id')->nullable(); $t->timestamps();
+        });
         Schema::create('tarifas_proceso', function (Blueprint $t) {
             $t->id(); $t->string('proceso'); $t->string('cargo')->nullable(); $t->timestamps();
         });
@@ -354,6 +358,65 @@ class CostosConectadoConInventarioTest extends TestCase
         ])->assertOk()
           ->assertJsonPath('nombre', 'CAMA BALI')
           ->assertJsonPath('descripcion', 'Pino macizo, cabecero tapizado');
+    }
+
+    // ── Importados y comprados: no se fabrican ───────────────────────────────
+
+    private function origen(int $producto, ?string $origen, ?string $nota = null)
+    {
+        return $this->actingAs($this->ebanista)->putJson("/api/fichas-tecnicas/productos/{$producto}/origen", [
+            'origen' => $origen, 'nota' => $nota,
+        ]);
+    }
+
+    public function test_un_importado_sale_de_espera_y_se_cuenta_aparte(): void
+    {
+        $reloj = DB::table('productos')->insertGetId(['nombre' => 'Reloj Angel', 'categoria' => 'Relojes', 'precio_base' => 250000]);
+        DB::table('productos')->insert(['nombre' => 'Mesa Toledo', 'categoria' => 'Mesas', 'precio_base' => 900000]);
+
+        $this->origen($reloj, 'importado', 'Viene de China')->assertOk();
+
+        $r = $this->listado();
+        $this->assertSame(1, $r['resumen']['sin_receta']);      // solo la mesa
+        $this->assertSame(1, $r['resumen']['no_fabricados']);
+        $p = collect($r['productos'])->firstWhere('id', $reloj);
+        $this->assertSame('no_fabricado', $p['estado']);
+        $this->assertSame(['origen' => 'importado', 'nota' => 'Viene de China'], $p['no_fabricado']);
+    }
+
+    public function test_se_puede_cambiar_a_comprado_y_volver_a_fabricado(): void
+    {
+        $puff = DB::table('productos')->insertGetId(['nombre' => 'Puff', 'categoria' => 'Butacos']);
+
+        $this->origen($puff, 'importado')->assertOk();
+        $this->origen($puff, 'comprado', 'Proveedor de Medellín')->assertOk();
+        $this->assertSame(1, DB::table('productos_no_fabricados')->count());
+        $this->assertSame('comprado', DB::table('productos_no_fabricados')->value('origen'));
+        $this->assertSame($this->ebanista->id, (int) DB::table('productos_no_fabricados')->value('marcado_por_id'));
+
+        $this->origen($puff, null)->assertOk();
+        $this->assertSame('sin_receta', collect($this->listado()['productos'])->firstWhere('id', $puff)['estado']);
+    }
+
+    public function test_solo_se_aceptan_importado_o_comprado_y_el_producto_tiene_que_existir(): void
+    {
+        $puff = DB::table('productos')->insertGetId(['nombre' => 'Puff', 'categoria' => 'Butacos']);
+
+        $this->origen($puff, 'regalado')->assertStatus(422);
+        $this->origen(9999, 'importado')->assertNotFound();
+
+        $vendedor = Usuario::forceCreate(['nombre' => 'Vende', 'rol' => 'vendedor', 'created_at' => now()]);
+        $this->actingAs($vendedor)->putJson("/api/fichas-tecnicas/productos/{$puff}/origen", ['origen' => 'importado'])
+            ->assertForbidden();
+    }
+
+    public function test_una_ficha_suelta_no_se_le_sugiere_a_un_importado(): void
+    {
+        [$p] = $this->camaConMedidas();
+        $this->ficha(['nombre' => 'CAMA BALI PINO']);
+        $this->origen($p, 'importado')->assertOk();
+
+        $this->assertSame([], $this->listado()['sueltas'][0]['sugerencias']);
     }
 
     public function test_la_categoria_de_la_receta_usa_la_del_cotizador_si_es_la_misma(): void

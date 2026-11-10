@@ -48,7 +48,10 @@ defineExpose({ cargar })
 
 const resumen = computed(() => datos.value.resumen ?? {})
 
-const categorias = computed(() => [...new Set(datos.value.productos.map(p => p.categoria).filter(Boolean))].sort())
+// Solo las categorías que tienen algo que mostrar con el filtro de arriba
+const categorias = computed(() => [...new Set(datos.value.productos
+  .filter(p => (filtro.value === 'no_fabricado') === (p.estado === 'no_fabricado'))
+  .map(p => p.categoria).filter(Boolean))].sort())
 
 function coincide(texto) {
   const q = busqueda.value.trim().toLowerCase()
@@ -57,7 +60,8 @@ function coincide(texto) {
 
 const grupos = computed(() => {
   // "En espera" junta los que no tienen nada y los que tienen medidas sin receta
-  const enFiltro = p => filtro.value === 'todos' || p.estado === filtro.value
+  // Los importados y comprados no se fabrican: solo salen en su propio filtro
+  const enFiltro = p => (filtro.value === 'todos' && p.estado !== 'no_fabricado') || p.estado === filtro.value
     || (filtro.value === 'sin_receta' && p.estado === 'incompleta')
   const lista = datos.value.productos.filter(p =>
     enFiltro(p)
@@ -89,7 +93,7 @@ function versionesConReceta(p) {
 
 // Un producto sin versiones con una sola receta abre la ficha directo; los demás, su panel
 function abrir(p) {
-  if (!p.versiones.length && p.fichas.length === 1) emit('abrir', p.fichas[0].id)
+  if (!p.no_fabricado && !p.versiones.length && p.fichas.length === 1) emit('abrir', p.fichas[0].id)
   else emit('producto', p.id)
 }
 
@@ -113,6 +117,7 @@ const ESTADO = {
   sin_receta: { texto: 'En espera', clase: 'bg-gray-100 text-gray-500' },
   revisar:    { texto: 'Revisar',   clase: 'bg-amber-100 text-amber-800' },
 }
+const ORIGEN = { importado: 'Importado', comprado: 'Comprado' }
 </script>
 
 <template>
@@ -147,6 +152,11 @@ const ESTADO = {
         :class="['flex-shrink-0 flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-colors',
           filtro === 'sueltas' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-800 hover:bg-blue-200']">
         <LinkIcon class="w-3.5 h-3.5" />Fichas sin producto · {{ resumen.sueltas }}
+      </button>
+      <button v-if="resumen.no_fabricados" @click="filtro = filtro === 'no_fabricado' ? 'todos' : 'no_fabricado'"
+        :class="['flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors',
+          filtro === 'no_fabricado' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700 hover:bg-purple-200']">
+        Importados y comprados · {{ resumen.no_fabricados }}
       </button>
       <template v-if="filtro !== 'sueltas'">
         <button @click="categoria = ''"
@@ -228,7 +238,7 @@ const ESTADO = {
             </div>
 
             <div class="text-right flex-shrink-0">
-              <template v-if="costoDe(p)">
+              <template v-if="costoDe(p) && !p.no_fabricado">
                 <!-- Costo de fabricación (de la receta); el precio de venta es el de Inventario, a la izquierda -->
                 <p class="text-[11px] text-gray-400 leading-none">{{ costoDe(p).desde ? 'fabricar desde' : 'fabricar' }}</p>
                 <p class="text-sm font-bold text-gray-900 tabular-nums">{{ formatPeso(costoDe(p).ficha.costo_total) }}</p>
@@ -248,6 +258,9 @@ const ESTADO = {
                   </span>
                 </div>
               </template>
+              <span v-else-if="p.no_fabricado" class="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-purple-100 text-purple-700">
+                {{ ORIGEN[p.no_fabricado.origen] }}
+              </span>
               <span v-else :class="['text-[11px] font-semibold rounded-full px-2 py-0.5', ESTADO.sin_receta.clase]">{{ ESTADO.sin_receta.texto }}</span>
             </div>
             <ChevronRightIcon class="w-4 h-4 text-gray-300 flex-shrink-0" />

@@ -1002,6 +1002,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/fichas-tecnicas/materiales-sugeridos',      [FichaTecnicaController::class, 'materialesSugeridos']);
         // Los productos de Inventario con su receta (o en espera) y las fichas sueltas
         Route::get('/fichas-tecnicas/productos',                 [FichaTecnicaController::class, 'productos']);
+        // Importado o comprado hecho: no se le calcula costo de fabricación
+        Route::put('/fichas-tecnicas/productos/{producto}/origen', [FichaTecnicaController::class, 'origenProducto'])->whereNumber('producto');
         Route::get('/fichas-tecnicas/{fichaTecnica}',            [FichaTecnicaController::class, 'show']);
         Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
         Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);

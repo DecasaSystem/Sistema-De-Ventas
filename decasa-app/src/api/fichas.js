@@ -3,6 +3,9 @@ import api from './index'
 export const getFichas              = (params = {}) => api.get('/fichas-tecnicas', { params })
 // Los productos de Inventario con su receta (o en espera) y las fichas sueltas
 export const getRecetasProductos    = () => api.get('/fichas-tecnicas/productos')
+// Importado o comprado hecho (no se le calcula costo); origen null le quita la marca
+export const marcarOrigenProducto   = (productoId, origen, nota = null) =>
+  api.put(`/fichas-tecnicas/productos/${productoId}/origen`, { origen, nota })
 export const getFicha               = (id) => api.get(`/fichas-tecnicas/${id}`)
 export const crearFicha             = (data) => api.post('/fichas-tecnicas', data)
 export const getMaterialesSugeridos = (search) => api.get('/fichas-tecnicas/materiales-sugeridos', { params: { search } })

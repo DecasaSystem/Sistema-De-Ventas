@@ -103,6 +103,25 @@ class FichaTecnicaController extends Controller
         return response()->json($recetas->listado());
     }
 
+    /**
+     * PUT /fichas-tecnicas/productos/{producto}/origen — el producto no se fabrica aquí:
+     * `importado` o `comprado` (hecho), con una nota opcional. `origen` null le quita la marca
+     * y vuelve a quedar en espera de su receta.
+     */
+    public function origenProducto(Request $request, int $producto, RecetasDeProductos $recetas)
+    {
+        $data = $request->validate([
+            'origen' => ['present', 'nullable', 'string', \Illuminate\Validation\Rule::in(RecetasDeProductos::ORIGENES)],
+            'nota'   => 'nullable|string|max:255',
+        ]);
+
+        abort_unless(DB::table('productos')->where('id', $producto)->exists(), 404);
+
+        $recetas->marcarOrigen($producto, $data['origen'], $data['nota'] ?? null, $request->user()?->id);
+
+        return response()->json(['ok' => true, 'origen' => $data['origen']]);
+    }
+
     public function show(FichaTecnica $fichaTecnica)
     {
         return response()->json($this->conMedidas($fichaTecnica->load($this->relaciones())));
