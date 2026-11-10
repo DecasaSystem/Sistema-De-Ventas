@@ -12,6 +12,7 @@ import { computed } from 'vue'
 import { CubeIcon, WrenchScrewdriverIcon, ArrowsRightLeftIcon, TrashIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { useCostos } from './useCostos'
+import { useColoresMaterial } from './coloresMaterial'
 
 const props = defineProps({
   item:     { type: Object, required: true },
@@ -28,6 +29,14 @@ const sigueTarifa   = computed(() => props.item.es_mano_obra && props.item.tarif
 // (si se escribía otro aquí, el próximo cambio de precio en Materiales lo pisaba).
 const sigueCatalogo = computed(() => !props.item.es_mano_obra && props.item.material_id)
 // "1 horas" se lee mal: la mano de obra se muestra en h
+// El color con que marcaron el material en Materiales ("falta actualizar el precio"…)
+const { color, significado, cargarLeyenda } = useColoresMaterial()
+cargarLeyenda()
+const marca = computed(() => {
+  const m = props.item.material
+  const id = !props.item.es_mano_obra && props.item.material_id && m?.id === props.item.material_id ? m.color : null
+  return id && color(id) ? { punto: color(id).punto, texto: significado(id) } : null
+})
 const unidad        = computed(() => {
   const u = props.item.unidad
   if (!u || /^horas?$/i.test(u)) return props.item.es_mano_obra ? 'h' : (u || 'und')
@@ -78,6 +87,11 @@ const unidad        = computed(() => {
           {{ formatPeso(item.precio_unitario) }} <span class="text-gray-400">· del catálogo</span>
         </span>
       </div>
+
+      <!-- Marca de color del material (se pone en Materiales) -->
+      <p v-if="marca" class="flex items-center gap-1.5 text-xs text-gray-600 mt-1">
+        <span :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', marca.punto]" aria-hidden="true" />{{ marca.texto }}
+      </p>
 
       <!-- Para revisar -->
       <p v-if="sinPrecio || fueraCatalogo" class="flex items-center gap-1 text-xs text-amber-700 mt-1">

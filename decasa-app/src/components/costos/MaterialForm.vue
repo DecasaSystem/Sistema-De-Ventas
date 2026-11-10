@@ -12,6 +12,7 @@ import InputPesos from '@/components/common/InputPesos.vue'
 import IconoS from '@/components/common/IconoS.vue'
 import { formatPct } from '@/utils/descuentos'
 import { useCostos } from './useCostos'
+import { useColoresMaterial } from './coloresMaterial'
 
 const props = defineProps({ material: { type: Object, default: null } })
 const emit  = defineEmits(['cerrar', 'guardado', 'reemplazar', 'abrir'])
@@ -25,7 +26,12 @@ const form = ref({
   unidad:          props.material?.unidad ?? '',
   descripcion:     props.material?.descripcion ?? '',
   precio_unitario: props.material ? Number(props.material.precio_unitario) || 0 : null,
+  color:           props.material?.color ?? null,
 })
+
+// Marca de color ("falta actualizar el precio"…): qué significa cada una lo dice la leyenda
+const { COLORES, significado, cargarLeyenda } = useColoresMaterial()
+cargarLeyenda()
 const guardando = ref(false)
 
 const usos          = computed(() => Number(props.material?.usos) || 0)
@@ -83,6 +89,7 @@ async function guardar() {
     unidad:          form.value.unidad.trim().toUpperCase() || null,
     descripcion:     form.value.descripcion.trim() || null,
     precio_unitario: Number(form.value.precio_unitario) || 0,
+    color:           form.value.color || null,
   }
 
   guardando.value = true
@@ -137,6 +144,23 @@ const variacion = h => ((h.precio_nuevo - h.precio_anterior) / (Number(h.precio_
             <input id="mat-desc" v-model="form.descripcion" type="text" placeholder="Medidas, proveedor, calidad…"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+
+          <!-- Marca de color -->
+          <fieldset>
+            <legend class="block text-xs font-medium text-gray-600 mb-1.5">Color <span class="font-normal text-gray-400">(opcional)</span></legend>
+            <div class="flex flex-wrap gap-1.5">
+              <button type="button" @click="form.color = null" :aria-pressed="!form.color"
+                :class="['px-2.5 py-1 rounded-full text-xs font-semibold border', !form.color ? 'border-gray-800 text-gray-800' : 'border-gray-200 text-gray-500']">
+                Sin color
+              </button>
+              <button v-for="c in COLORES" :key="c.id" type="button" @click="form.color = c.id" :aria-pressed="form.color === c.id"
+                :class="['flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border max-w-full',
+                  form.color === c.id ? 'border-gray-800 text-gray-800' : 'border-gray-200 text-gray-500']">
+                <span :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', c.punto]" aria-hidden="true" />
+                <span class="truncate">{{ significado(c.id) }}</span>
+              </button>
+            </div>
+          </fieldset>
 
           <!-- Las cantidades de las fichas no se convierten: 3 metros pasarían a ser 3 láminas -->
           <p v-if="cambiaUnidad && usos" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">

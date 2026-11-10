@@ -238,7 +238,9 @@ const pickerProducto = ref(false)
 
 function elegirMaterial(m) {
   const p = pickerMaterial.value
-  const campos = { descripcion: m.nombre, unidad: m.unidad, precio_unitario: parseFloat(m.precio_unitario) || 0, material_id: m.id }
+  // `material`: para pintar su color de Materiales desde ya (lo demás lo guarda el servidor)
+  const campos = { descripcion: m.nombre, unidad: m.unidad, precio_unitario: parseFloat(m.precio_unitario) || 0, material_id: m.id,
+    material: { id: m.id, color: m.color ?? null } }
   if (p.item) cambiarItem(p.item, campos)
   else agregarItem({ seccion: p.seccion, ...campos })
   pickerMaterial.value = null

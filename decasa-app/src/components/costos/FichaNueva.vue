@@ -61,7 +61,8 @@ function cambiar(item, campos) {
 }
 
 function elegirMaterial(m) {
-  agregar({ descripcion: m.nombre, unidad: m.unidad, precio_unitario: parseFloat(m.precio_unitario) || 0, material_id: m.id })
+  agregar({ descripcion: m.nombre, unidad: m.unidad, precio_unitario: parseFloat(m.precio_unitario) || 0, material_id: m.id,
+    material: { id: m.id, color: m.color ?? null } })
   pickerMaterial.value = false
 }
 

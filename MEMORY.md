@@ -897,7 +897,7 @@ escribiendo precios (Fase 1b).
   mío (**falta confirmar**): nota opcional; lo marca quien tiene acceso a Costos (o el ebanista);
   un producto con una sola receta abre la ficha directo, así que el botón solo se ve en el panel
   (productos en espera o con medidas). Tests en `CostosConectadoConInventarioTest`.
-- **Reemplazar un material solo en algunas fichas** (2026-11-10, **sin subir**, sin migración,
+- **Reemplazar un material solo en algunas fichas** (2026-11-10, **subido a `main`** ese día, commit 3c4c9fc, sin migración,
   rama `claude/analisis-modulo-costos-39e664`). Pedido del usuario: desde Materiales, escoger en
   qué fichas se cambia un material por otro (uno recién creado) sin eliminarlo. Detalle en
   `docs/PROYECTO.md` §6.11. Por defecto mío (**falta confirmar**): lo puede hacer quien edita
@@ -909,6 +909,13 @@ escribiendo precios (Fase 1b).
   Inventario). Por defecto mío (**falta confirmar**): solo las de tipos con `afecta_precio` son
   requeridas (en espera / "faltan N"); las demás son opcionales. Finanzas, Márgenes (receta general
   sin margen) y el cotizador no cambiaron. Test al final de `CostosConectadoConInventarioTest`.
+- **Colores en materiales** (2026-11-10, **subido a `main`** ese día, trae **migración**
+  `2026_11_11_000001_color_en_materiales`, solo agrega `materiales.color`). Pedido del usuario:
+  marcar materiales con un color que signifique algo ("falta actualizar el precio") y que se vea
+  también en la lista de materiales de cada ficha. Detalle en `docs/PROYECTO.md` §6.11. Por defecto
+  mío (**falta confirmar**): 6 colores fijos con significado editable (no colores libres); un color
+  por material; cambiar el precio NO le quita el color solo; lo marca y edita la leyenda quien
+  edita materiales (`acceso_costos` o ebanista).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

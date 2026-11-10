@@ -855,6 +855,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // pide acceso_costos (el ebanista sigue automático), igual que las fichas.
     Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
         Route::get('/materiales',               [MaterialController::class, 'index']);
+        // Colores para marcar materiales y su significado (literal: antes de {material})
+        Route::get('/materiales/colores',       [MaterialController::class, 'colores']);
+        Route::put('/materiales/colores',       [MaterialController::class, 'guardarColores']);
         Route::get('/materiales/{material}/usos', [MaterialController::class, 'usos']);
         Route::get('/materiales/{material}/historial', [MaterialController::class, 'historial']);
         Route::post('/materiales',             [MaterialController::class, 'store']);

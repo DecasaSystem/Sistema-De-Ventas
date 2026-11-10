@@ -15,6 +15,7 @@ class Material extends Model
         'unidad',
         'unidad_norm',   // la pone el controlador con App\Support\UnidadMaterial
         'precio_unitario',
+        'color',         // marca de color; qué significa lo dice App\Support\ColoresMaterial
     ];
 
     protected function casts(): array

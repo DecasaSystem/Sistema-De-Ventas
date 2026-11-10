@@ -10,6 +10,8 @@ import AppSpinner from '@/components/common/AppSpinner.vue'
 import MaterialForm from './MaterialForm.vue'
 import MaterialEliminar from './MaterialEliminar.vue'
 import MaterialReemplazar from './MaterialReemplazar.vue'
+import MaterialColores from './MaterialColores.vue'
+import { useColoresMaterial } from './coloresMaterial'
 import { useCostos } from './useCostos'
 
 // Cuando cambian precios, cambian los costos de las fichas
@@ -44,7 +46,21 @@ function onBuscar() {
 }
 
 const sinUso = computed(() => materiales.value.filter(m => !Number(m.usos)).length)
-const lista  = computed(() => filtro.value === 'sin_uso' ? materiales.value.filter(m => !Number(m.usos)) : materiales.value)
+
+// Marcas de color ("falta actualizar el precio"…): filtrar por una y editar qué significa cada una
+const { COLORES, color, significado, cargarLeyenda } = useColoresMaterial()
+const filtroColor   = ref(null)
+const editandoColores = ref(false)
+const colorUsados = computed(() => COLORES
+  .map(c => ({ ...c, n: materiales.value.filter(m => m.color === c.id).length }))
+  // El del filtro activo sale aunque ya no lo tenga nadie, para poder quitarlo
+  .filter(c => c.n || c.id === filtroColor.value))
+
+const lista  = computed(() => {
+  let l = filtro.value === 'sin_uso' ? materiales.value.filter(m => !Number(m.usos)) : materiales.value
+  if (filtroColor.value) l = l.filter(m => m.color === filtroColor.value)
+  return l
+})
 
 // ── Formularios ──────────────────────────────────────────────────────────────
 const editando   = ref(undefined)   // undefined = cerrado, null = nuevo, objeto = editar
@@ -77,16 +93,17 @@ function exportarExcel() {
     'Se compra por':   m.unidad ?? '',
     'Precio unitario': Math.round(Number(m.precio_unitario) || 0),
     'Fichas que lo usan': Number(m.usos) || 0,
+    'Color':           m.color ? significado(m.color) : '',
     'Descripción':     m.descripcion ?? '',
   }))
   const hoja  = XLSX.utils.json_to_sheet(filas)
-  hoja['!cols'] = [{ wch: 40 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 40 }]
+  hoja['!cols'] = [{ wch: 40 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 28 }, { wch: 40 }]
   const libro = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(libro, hoja, 'Materiales')
   XLSX.writeFile(libro, 'materiales_decasa.xlsx')
 }
 
-onMounted(cargar)
+onMounted(() => { cargar(); cargarLeyenda() })
 </script>
 
 <template>
@@ -117,17 +134,36 @@ onMounted(cargar)
       </div>
     </div>
 
+    <!-- Colores: tocar uno muestra solo los de ese color -->
+    <div class="flex flex-wrap items-center gap-1.5">
+      <button v-for="c in colorUsados" :key="c.id" @click="filtroColor = filtroColor === c.id ? null : c.id"
+        :aria-pressed="filtroColor === c.id"
+        :class="['flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border max-w-full',
+          filtroColor === c.id ? 'border-gray-800 text-gray-800 bg-white' : 'border-gray-200 text-gray-600 bg-white']">
+        <span :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', c.punto]" aria-hidden="true" />
+        <span class="truncate">{{ significado(c.id) }}</span>
+        <span class="text-gray-400 tabular-nums">{{ c.n }}</span>
+      </button>
+      <button @click="editandoColores = true" class="px-2 py-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+        {{ colorUsados.length ? 'Editar colores' : 'Colores para marcar materiales' }}
+      </button>
+    </div>
+
     <AppSpinner v-if="cargando && !materiales.length" />
 
     <p v-else-if="!lista.length" class="text-center py-12 text-sm text-gray-400">
-      {{ busqueda ? 'Ningún material coincide con la búsqueda.' : 'El catálogo está vacío. Crea el primer material.' }}
+      {{ busqueda || filtroColor ? 'Ningún material coincide.' : 'El catálogo está vacío. Crea el primer material.' }}
     </p>
 
     <div v-else class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
       <div v-for="m in lista" :key="m.id" class="flex items-center">
         <button @click="editando = m" class="flex-1 min-w-0 flex items-center gap-3 px-3 py-3 hover:bg-gray-50 text-left">
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-gray-800 truncate">{{ m.nombre }}</p>
+            <p class="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5">
+              <span v-if="color(m.color)" :class="['w-2.5 h-2.5 rounded-full flex-shrink-0', color(m.color).punto]"
+                :title="significado(m.color)" role="img" :aria-label="significado(m.color)" />
+              <span class="truncate">{{ m.nombre }}</span>
+            </p>
             <p class="text-xs text-gray-400 truncate">
               <span :class="Number(m.usos) ? '' : 'text-amber-700'">{{ Number(m.usos) ? `En ${m.usos} ${Number(m.usos) === 1 ? 'ficha' : 'fichas'}` : 'Sin uso' }}</span>
               <template v-if="m.descripcion"> · {{ m.descripcion }}</template>
@@ -154,6 +190,7 @@ onMounted(cargar)
   <MaterialForm v-if="editando !== undefined" :material="editando" @cerrar="editando = undefined" @guardado="onGuardado"
     @reemplazar="m => { editando = undefined; reemplazando = m }"
     @abrir="id => { editando = undefined; emit('abrir', id) }" />
+  <MaterialColores v-if="editandoColores" @cerrar="editandoColores = false" />
   <MaterialReemplazar v-if="reemplazando" :material="reemplazando" @cerrar="reemplazando = null" @reemplazado="onReemplazado" />
   <MaterialEliminar v-if="eliminando" :material="eliminando" @cerrar="eliminando = null" @eliminado="onEliminado" />
 </template>

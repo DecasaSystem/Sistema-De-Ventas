@@ -34,4 +34,10 @@ class FichaTecnicaItem extends Model
     {
         return $this->belongsTo(FichaTecnica::class);
     }
+
+    /** El material del catálogo (null si está escrito a mano o es mano de obra). */
+    public function material()
+    {
+        return $this->belongsTo(Material::class);
+    }
 }

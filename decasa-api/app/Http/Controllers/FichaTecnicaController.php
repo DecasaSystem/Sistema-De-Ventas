@@ -176,6 +176,9 @@ class FichaTecnicaController extends Controller
     private function relaciones(bool $items = true): array
     {
         $r = $items ? ['items', self::PRODUCTO] : [self::PRODUCTO];
+        // El color con que marcaron el material en Materiales sale también en la ficha
+        // (usuario, 2026-11-10). Sin la columna (antes de migrar) no se pide.
+        if ($items && \Illuminate\Support\Facades\Schema::hasColumn('materiales', 'color')) $r[] = 'items.material:id,color';
         if (RecetasDeProductos::hayVersiones()) $r[] = 'varianteConfig.opcion:id,nombre';
 
         return $r;

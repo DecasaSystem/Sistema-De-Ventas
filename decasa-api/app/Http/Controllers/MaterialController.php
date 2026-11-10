@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\FichaTecnica;
 use App\Models\Material;
+use App\Support\ColoresMaterial;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -40,7 +41,9 @@ class MaterialController extends Controller
             'descripcion'     => 'nullable|string|max:500',
             'unidad'          => 'nullable|string|max:100',
             'precio_unitario' => 'required|numeric|min:0',
+            'color'           => ['sometimes', 'nullable', \Illuminate\Validation\Rule::in(ColoresMaterial::COLORES)],
         ]);
+        $data = $this->sinColorSiNoHay($data);
 
         if ($repetido = $this->otroConElNombre($data['nombre'])) {
             return $this->yaExiste($repetido);
@@ -63,7 +66,9 @@ class MaterialController extends Controller
             'descripcion'     => 'nullable|string|max:500',
             'unidad'          => 'nullable|string|max:100',
             'precio_unitario' => 'required|numeric|min:0',
+            'color'           => ['sometimes', 'nullable', \Illuminate\Validation\Rule::in(ColoresMaterial::COLORES)],
         ]);
+        $data = $this->sinColorSiNoHay($data);
 
         // Solo al renombrar: si ya había dos con el mismo nombre (de antes), se pueden
         // seguir editando; lo que no se deja es crear un repetido nuevo.
@@ -136,6 +141,36 @@ class MaterialController extends Controller
         $material->productos_afectados = $afectados;
 
         return response()->json($material);
+    }
+
+    /**
+     * GET /materiales/colores — los colores para marcar materiales y qué significa cada uno.
+     */
+    public function colores()
+    {
+        return response()->json(['colores' => ColoresMaterial::leyenda()]);
+    }
+
+    /**
+     * PUT /materiales/colores — cambia lo que significa cada color (no toca los materiales).
+     * Body: { colores: { rojo: "Falta actualizar el precio", ... } }
+     */
+    public function guardarColores(Request $request)
+    {
+        $data = $request->validate([
+            'colores'   => 'required|array',
+            'colores.*' => 'nullable|string|max:80',
+        ]);
+
+        return response()->json(['colores' => ColoresMaterial::guardar($data['colores'])]);
+    }
+
+    /** Sin la columna (esquemas de las pruebas, o antes de migrar) el color no se guarda. */
+    private function sinColorSiNoHay(array $data): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('materiales', 'color')) unset($data['color']);
+
+        return $data;
     }
 
     /**

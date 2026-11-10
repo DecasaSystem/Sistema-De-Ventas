@@ -541,6 +541,39 @@ class CostosFichasTest extends TestCase
         $this->assertSame(3, DB::table('materiales')->count());
     }
 
+    public function test_el_color_del_material_se_guarda_y_sale_en_la_ficha_y_la_leyenda_se_edita(): void
+    {
+        Schema::table('materiales', fn (Blueprint $t) => $t->string('color', 20)->nullable());
+        Schema::create('configuracion', function (Blueprint $t) {
+            $t->id(); $t->string('clave')->unique(); $t->text('valor')->nullable(); $t->timestamps();
+        });
+
+        $id = $this->actingAs($this->ebanista)->postJson('/api/materiales', [
+            'nombre' => 'TELA LINO', 'unidad' => 'METRO', 'precio_unitario' => 30000, 'color' => 'rojo',
+        ])->assertCreated()->json('id');
+        $this->assertSame('rojo', DB::table('materiales')->where('id', $id)->value('color'));
+
+        // Un color que no existe no se acepta; null se lo quita
+        $this->actingAs($this->ebanista)->patchJson("/api/materiales/{$id}", ['precio_unitario' => 30000, 'color' => 'fucsia'])->assertStatus(422);
+        $this->actingAs($this->ebanista)->patchJson("/api/materiales/{$id}", ['precio_unitario' => 30000, 'color' => 'verde'])->assertOk();
+
+        // En la ficha, el ítem trae el color de su material
+        $ficha = $this->ficha('SOFA L', [['descripcion' => 'TELA LINO', 'cantidad' => 2, 'precio_unitario' => 30000, 'material_id' => $id]]);
+        $this->actingAs($this->ebanista)->getJson("/api/fichas-tecnicas/{$ficha}")
+            ->assertOk()->assertJsonPath('items.0.material.color', 'verde');
+
+        // Leyenda: de fábrica, y editable sin tocar los materiales
+        $this->actingAs($this->ebanista)->getJson('/api/materiales/colores')
+            ->assertOk()->assertJsonPath('colores.rojo', 'Falta actualizar el precio');
+        $this->actingAs($this->ebanista)->putJson('/api/materiales/colores', ['colores' => ['verde' => 'Precio de octubre', 'otro' => 'x']])
+            ->assertOk()->assertJsonPath('colores.verde', 'Precio de octubre')->assertJsonMissingPath('colores.otro');
+        $this->actingAs($this->ebanista)->getJson('/api/materiales/colores')->assertJsonPath('colores.verde', 'Precio de octubre');
+        $this->assertSame('verde', DB::table('materiales')->where('id', $id)->value('color'));
+
+        $this->actingAs($this->ebanista)->patchJson("/api/materiales/{$id}", ['precio_unitario' => 30000, 'color' => null])->assertOk();
+        $this->assertNull(DB::table('materiales')->where('id', $id)->value('color'));
+    }
+
     public function test_reemplazar_un_material_solo_en_las_fichas_escogidas(): void
     {
         $vieja = DB::table('materiales')->insertGetId(['nombre' => 'TELA VIEJA', 'unidad' => 'METRO', 'precio_unitario' => 10000]);

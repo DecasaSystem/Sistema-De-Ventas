@@ -788,6 +788,14 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   Al abrir un material sale **"Dónde se usa"** (`GET /materiales/{id}/usos`): cada ficha con la
   cantidad, la sección y lo que cuesta ese material en ella; tocarla abre la ficha. Antes solo
   se veía entrando a Eliminar (pedido del usuario, 2026-11-10).
+  **Colores** (2026-11-10, pedido del usuario: "un color que represente cosas, por ejemplo falta
+  actualizar el precio"): cada material puede llevar una marca de color (`materiales.color`,
+  migración `2026_11_11_000001_color_en_materiales`; 6 colores fijos en `Support/ColoresMaterial`).
+  Lo que significa cada color se escribe en Materiales → "Editar colores"
+  (`GET/PUT /materiales/colores`, `configuracion.materiales_colores`; de fábrica rojo = "Falta
+  actualizar el precio", ámbar = "Por revisar", verde = "Precio al día"). La lista filtra por color,
+  el Excel trae la columna, y en la ficha cada ítem de un material marcado muestra su color y su
+  significado (`items.material:id,color`).
 - **Cotizador** (`POST /calcular-precio-item` y tool `cotizar_fabricacion` del chat):
   `FichaRetriever` (embeddings) → `BomBuilder` (LLM arma receta con IDs y
   cantidades, ve la foto en `detail:high`) → `CostoCalculator` (precios de la BD)
