@@ -40,6 +40,12 @@ class Prestaciones
         'intereses_limite'                  => '01-31',
         'cesantias_limite'                  => '02-14',
         'dias_vacaciones_anio'              => 15,
+        // Si el sábado cuenta como día hábil de vacaciones (las tiendas abren
+        // el sábado). Con esto se calcula la fecha de regreso.
+        'vacaciones_sabado_habil'           => true,
+        // En vacaciones no hay desplazamiento al trabajo: la quincena no paga
+        // auxilio de transporte por esos días. Se puede apagar.
+        'vacaciones_sin_auxilio'            => true,
         // Indemnización por despido sin justa causa, contrato indefinido (art. 64 CST).
         'smmlv'                             => 1750905,
         'indemnizacion_tope_smmlv'          => 10,
@@ -324,6 +330,41 @@ class Prestaciones
         usort($filas, fn ($a, $b) => $b['dias_pendientes'] <=> $a['dias_pendientes']);
 
         return $filas;
+    }
+
+    /**
+     * Las fechas de unas vacaciones a partir del primer día y los días
+     * hábiles: salta domingos y festivos (y el sábado si no es hábil en
+     * Ajustes). `hasta` es el último día que descansa (incluye el domingo o
+     * festivo antes de volver) y `regreso` el día que vuelve a trabajar.
+     *
+     * @return array{desde: string, hasta: string, regreso: string, dias_calendario: int}
+     */
+    public static function fechasVacaciones(Carbon $desde, float $diasHabiles): array
+    {
+        $sabado = (bool) self::config()['vacaciones_sabado_habil'];
+        $habil = fn (Carbon $d) => ! $d->isSunday() && ($sabado || ! $d->isSaturday())
+            && ! \App\Support\FestivosColombia::esFestivo($d);
+
+        $desde = CicloNomina::fecha($desde);
+        $faltan = (int) ceil($diasHabiles);
+        $d = $desde->copy();
+        for ($i = 0; $i < 400 && $faltan > 0; $i++) {
+            if ($habil($d)) $faltan--;
+            if ($faltan > 0) $d->addDay();
+        }
+        $regreso = $d->copy()->addDay();
+        for ($i = 0; $i < 30 && ! $habil($regreso); $i++) {
+            $regreso->addDay();
+        }
+        $hasta = $regreso->copy()->subDay();
+
+        return [
+            'desde'           => $desde->toDateString(),
+            'hasta'           => $hasta->toDateString(),
+            'regreso'         => $regreso->toDateString(),
+            'dias_calendario' => (int) $desde->diffInDays($hasta) + 1,
+        ];
     }
 
     /**

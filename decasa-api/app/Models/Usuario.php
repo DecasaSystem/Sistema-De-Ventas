@@ -204,6 +204,18 @@ class Usuario extends Authenticatable
         return $this->hasMany(NominaAjuste::class, 'usuario_id');
     }
 
+    /** Vacaciones registradas en Prestaciones (la quincena las lee para saber qué días descansó). */
+    public function vacaciones()
+    {
+        return $this->hasMany(NominaPrestacionPago::class, 'usuario_id')->where('tipo', 'vacaciones');
+    }
+
+    /** Sueldo entregado antes del día de pago (ver NominaAdelanto). */
+    public function adelantos()
+    {
+        return $this->hasMany(NominaAdelanto::class, 'usuario_id');
+    }
+
     public function producciones()
     {
         return $this->hasMany(NominaProduccion::class, 'usuario_id');

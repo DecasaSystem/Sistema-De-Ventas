@@ -236,6 +236,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/prestaciones',                    [NominaPrestacionController::class, 'index']);
         Route::get('/prestaciones/vacaciones',         [NominaPrestacionController::class, 'vacaciones']);
         Route::post('/prestaciones/vacaciones',        [NominaPrestacionController::class, 'registrarVacaciones']);
+        Route::get('/prestaciones/vacaciones/fechas',  [NominaPrestacionController::class, 'fechasVacaciones']);
         Route::get('/prestaciones/historial',          [NominaPrestacionController::class, 'historial']);
         Route::get('/prestaciones/ajustes',            [NominaPrestacionController::class, 'ajustes']);
         Route::put('/prestaciones/ajustes',            [NominaPrestacionController::class, 'guardarAjustes']);
@@ -273,6 +274,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/prestamos',           [NominaPrestamoController::class, 'store']);
         Route::patch('/prestamos/{id}',     [NominaPrestamoController::class, 'update'])->whereNumber('id');
         Route::delete('/prestamos/{id}',    [NominaPrestamoController::class, 'destroy'])->whereNumber('id');
+        // Adelantos de sueldo: se entrega antes y el próximo pago lo descuenta.
+        Route::get('/adelantos',            [\App\Http\Controllers\NominaAdelantoController::class, 'index']);
+        Route::post('/adelantos',           [\App\Http\Controllers\NominaAdelantoController::class, 'store']);
+        Route::delete('/adelantos/{id}',    [\App\Http\Controllers\NominaAdelantoController::class, 'destroy'])->whereNumber('id');
+        // Lo que el trabajador paga por fuera de la nómina ("el 10 llega y paga todo").
+        Route::post('/prestamos/{id}/abonos', [NominaPrestamoController::class, 'abonar'])->whereNumber('id');
+        Route::delete('/prestamos/{id}/abonos/{abonoId}', [NominaPrestamoController::class, 'quitarAbono'])
+            ->whereNumber('id')->whereNumber('abonoId');
 
         Route::get('/ajustes',              [NominaAjusteController::class, 'index']);
         Route::post('/ajustes',             [NominaAjusteController::class, 'store']);

@@ -147,6 +147,14 @@ class LiquidacionContrato
             }
         }
 
+        // 7. Lo que se le adelantó de sueldo y ningún pago descontó todavía.
+        // El salario pendiente de arriba va completo (es lo que costó); aquí
+        // se resta lo que ya se le había entregado.
+        $adelantado = NominaLiquidador::adelantosPendientes($u);
+        if ($adelantado > 0) {
+            $deducciones[] = ['clave' => 'adelantos', 'nombre' => 'Adelantos de sueldo', 'monto' => round($adelantado)];
+        }
+
         $total = array_sum(array_column($conceptos, 'monto')) - array_sum(array_column($deducciones, 'monto'));
 
         return [
@@ -266,6 +274,14 @@ class LiquidacionContrato
                 }
             }
 
+            // 3b. Lo adelantado que los ciclos de arriba no alcanzaron a
+            // descontar queda descontado en la liquidación (ya se restó arriba).
+            if (\App\Support\Esquema::tabla('nomina_adelantos')) {
+                \App\Models\NominaAdelanto::where('usuario_id', $u->id)
+                    ->whereNull('nomina_pago_id')->whereNull('liquidacion_id')
+                    ->update(['liquidacion_id' => $liq->id]);
+            }
+
             // 4. Sale de nómina (el usuario no se desactiva: eso es en Trabajadores).
             $u->update([
                 'nomina_retiro'          => $calc['fecha_retiro'],
@@ -297,6 +313,10 @@ class LiquidacionContrato
         DB::transaction(function () use ($liq, $motivo) {
             $d = $liq->detalle;
             NominaPrestamoCuota::whereIn('id', $d['cuotas_ids'] ?? [])->delete();
+            if (\App\Support\Esquema::tabla('nomina_adelantos')) {
+                \App\Models\NominaAdelanto::where('liquidacion_id', $liq->id)->update(['liquidacion_id' => null]);
+                \App\Models\NominaAdelanto::whereIn('nomina_pago_id', $d['nomina_pagos_ids'] ?? [])->update(['nomina_pago_id' => null]);
+            }
             foreach ($d['nomina_pagos_ids'] ?? [] as $pagoId) {
                 \App\Models\NominaAusencia::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);
                 \App\Models\NominaAjuste::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);

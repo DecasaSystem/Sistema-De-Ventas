@@ -58,6 +58,9 @@ export const getPrestamos   = (usuarioId = null, incluirSaldados = false) =>
 export const crearPrestamo  = (payload) => api.post('/nomina/prestamos', payload)
 export const editarPrestamo = (id, payload) => api.patch(`/nomina/prestamos/${id}`, payload)
 export const borrarPrestamo = (id) => api.delete(`/nomina/prestamos/${id}`)
+// Lo que el trabajador paga por fuera de la nómina.
+export const abonarPrestamo = (id, payload) => api.post(`/nomina/prestamos/${id}/abonos`, payload)
+export const quitarAbonoPrestamo = (id, abonoId) => api.delete(`/nomina/prestamos/${id}/abonos/${abonoId}`)
 
 // ── Prestaciones (prima, cesantías, intereses, vacaciones) y liquidaciones ──
 // Lo que se debe lo calcula el servidor con lo provisionado en cada pago.
@@ -65,6 +68,8 @@ export const getPrestaciones        = (tipo, fecha) => api.get('/nomina/prestaci
 export const pagarPrestacion        = (payload) => api.post('/nomina/prestaciones/pagar', payload)
 export const getVacaciones          = () => api.get('/nomina/prestaciones/vacaciones')
 export const registrarVacaciones    = (payload) => api.post('/nomina/prestaciones/vacaciones', payload)
+// Hasta cuándo descansa y qué día vuelve (salta domingos y festivos), antes de guardar.
+export const getFechasVacaciones    = (params) => api.get('/nomina/prestaciones/vacaciones/fechas', { params })
 export const getHistorialPrestaciones = (params = {}) => api.get('/nomina/prestaciones/historial', { params })
 export const anularPrestacion       = (id, motivo) => api.post(`/nomina/prestaciones/${id}/anular`, { motivo })
 export const getAjustesPrestaciones = () => api.get('/nomina/prestaciones/ajustes')
@@ -74,3 +79,8 @@ export const calcularLiquidacion    = (payload) => api.post('/nomina/liquidacion
 export const registrarLiquidacion   = (payload) => api.post('/nomina/liquidaciones', payload)
 export const anularLiquidacion      = (id, motivo) => api.post(`/nomina/liquidaciones/${id}/anular`, { motivo })
 export const pdfLiquidacion         = (id) => api.get(`/nomina/liquidaciones/${id}/pdf`, { responseType: 'blob' })
+
+// ── Adelantos de sueldo: se entrega antes y el pago del ciclo lo descuenta ──
+export const getAdelantos   = (usuarioId) => api.get('/nomina/adelantos', { params: { usuario_id: usuarioId } })
+export const darAdelanto    = (payload) => api.post('/nomina/adelantos', payload)
+export const quitarAdelanto = (id) => api.delete(`/nomina/adelantos/${id}`)

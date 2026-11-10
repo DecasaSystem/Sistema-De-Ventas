@@ -24,6 +24,8 @@ class NominaPago extends Model
         'auxilio_transporte', 'valor_seguridad_social_dia', 'descuento_seguridad_social',
         'total_ajustes', 'produccion_total', 'bonificacion',
         'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
+        // Lo que ya se le había adelantado (NominaAdelanto): se entrega total − adelantos.
+        'adelantos', 'dias_vacaciones',
         // Lo que la empresa puso por detrás (CostoEmpleador), congelado.
         'costo_empleador', 'costo_empleador_detalle',
     ];

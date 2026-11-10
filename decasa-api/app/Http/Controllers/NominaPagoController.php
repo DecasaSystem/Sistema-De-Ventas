@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Usuario;
+use App\Models\NominaAdelanto;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
 use App\Models\NominaPago;
@@ -57,7 +58,8 @@ class NominaPagoController extends Controller
 
         return response()->json([
             'pendientes'    => $pendientes,
-            'total_general' => array_sum(array_column($pendientes, 'total')),
+            // Lo que falta entregar: lo ya adelantado salió antes.
+            'total_general' => array_sum(array_map(fn ($p) => $p['a_entregar'] ?? $p['total'], $pendientes)),
             // Lo que además pone la empresa por esos mismos ciclos.
             'costo_empleador_total' => array_sum(array_map(fn ($p) => $p['costo_empleador']['total'], $pendientes)),
             'sin_sueldo'    => $sinSueldo,
@@ -149,6 +151,7 @@ class NominaPagoController extends Controller
                     'fecha_inicio'    => $pago->fecha_inicio->toDateString(),
                     'fecha_fin'       => $pago->fecha_fin->toDateString(),
                     'total'           => (float) $pago->total,
+                    'a_entregar'      => round((float) $pago->total - (float) ($pago->adelantos ?? 0), 2),
                 ];
             } catch (ValidationException $e) {
                 $omitidos[] = [
@@ -169,6 +172,7 @@ class NominaPagoController extends Controller
             'pagados'  => $pagados,
             'omitidos' => $omitidos,
             'total'    => array_sum(array_column($pagados, 'total')),
+            'a_entregar' => array_sum(array_column($pagados, 'a_entregar')),
         ], 201);
     }
 
@@ -205,6 +209,10 @@ class NominaPagoController extends Controller
             // Se borran, no se desligan: una cuota sin pago no significa nada,
             // y dejarla suelta descontaria dos veces al volver a pagar.
             NominaPrestamoCuota::where('nomina_pago_id', $pago->id)->delete();
+            // El adelanto vuelve a quedar sin descontar: el siguiente pago lo toma.
+            if (\App\Support\Esquema::tabla('nomina_adelantos')) {
+                NominaAdelanto::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
+            }
             $pago->delete();
         });
 
@@ -303,6 +311,9 @@ class NominaPagoController extends Controller
             // el año que viene cambian los porcentajes, este pago no se mueve.
             'costo_empleador'         => $l['costo_empleador']['total'],
             'costo_empleador_detalle' => $l['costo_empleador'],
+        ] : []) + (\App\Support\Esquema::columna('nomina_pagos', 'dias_vacaciones') ? [
+            // Cuántos días del ciclo estuvo de vacaciones (sin auxilio esos días).
+            'dias_vacaciones' => $l['dias_vacaciones'] ?? 0,
         ] : []));
 
         // Mismo rango que usó la liquidación (el ciclo está cerrado, así
@@ -341,7 +352,61 @@ class NominaPagoController extends Controller
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
 
+        $this->descontarAdelantos($pago);
+
         return $pago;
+    }
+
+    /**
+     * Lo que se le adelantó se descuenta de este pago, lo más viejo primero
+     * (igual que lo muestra Pendientes). El `total` queda completo —es lo que
+     * costó el ciclo— y aparte `adelantos`: se entrega la diferencia.
+     *
+     * Si lo adelantado es más que el pago (le dieron la quincena entera y
+     * después faltó), el pago queda en $0 y lo que sobra se parte en otra
+     * fila que pasa al siguiente ciclo. Nunca un pago en negativo.
+     */
+    private function descontarAdelantos(NominaPago $pago): void
+    {
+        if (! \App\Support\Esquema::tabla('nomina_adelantos') || ! \App\Support\Esquema::columna('nomina_pagos', 'adelantos')) {
+            return;
+        }
+
+        $disponible = max(0.0, round((float) $pago->total, 2));
+        $aplicado = 0.0;
+
+        $pendientes = NominaAdelanto::where('usuario_id', $pago->usuario_id)
+            ->whereNull('nomina_pago_id')->whereNull('liquidacion_id')
+            ->orderBy('fecha')->orderBy('id')
+            ->lockForUpdate()->get();
+
+        foreach ($pendientes as $a) {
+            if ($disponible <= 0) break;
+            $monto = (float) $a->monto;
+
+            if ($monto > $disponible) {
+                // Se parte: lo que cabe queda en este pago y el resto sigue pendiente.
+                NominaAdelanto::create([
+                    'usuario_id'     => $a->usuario_id,
+                    'fecha'          => $a->fecha,
+                    'monto'          => round($monto - $disponible, 2),
+                    'nota'           => $a->nota,
+                    'resto_de_id'    => $a->resto_de_id ?? $a->id,
+                    'registrado_por' => $a->registrado_por,
+                ]);
+                $monto = $disponible;
+                $a->monto = $monto;
+            }
+
+            $a->nomina_pago_id = $pago->id;
+            $a->save();
+            $disponible = round($disponible - $monto, 2);
+            $aplicado += $monto;
+        }
+
+        if ($aplicado > 0) {
+            $pago->update(['adelantos' => round($aplicado, 2)]);
+        }
     }
 
     /**
@@ -407,6 +472,7 @@ class NominaPagoController extends Controller
             'valor_dia'          => (float) $p->valor_dia,
             'valor_hora'         => (float) $p->valor_hora,
             'dias'               => (float) $p->dias,
+            'dias_vacaciones'    => (float) ($p->dias_vacaciones ?? 0),
             'subtotal'            => (float) $p->subtotal,
             'descuento_faltas'    => (float) $p->descuento_faltas,
             'valor_auxilio_dia'      => (float) $p->valor_auxilio_dia,
@@ -420,6 +486,9 @@ class NominaPagoController extends Controller
             'bonificacion_nombre'  => $p->bonificacion_nombre,
             'bonificacion_detalle' => $p->bonificacion_detalle,
             'total'               => (float) $p->total,
+            // Lo que ya se le había adelantado y lo que se le entregó ese día.
+            'adelantos'           => (float) ($p->adelantos ?? 0),
+            'a_entregar'          => round((float) $p->total - (float) ($p->adelantos ?? 0), 2),
             // Por detrás: no se le pagó al trabajador (ver CostoEmpleador).
             'costo_empleador'    => CostoEmpleador::dePago($p),
             'observaciones'      => $p->observaciones,

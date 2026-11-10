@@ -1126,7 +1126,7 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
-- **Nómina "Marcar todos como pagados" daba 502** (2026-11-10, **sin subir**, sin migración, rama
+- **Nómina "Marcar todos como pagados" daba 502** (2026-11-10, **subido a `main`** ese día, commit 923786f, sin migración, rama
   `claude/nomina-pago-lote-502-503-38cb6e`). Una sola petición con ~25 consultas por trabajador
   (×200 ms) pasaba de los ~100 s y Render la cortaba: los pagos quedaban hechos, pero la pantalla
   no recargaba ni avisaba. Ahora `NominaPagoController::lote` carga a todos de una (si la misma
@@ -1140,6 +1140,48 @@ Decisiones del dueño del 2026-10-08:
   (`NominaLiquidador::cicloAnteriorSinPagar` en `registrar`, 422; el lote se ordena solo). La
   liquidación al retiro (con corte) no pasa por ese freno. Huecos de antes (un ciclo viejo sin pagar
   detrás de uno pagado) no frenan nada: el recorrido empieza después del último pago, como la lista.
+
+- **Abonos a préstamos por fuera de la nómina** (2026-11-10, **sin subir**, misma rama, trae
+  **migración** `2026_11_10_000003_abonos_de_prestamo_por_fuera`, solo agrega `tipo`, `nota`,
+  `registrado_por` a `nomina_prestamo_cuotas`). Pedido del usuario: "viene un 10 y me paga todo y
+  ese 15 ya se le pagaría normal". El abono es una fila más de cuotas (`tipo = 'abono'`, sin
+  `nomina_pago_id`): el saldo baja solo y la nómina siguiente descuenta lo que falte. **Confirmado
+  por el usuario (2026-11-10): con un abono parcial la cuota no cambia** (termina antes, no paga
+  menos por quincena). Por defecto mío (**falta confirmar**): no se puede abonar más de lo que debe; el abono no entra a caja ni a
+  Finanzas (los préstamos tampoco entraban). "N de M cuotas" cuenta solo las de nómina. Desde el
+  modal Préstamos: "Pagó por fuera" y "Deshacer". Test en `NominaCongelaCostoEmpleadorTest`.
+
+- **Adelantos de sueldo** (2026-11-10, **sin subir**, misma rama, trae **migración**
+  `2026_11_10_000004_adelantos_de_sueldo`: crea `nomina_adelantos` y agrega `nomina_pagos.adelantos`).
+  Pedido del usuario: "el típico pago por adelantado, ya sea por todo el sueldo o por una parte".
+  Nómina → Gente → reloj del trabajador. **No es un ajuste negativo** (el atajo "Anticipo" de
+  Novedades): un ajuste baja `total_ajustes`, y Finanzas cuenta eso como **menos costo** de nómina.
+  El pago guarda su `total` completo y aparte `adelantos`; se entrega `total − adelantos`
+  (`a_entregar`). Se descuenta en el próximo pago que se registre, lo más viejo primero; si es más
+  que el pago (adelantó todo y después faltó), el pago queda en $0 y el resto se parte en otra fila
+  (`resto_de_id`) para el siguiente ciclo: nunca un pago negativo. Finanzas: caja el día del
+  adelanto (no el del pago); costo igual. Liquidación al retiro: lo que no se descontó va como
+  deducción "Adelantos de sueldo". Por defecto mío (**falta confirmar**): no se adelanta más de los
+  ciclos sin pagar + el ciclo en curso completo; solo quien tiene acceso a Nómina; borrar solo lo
+  no descontado. **El atajo "Anticipo" de Novedades ahora manda a Adelantos** (usuario, 2026-11-10);
+  un descuento con "anticipo"/"adelanto" en el nombre no se deja guardar. Los anticipos viejos
+  guardados como ajuste no se tocaron. **Lo mismo con "Préstamo"** (usuario, mismo día): el atajo
+  manda a Préstamos y un descuento con "préstamo" en el nombre no se deja guardar. En Novedades solo
+  queda "Herramienta" como descuento rápido. Test en `NominaCongelaCostoEmpleadorTest`.
+
+- **Vacaciones que la quincena conoce** (2026-11-10, **sin subir**, misma rama, trae **migración**
+  `2026_11_10_000005_vacaciones_en_la_quincena`: agrega `nomina_pagos.dias_vacaciones` y
+  `nomina_prestaciones_pagos.adelanto_id`). Antes las fechas solo se anotaban: "pagadas aparte" con
+  descanso pagaba esos días dos veces y la quincena traía el auxilio completo. Ahora 3 formas:
+  `con_nomina` (descansa, la quincena paga igual), `adelantado` (descansa y se le paga antes de
+  salir = un NominaAdelanto que la quincena descuenta) y `dinero` (sin descansar, tope la mitad de lo
+  causado). La forma vieja `pago` queda en registros viejos. La fecha de regreso la calcula
+  `Prestaciones::fechasVacaciones` (domingos y `FestivosColombia`; el sábado según Ajustes).
+  Con descanso, no se dejan fechas que caigan en una quincena ya pagada ni encima de otras vacaciones.
+  Por defecto mío (**falta que el dueño/contador confirme**, los dos se apagan en Prestaciones →
+  Ajustes): el sábado es hábil y la quincena no paga auxilio de transporte los días de vacaciones.
+  El adelanto de vacaciones = días calendario × valor día − seguridad social de esos días.
+  Test en `PrestacionesYLiquidacionTest`.
 
 - **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
   `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con

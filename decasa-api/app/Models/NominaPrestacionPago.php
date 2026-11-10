@@ -15,11 +15,22 @@ class NominaPrestacionPago extends Model
     protected $table = 'nomina_prestaciones_pagos';
 
     public const TIPOS = ['prima', 'cesantias', 'intereses_cesantias', 'vacaciones', 'indemnizacion'];
-    public const FORMAS = ['pago', 'consignacion', 'con_nomina'];
+    /**
+     * Vacaciones:
+     * - `con_nomina`: descansa y la quincena le paga esos días como siempre.
+     * - `adelantado`: descansa y se le paga antes de salir (un NominaAdelanto
+     *   que la quincena descuenta: no se paga dos veces).
+     * - `dinero`: compensadas en plata, sin descansar (máximo la mitad).
+     * - `pago`: las de antes de esto (aparte, sin decir si descansó).
+     */
+    public const FORMAS = ['pago', 'consignacion', 'con_nomina', 'adelantado', 'dinero'];
+
+    /** Formas en las que la persona descansa: la quincena se entera. */
+    public const VACACIONES_CON_DESCANSO = ['con_nomina', 'adelantado'];
 
     protected $fillable = [
         'usuario_id', 'tipo', 'periodo_desde', 'periodo_hasta', 'dias', 'monto', 'forma', 'destino',
-        'fecha_pago', 'liquidacion_id', 'detalle', 'notas', 'estado', 'motivo_anulacion', 'registrado_por',
+        'fecha_pago', 'liquidacion_id', 'adelanto_id', 'detalle', 'notas', 'estado', 'motivo_anulacion', 'registrado_por',
     ];
 
     protected function casts(): array

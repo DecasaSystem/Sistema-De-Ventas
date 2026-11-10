@@ -134,6 +134,62 @@ class PrestacionesYLiquidacionTest extends TestCase
     }
 
     /**
+     * Vacaciones con descanso, pagadas antes de salir: la fecha de regreso
+     * salta domingos y festivos, lo pagado es un adelanto que la quincena
+     * descuenta (no se paga doble) y la quincena no paga auxilio esos días.
+     */
+    public function test_vacaciones_pagadas_antes_de_salir_no_se_pagan_dos_veces(): void
+    {
+        (require database_path('migrations/2026_11_10_000004_adelantos_de_sueldo.php'))->up();
+        (require database_path('migrations/2026_11_10_000005_vacaciones_en_la_quincena.php'))->up();
+        Carbon::setTestNow(Carbon::parse('2027-01-02 10:00', 'America/Bogota'));
+
+        // 7 hábiles desde el lunes 4: el sábado cuenta, el domingo 10 no y el
+        // lunes 11 es festivo (Reyes): descansa hasta el martes 12, vuelve el 13.
+        $f = $this->actingAs($this->jefa())->getJson('/api/nomina/prestaciones/vacaciones/fechas?usuario_id=2&desde=2027-01-04&dias=7')
+            ->assertOk()->json();
+        $this->assertSame('2027-01-12', $f['hasta']);
+        $this->assertSame('2027-01-13', $f['regreso']);
+        $this->assertSame(9, $f['dias_calendario']);
+        // 9 días × 58.360 − seguridad social de 9 días (42.022), sin auxilio.
+        $this->assertEquals(483218, $f['monto_adelantado']);
+
+        $r = $this->actingAs($this->jefa())->postJson('/api/nomina/prestaciones/vacaciones', [
+            'usuario_id' => 2, 'dias' => 7, 'desde' => '2027-01-04', 'forma' => 'adelantado',
+        ])->assertCreated()->json();
+        $this->assertSame('2027-01-13', $r['regreso']);
+        $this->assertEquals(483218, DB::table('nomina_adelantos')->sum('monto'));
+
+        // No se cruzan con otras.
+        $this->actingAs($this->jefa())->postJson('/api/nomina/prestaciones/vacaciones', [
+            'usuario_id' => 2, 'dias' => 1, 'desde' => '2027-01-08', 'forma' => 'con_nomina',
+        ])->assertStatus(422);
+
+        // La quincena del 1 al 15: 9 días de vacaciones sin auxilio y lo adelantado descontado.
+        Carbon::setTestNow(Carbon::parse('2027-01-16 10:00', 'America/Bogota'));
+        $p = collect($this->actingAs($this->jefa())->getJson('/api/nomina/pagos/pendientes')->assertOk()->json('pendientes'))
+            ->firstWhere('fecha_inicio', '2027-01-01');
+        $this->assertSame(9, $p['dias_vacaciones']);
+        $this->assertEquals(49819, $p['auxilio_transporte'], 'auxilio solo de los 6 días que trabajó');
+        $this->assertEquals(875400 + 49819 - 70036, $p['total']);
+        $this->assertEquals(483218, $p['adelantos']);
+        $this->assertEquals(875400 + 49819 - 70036 - 483218, $p['a_entregar']);
+
+        // En plata, sin descansar, solo hasta la mitad (y lo que quede pendiente).
+        $this->actingAs($this->jefa())->postJson('/api/nomina/prestaciones/vacaciones', [
+            'usuario_id' => 2, 'dias' => 2, 'forma' => 'dinero',
+        ])->assertStatus(422);
+
+        // Anular las vacaciones quita el adelanto (ninguna quincena lo descontó aún).
+        $this->actingAs($this->jefa())->postJson("/api/nomina/prestaciones/{$r['id']}/anular", ['motivo' => 'Se cancelaron'])->assertOk();
+        $this->assertSame(0, DB::table('nomina_adelantos')->count());
+        $p = collect($this->actingAs($this->jefa())->getJson('/api/nomina/pagos/pendientes')->json('pendientes'))
+            ->firstWhere('fecha_inicio', '2027-01-01');
+        $this->assertSame(0, $p['dias_vacaciones']);
+        $this->assertEquals(124548, $p['auxilio_transporte']);
+    }
+
+    /**
      * Despido sin justa causa el 9 de enero de 2027 (indefinido), con la prima
      * de diciembre, las cesantías y los intereses de 2026 sin pagar:
      *

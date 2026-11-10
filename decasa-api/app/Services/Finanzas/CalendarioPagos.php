@@ -28,7 +28,8 @@ class CalendarioPagos
                 'fecha' => $atrasada->min('fecha_fin'), 'tipo' => 'nomina', 'vencido' => true, 'estimado' => false,
                 'titulo' => 'Nómina por pagar',
                 'detalle' => $atrasada->count() . ' pago(s) de ciclos ya cerrados',
-                'monto' => round($atrasada->sum('total')),
+                // Lo que falta entregar: lo ya adelantado salió antes.
+                'monto' => round($atrasada->sum(fn ($p) => $p['a_entregar'] ?? $p['total'])),
             ];
         }
 

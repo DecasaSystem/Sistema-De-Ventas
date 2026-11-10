@@ -7,7 +7,7 @@
 import { ref, computed, watch } from 'vue'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowDownTrayIcon, PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import {
-  getPrestaciones, pagarPrestacion, getVacaciones, registrarVacaciones,
+  getPrestaciones, pagarPrestacion, getVacaciones, registrarVacaciones, getFechasVacaciones,
   getLiquidaciones, anularLiquidacion, pdfLiquidacion, getAjustesPrestaciones, guardarAjustesPrestaciones,
 } from '@/api/nomina'
 import LiquidacionForm from './LiquidacionForm.vue'
@@ -100,20 +100,46 @@ async function cargarVacaciones() {
   try { vacaciones.value = (await getVacaciones()).data } catch { toast.error('No se pudieron cargar las vacaciones') } finally { cargando.value = false }
 }
 
+// Tres formas: descansa y se le paga con la quincena; descansa y se le paga
+// antes de salir (un adelanto que la quincena descuenta: no se paga doble);
+// o en plata sin descansar (máximo la mitad). Con descanso, la fecha de
+// regreso la calcula el servidor (domingos y festivos no cuentan).
+const vistaVac   = ref(null)
+const guardandoVac = ref(false)
+let pedidoVac = 0
+
 function abrirVacaciones(v) {
-  formVac.value = { v, usuario_id: v.usuario_id, dias: Math.min(15, Math.floor(v.dias_pendientes)), desde: hoyISO(), hasta: hoyISO(), forma: 'con_nomina' }
+  formVac.value = { v, usuario_id: v.usuario_id, dias: Math.min(15, Math.floor(v.dias_pendientes)), desde: hoyISO(), forma: 'con_nomina' }
 }
 
-async function guardarVacaciones() {
+watch(() => formVac.value && [formVac.value.dias, formVac.value.desde, formVac.value.usuario_id], async () => {
+  const f = formVac.value
+  vistaVac.value = null
+  if (!f || !(f.dias > 0) || !f.desde) return
+  const yo = ++pedidoVac
   try {
-    await registrarVacaciones(formVac.value)
-    toast.success('Vacaciones registradas')
+    const { data } = await getFechasVacaciones({ usuario_id: f.usuario_id, desde: f.desde, dias: f.dias })
+    if (yo === pedidoVac) vistaVac.value = data
+  } catch { /* la vista previa es solo ayuda */ }
+})
+
+async function guardarVacaciones() {
+  const f = formVac.value
+  guardandoVac.value = true
+  try {
+    const { data } = await registrarVacaciones({
+      usuario_id: f.usuario_id, dias: f.dias, forma: f.forma,
+      ...(f.forma === 'dinero' ? {} : { desde: f.desde }),
+    })
+    toast.success(f.forma === 'dinero'
+      ? `Vacaciones pagadas en plata: ${pesos(data.monto)}`
+      : `Vacaciones registradas: vuelve el ${fecha(data.regreso)}`)
     formVac.value = null
     cargarVacaciones()
   } catch (e) {
     const err = e.response?.data?.errors
-    toast.error(err ? Object.values(err)[0][0] : 'No se pudo registrar')
-  }
+    toast.error(err ? Object.values(err)[0][0] : (e.response?.data?.message || 'No se pudo registrar'))
+  } finally { guardandoVac.value = false }
 }
 
 // ── Liquidaciones ───────────────────────────────────────────────────────────
@@ -277,6 +303,10 @@ watch([sub, ref_], () => {
           <label>Intereses (MM-DD)<input v-model="ajustes.intereses_limite" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
           <label>Cesantías (MM-DD)<input v-model="ajustes.cesantias_limite" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
           <label>Vacaciones por año (días)<input v-model.number="ajustes.dias_vacaciones_anio" type="number" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
+          <label class="col-span-2 flex items-start gap-2"><input v-model="ajustes.vacaciones_sabado_habil" type="checkbox" class="mt-0.5 rounded" />
+            <span>El sábado cuenta como día hábil de vacaciones<span class="block text-[10px] text-gray-400">Si la empresa trabaja los sábados. Cambia la fecha de regreso.</span></span></label>
+          <label class="col-span-2 flex items-start gap-2"><input v-model="ajustes.vacaciones_sin_auxilio" type="checkbox" class="mt-0.5 rounded" />
+            <span>Sin auxilio de transporte en vacaciones<span class="block text-[10px] text-gray-400">Esos días no hay desplazamiento al trabajo: la quincena no lo paga.</span></span></label>
           <label>Salario mínimo<input v-model.number="ajustes.smmlv" type="number" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
           <label>Indemn. 1.er año (días)<input v-model.number="ajustes.indemnizacion_primer_anio" type="number" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
           <label>Indemn. año adicional<input v-model.number="ajustes.indemnizacion_anio_adicional" type="number" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5" /></label>
@@ -296,18 +326,35 @@ watch([sub, ref_], () => {
             <button @click="formVac = null" class="text-gray-400" aria-label="Cerrar"><XMarkIcon class="w-5 h-5" /></button>
           </div>
           <p class="text-xs text-gray-500">Tiene {{ formVac.v.dias_pendientes.toLocaleString('es-CO') }} días pendientes.</p>
-          <div class="grid grid-cols-3 gap-2 text-xs">
-            <label>Días hábiles<input v-model.number="formVac.dias" type="number" min="1" :max="formVac.v.dias_pendientes" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5 text-sm" /></label>
-            <label>Desde<input v-model="formVac.desde" type="date" class="w-full border border-gray-200 rounded-lg px-1 py-1.5 mt-0.5 text-sm" /></label>
-            <label>Hasta<input v-model="formVac.hasta" type="date" class="w-full border border-gray-200 rounded-lg px-1 py-1.5 mt-0.5 text-sm" /></label>
-          </div>
           <div class="space-y-1.5 text-sm text-gray-700">
             <label class="flex items-start gap-2"><input v-model="formVac.forma" type="radio" value="con_nomina" class="mt-1" />
-              <span>Se pagan con la nómina normal<span class="block text-[11px] text-gray-400">Descansa y su quincena sale igual: no sale plata aparte.</span></span></label>
-            <label class="flex items-start gap-2"><input v-model="formVac.forma" type="radio" value="pago" class="mt-1" />
-              <span>Se pagan aparte<span class="block text-[11px] text-gray-400">Por adelantado o en dinero: {{ pesos(formVac.dias * formVac.v.valor_dia) }}.</span></span></label>
+              <span>Descansa y se le paga con la quincena<span class="block text-[11px] text-gray-400">Su quincena sale igual, sin auxilio de transporte esos días.</span></span></label>
+            <label class="flex items-start gap-2"><input v-model="formVac.forma" type="radio" value="adelantado" class="mt-1" />
+              <span>Descansa y se le paga antes de salir<span class="block text-[11px] text-gray-400">Queda como adelanto de sueldo: la quincena lo descuenta y no se paga doble.</span></span></label>
+            <label class="flex items-start gap-2"><input v-model="formVac.forma" type="radio" value="dinero" class="mt-1" />
+              <span>En plata, sin descansar<span class="block text-[11px] text-gray-400">La ley deja pagar así hasta la mitad de las vacaciones.</span></span></label>
           </div>
-          <button @click="guardarVacaciones" class="w-full bg-blue-600 text-white text-sm font-semibold rounded-xl py-2.5">Registrar</button>
+          <div :class="['grid gap-2 text-xs', formVac.forma === 'dinero' ? 'grid-cols-1' : 'grid-cols-2']">
+            <label>Días hábiles<input v-model.number="formVac.dias" type="number" min="1" :max="formVac.v.dias_pendientes" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 mt-0.5 text-sm" /></label>
+            <label v-if="formVac.forma !== 'dinero'">Sale a vacaciones el<input v-model="formVac.desde" type="date" class="w-full border border-gray-200 rounded-lg px-1 py-1.5 mt-0.5 text-sm" /></label>
+          </div>
+          <div v-if="vistaVac" class="text-xs rounded-lg border border-gray-200 px-3 py-2 space-y-0.5">
+            <template v-if="formVac.forma !== 'dinero'">
+              <p class="text-gray-700">Descansa del <strong>{{ fecha(vistaVac.desde) }}</strong> al <strong>{{ fecha(vistaVac.hasta) }}</strong> ({{ vistaVac.dias_calendario }} días)</p>
+              <p class="text-gray-700">Vuelve a trabajar el <strong>{{ fecha(vistaVac.regreso) }}</strong></p>
+              <p class="text-[11px] text-gray-400">Sin contar domingos ni festivos.</p>
+              <p v-if="formVac.forma === 'adelantado'" class="text-gray-700 pt-1">Se le entrega hoy <strong>{{ pesos(vistaVac.monto_adelantado) }}</strong> (sueldo de esos días menos seguridad social).</p>
+            </template>
+            <template v-else>
+              <p class="text-gray-700">Se le pagan <strong>{{ pesos(vistaVac.monto_dinero) }}</strong>.</p>
+              <p class="text-[11px]" :class="formVac.dias > vistaVac.tope_dinero ? 'text-red-600' : 'text-gray-400'">
+                Así se le pueden pagar hasta {{ vistaVac.tope_dinero.toLocaleString('es-CO') }} días.
+              </p>
+            </template>
+          </div>
+          <button @click="guardarVacaciones" :disabled="guardandoVac" class="w-full bg-blue-600 text-white text-sm font-semibold rounded-xl py-2.5 disabled:opacity-50">
+            {{ guardandoVac ? 'Guardando...' : 'Registrar' }}
+          </button>
         </div>
       </div>
     </Teleport>

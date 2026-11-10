@@ -61,7 +61,7 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
             $t->date('fecha_inicio'); $t->date('fecha_fin'); $t->string('sueldo_nombre')->nullable();
             foreach (['valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal', 'descuento_faltas', 'valor_auxilio_dia',
                       'descuento_incapacidad', 'auxilio_transporte', 'valor_seguridad_social_dia',
-                      'descuento_seguridad_social', 'total_ajustes', 'produccion_total', 'bonificacion', 'total'] as $c) {
+                      'descuento_seguridad_social', 'total_ajustes', 'produccion_total', 'bonificacion', 'total', 'adelantos'] as $c) {
                 $t->decimal($c, 12, 2)->default(0);
             }
             $t->string('bonificacion_nombre')->nullable(); $t->string('bonificacion_detalle')->nullable();
@@ -86,7 +86,14 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
         });
         Schema::create('nomina_prestamo_cuotas', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('prestamo_id'); $t->unsignedBigInteger('nomina_pago_id')->nullable();
-            $t->decimal('monto', 12, 2); $t->date('fecha')->nullable(); $t->timestamps();
+            $t->decimal('monto', 12, 2); $t->date('fecha')->nullable();
+            $t->string('tipo', 20)->nullable(); $t->string('nota', 160)->nullable(); $t->unsignedBigInteger('registrado_por')->nullable(); $t->timestamps();
+        });
+        Schema::create('nomina_adelantos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id'); $t->date('fecha'); $t->decimal('monto', 12, 2);
+            $t->string('nota', 160)->nullable(); $t->unsignedBigInteger('nomina_pago_id')->nullable();
+            $t->unsignedBigInteger('resto_de_id')->nullable(); $t->unsignedBigInteger('liquidacion_id')->nullable();
+            $t->unsignedBigInteger('registrado_por')->nullable(); $t->timestamps();
         });
         Schema::create('configuracion', function (Blueprint $t) {
             $t->string('clave')->primary(); $t->text('valor'); $t->timestamp('updated_at')->nullable();
@@ -192,6 +199,106 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
 
         $this->assertEquals([50000, 10000], DB::table('nomina_prestamo_cuotas')->orderBy('id')->pluck('monto')->map(fn ($m) => (float) $m)->all());
         $this->assertSame(3, NominaPago::count());
+    }
+
+    /**
+     * Adelanto de sueldo: el 20 se le da una parte y después el resto de la
+     * quincena. El pago del 30 queda completo (lo que costó) y no se le
+     * entrega nada más. Si después faltó, lo adelantado de más no deja el
+     * pago en negativo: pasa al siguiente ciclo.
+     */
+    public function test_adelanto_de_sueldo_parcial_y_completo(): void
+    {
+        $jefa = Usuario::find(1);
+        // Agosto y la primera de septiembre ya pagadas: solo queda la del 16 al 30.
+        foreach ([['2026-08-01', '2026-08-15'], ['2026-08-16', '2026-08-31'], ['2026-09-01', '2026-09-15']] as [$i, $f]) {
+            DB::table('nomina_pagos')->insert(['usuario_id' => 2, 'periodicidad' => 'quincenal', 'fecha_inicio' => $i, 'fecha_fin' => $f]);
+        }
+
+        $r = $this->actingAs($jefa)->getJson('/api/nomina/adelantos?usuario_id=2')->assertOk()->json();
+        $completo = $r['ciclo']['completo'];
+        $this->assertEquals(929912, $completo, 'la quincena completa, aunque hoy sea el 20');
+        $this->assertEquals($completo, $r['disponible']);
+
+        // Una parte.
+        $r = $this->actingAs($jefa)->postJson('/api/nomina/adelantos', ['usuario_id' => 2, 'monto' => 300000])->assertCreated()->json();
+        $this->assertEquals(300000, $r['adelantado']);
+        $this->assertEquals($completo - 300000, $r['disponible']);
+
+        // No más de lo que va a ganar.
+        $this->actingAs($jefa)->postJson('/api/nomina/adelantos', ['usuario_id' => 2, 'monto' => $completo])->assertStatus(422);
+
+        // El resto: la quincena entera adelantada.
+        $r = $this->actingAs($jefa)->postJson('/api/nomina/adelantos', ['usuario_id' => 2, 'monto' => $completo - 300000])->assertCreated()->json();
+        $this->assertEquals(0, $r['disponible']);
+
+        // Y después faltó un día: la quincena vale menos que lo adelantado.
+        DB::table('nomina_ausencias')->insert(['usuario_id' => 2, 'fecha' => '2026-09-25', 'tipo' => 'falta', 'horas' => 8, 'created_at' => now()]);
+
+        Carbon::setTestNow(Carbon::parse('2026-10-01 10:00:00', 'America/Bogota'));
+        $p = $this->pendiente('2026-09-16');
+        $this->assertEquals($completo - 58360, $p['total'], 'el total sigue siendo lo que costó');
+        $this->assertEquals($p['total'], $p['adelantos']);
+        $this->assertEquals(0, $p['a_entregar']);
+
+        $pago = $this->actingAs($jefa)->postJson('/api/nomina/pagos', ['usuario_id' => 2, 'fecha_inicio' => '2026-09-16'])->assertCreated()->json();
+        $this->assertEquals(0, $pago['a_entregar']);
+        $this->assertEquals($p['total'], NominaPago::find($pago['id'])->adelantos);
+
+        // Lo adelantado de más (el día que faltó) queda para el siguiente pago.
+        $r = $this->actingAs($jefa)->getJson('/api/nomina/adelantos?usuario_id=2')->assertOk()->json();
+        $this->assertEquals(58360, $r['adelantado']);
+        $resto = collect($r['adelantos'])->firstWhere('es_resto', true);
+        $this->assertEquals(58360, $resto['monto']);
+        $this->actingAs($jefa)->deleteJson("/api/nomina/adelantos/{$resto['id']}")->assertStatus(422);
+        $this->assertEquals($completo, DB::table('nomina_adelantos')->sum('monto'), 'partir no cambia lo adelantado');
+
+        // Deshacer el pago: todo lo adelantado vuelve a quedar sin descontar.
+        $this->actingAs($jefa)->deleteJson("/api/nomina/pagos/{$pago['id']}")->assertOk();
+        $this->assertEquals($completo, $this->actingAs($jefa)->getJson('/api/nomina/adelantos?usuario_id=2')->json('adelantado'));
+    }
+
+    /**
+     * "Debe $200.000 que se le descuentan de a $50.000; el 10 llega y paga
+     * todo": el abono baja el saldo y la nómina siguiente ya no descuenta nada.
+     * Si paga solo una parte, sigue la misma cuota hasta lo que falte.
+     */
+    public function test_abono_al_prestamo_por_fuera_de_la_nomina(): void
+    {
+        $jefa = Usuario::find(1);
+        $id = DB::table('nomina_prestamos')->insertGetId([
+            'usuario_id' => 2, 'monto' => 200000, 'cuotas' => 4, 'valor_cuota' => 50000,
+            'fecha' => '2026-07-20', 'activo' => true,
+        ]);
+        $this->assertEquals(50000, $this->pendiente('2026-08-01')['total_prestamos']);
+
+        // Paga una parte: $120.000 → quedan $80.000, la cuota sigue de $50.000.
+        $r = $this->actingAs($jefa)->postJson("/api/nomina/prestamos/{$id}/abonos", [
+            'monto' => 120000, 'fecha' => '2026-08-10', 'nota' => 'En efectivo',
+        ])->assertCreated()->json();
+        $this->assertEquals(80000, $r['saldo']);
+        $this->assertEquals(120000, $r['abonado_aparte']);
+        $this->assertSame(0, $r['cuotas_pagadas'], 'el abono no cuenta como cuota de la nómina');
+        $this->assertSame('En efectivo', $r['abonos'][0]['nota']);
+        $this->assertEquals(50000, $this->pendiente('2026-08-01')['total_prestamos']);
+
+        // No puede abonar más de lo que debe.
+        $this->actingAs($jefa)->postJson("/api/nomina/prestamos/{$id}/abonos", ['monto' => 90000])->assertStatus(422);
+
+        // Paga el resto: la nómina ya no le descuenta nada.
+        $r = $this->actingAs($jefa)->postJson("/api/nomina/prestamos/{$id}/abonos", ['monto' => 80000])->assertCreated()->json();
+        $this->assertTrue($r['saldado']);
+        $this->assertEquals(0, $this->pendiente('2026-08-01')['total_prestamos']);
+
+        // Se anotó mal el último: se deshace y vuelve a descontarse.
+        $this->actingAs($jefa)->deleteJson("/api/nomina/prestamos/{$id}/abonos/{$r['abonos'][0]['id']}")->assertOk();
+        $this->assertEquals(50000, $this->pendiente('2026-08-01')['total_prestamos']);
+
+        // Una cuota de nómina no se borra desde aquí: se anula el pago.
+        $this->actingAs($jefa)->postJson('/api/nomina/pagos', ['usuario_id' => 2, 'fecha_inicio' => '2026-08-01'])->assertCreated();
+        $cuota = DB::table('nomina_prestamo_cuotas')->whereNotNull('nomina_pago_id')->value('id');
+        $this->actingAs($jefa)->deleteJson("/api/nomina/prestamos/{$id}/abonos/{$cuota}")->assertStatus(422);
+        $this->assertEquals(30000, $this->pendiente('2026-08-16')['total_prestamos'], 'última cuota = lo que falta');
     }
 
     /**

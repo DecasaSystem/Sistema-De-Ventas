@@ -80,7 +80,22 @@ class FuenteNomina
             if (! isset($meses[$mes])) continue;
             $costo = CostoEmpleador::dePago($p);
             $out[$mes] ??= self::vacio();
-            $out[$mes]['caja'] += (float) $p->total + (float) $p->descuento_seguridad_social + (float) $costo['aportes'];
+            // Lo adelantado no salió ese día: salió cuando se adelantó (abajo).
+            $out[$mes]['caja'] += (float) $p->total - (float) ($p->adelantos ?? 0)
+                                + (float) $p->descuento_seguridad_social + (float) $costo['aportes'];
+        }
+
+        // Adelantos de sueldo: caja el día que se entregaron. No son costo
+        // aparte: el costo es el del ciclo, que ya va completo en su pago.
+        if (\App\Support\Esquema::tabla('nomina_adelantos')) {
+            $adelantos = \App\Models\NominaAdelanto::whereDate('fecha', '>=', $ini->toDateString())
+                ->whereDate('fecha', '<=', $fin->toDateString())->get(['fecha', 'monto']);
+            foreach ($adelantos as $a) {
+                $mes = Periodo::mesDe($a->fecha);
+                if (! isset($meses[$mes])) continue;
+                $out[$mes] ??= self::vacio();
+                $out[$mes]['caja'] += (float) $a->monto;
+            }
         }
 
         // Las prestaciones que se pagaron (Nómina → Prestaciones y liquidaciones).
@@ -97,7 +112,9 @@ class FuenteNomina
                 if (! isset($meses[$mes])) continue;
                 $out[$mes] ??= self::vacio();
                 $monto = (float) $p->monto;
-                if ($p->forma === 'con_nomina') {
+                // Pagadas antes de salir: también son sueldo de la quincena (la plata
+                // ya cuenta como adelanto el día que se dio).
+                if (in_array($p->forma, ['con_nomina', 'adelantado'], true)) {
                     $out[$mes]['bruto'] -= $monto;
                     $area = self::areaDe($p->trabajador);
                     $out[$mes]['por_area'][$area] = ($out[$mes]['por_area'][$area] ?? 0) - $monto;

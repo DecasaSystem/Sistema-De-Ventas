@@ -7,7 +7,7 @@ import CostoEmpleadorDetalle from '@/components/nomina/CostoEmpleadorDetalle.vue
 import CostoEmpleadorConfig from '@/components/nomina/CostoEmpleadorConfig.vue'
 import PrestacionesPanel from '@/components/nomina/PrestacionesPanel.vue'
 import { getEmpleados, actualizarEmpleado, eliminarEmpleado, asignarEnLote } from '@/api/empleados'
-import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo } from '@/api/nomina'
+import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo, abonarPrestamo, quitarAbonoPrestamo, getAdelantos, darAdelanto, quitarAdelanto } from '@/api/nomina'
 import {
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
   getPagosPendientes, pagar, pagarLote, getHistorialPagos, deshacerPago,
@@ -102,13 +102,19 @@ const gruposPagos = computed(() => {
     label,
     items,
     personas: agruparPorPersona(items),
-    total: items.reduce((s, i) => s + i.total, 0),
+    total: items.reduce((s, i) => s + entregar(i), 0),
   }))
 })
 
 // Si a alguien se le acumularon varios ciclos sin pagar, van juntos en una
 // sola tarjeta con el total de todo lo que se le debe y un botón para
 // pagárselo de una. Del más viejo al más nuevo.
+// Lo que se le entrega al pagar: el total del ciclo menos lo que ya se le
+// adelantó (NominaAdelanto). El total sigue siendo lo que costó el ciclo.
+function entregar(p) {
+  return p.a_entregar ?? p.total
+}
+
 function agruparPorPersona(items) {
   const personas = new Map()
   for (const p of items) {
@@ -122,7 +128,7 @@ function agruparPorPersona(items) {
       nombre: ciclos[0].empleado_nombre,
       cargo: ciclos[0].empleado_cargo,
       ciclos,
-      total: ciclos.reduce((s, c) => s + c.total, 0),
+      total: ciclos.reduce((s, c) => s + entregar(c), 0),
     }
   })
 }
@@ -152,7 +158,7 @@ async function pagarUno(p) {
   pagandoClave.value = clave(p)
   try {
     await pagar(p.usuario_id, p.fecha_inicio)
-    toast.success(`${p.empleado_nombre}: ${formatoPesos(p.total)} pagado`)
+    toast.success(`${p.empleado_nombre}: ${formatoPesos(entregar(p))} pagado`)
     empleadosCargados = false
     await cargarPendientes()
   } catch (e) {
@@ -192,7 +198,7 @@ async function pagarFilas(ciclos) {
       progresoPago.value = { hechos: i, de: filas.length }
       const { data } = await pagarLote(filas.slice(i, i + PAGOS_POR_TANDA))
       pagados += data.pagados.length
-      total += data.total
+      total += data.a_entregar ?? data.total
       omitidos.push(...(data.omitidos ?? []))
     }
     if (omitidos.length) {
@@ -871,6 +877,103 @@ async function quitarPrestamo(pr) {
   } catch (e) { toast.error(e.response?.data?.message || 'No se pudo borrar') }
 }
 
+// "El 10 llega y paga todo": un abono por fuera de la nómina. Baja el saldo y
+// el próximo pago descuenta solo lo que falte (nada si pagó todo).
+const abonandoId    = ref(null)
+const formAbono     = ref({ monto: '', nota: '' })
+const guardandoAbono = ref(false)
+
+function abrirAbono(pr) {
+  abonandoId.value = abonandoId.value === pr.id ? null : pr.id
+  formAbono.value  = { monto: pr.saldo, nota: '' }
+}
+
+async function guardarAbono(pr) {
+  const m = Number(formAbono.value.monto)
+  if (!(m > 0)) { toast.error('¿Cuánto pagó?'); return }
+  if (m > pr.saldo) { toast.error(`Solo debe ${formatoPesos(pr.saldo)}`); return }
+  guardandoAbono.value = true
+  try {
+    await abonarPrestamo(pr.id, { monto: m, nota: formAbono.value.nota.trim() || null })
+    toast.success(m >= pr.saldo
+      ? 'Préstamo saldado: ya no se le descuenta nada.'
+      : `Abono registrado: quedan ${formatoPesos(pr.saldo - m)}.`)
+    abonandoId.value = null
+    const { data } = await getPrestamos(empPrestamo.value.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+    await cargarEmpleados()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar el abono')
+  } finally { guardandoAbono.value = false }
+}
+
+async function quitarAbono(pr, ab) {
+  if (!confirm(`¿Deshacer el abono de ${formatoPesos(ab.monto)}? Vuelve a deberlo.`)) return
+  try {
+    await quitarAbonoPrestamo(pr.id, ab.id)
+    const { data } = await getPrestamos(empPrestamo.value.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+    toast.success('Abono deshecho')
+    await cargarEmpleados()
+  } catch (e) { toast.error(e.response?.data?.message || 'No se pudo deshacer') }
+}
+
+// ── Adelantos de sueldo ─────────────────────────────────────────────────────
+// "Le pago la quincena (o una parte) antes": se entrega hoy y el pago del
+// ciclo lo descuenta solo. No se puede adelantar más de lo que va a ganar.
+const modalAdelanto     = ref(false)
+const empAdelanto       = ref(null)
+const resumenAdelanto   = ref(null)
+const cargandoAdelanto  = ref(false)
+const guardandoAdelanto = ref(false)
+const formAdelanto      = ref({ monto: '', nota: '' })
+
+async function abrirAdelanto(e) {
+  empAdelanto.value = e
+  resumenAdelanto.value = null
+  formAdelanto.value = { monto: '', nota: '' }
+  modalAdelanto.value = true
+  cargandoAdelanto.value = true
+  try {
+    const { data } = await getAdelantos(e.id)
+    resumenAdelanto.value = data
+  } catch (err) {
+    toast.error(err.response?.data?.message || 'No se pudo cargar')
+    modalAdelanto.value = false
+  } finally { cargandoAdelanto.value = false }
+}
+
+async function guardarAdelanto() {
+  const r = resumenAdelanto.value
+  const m = Number(formAdelanto.value.monto)
+  if (!(m > 0)) { toast.error('¿Cuánto se le adelanta?'); return }
+  if (m > r.disponible) { toast.error(`Solo se le puede adelantar hasta ${formatoPesos(r.disponible)}`); return }
+  guardandoAdelanto.value = true
+  try {
+    const { data } = await darAdelanto({
+      usuario_id: empAdelanto.value.id, monto: m, nota: formAdelanto.value.nota.trim() || null,
+    })
+    resumenAdelanto.value = data
+    formAdelanto.value = { monto: '', nota: '' }
+    toast.success(`Adelanto de ${formatoPesos(m)} registrado: se descuenta solo al pagar.`)
+    empleadosCargados = false
+    cargarPendientes()
+  } catch (err) {
+    toast.error(err.response?.data?.message || 'No se pudo registrar')
+  } finally { guardandoAdelanto.value = false }
+}
+
+async function quitarAdelantoDe(a) {
+  if (!confirm(`¿Borrar el adelanto de ${formatoPesos(a.monto)}? Úsalo solo si se anotó por error.`)) return
+  try {
+    const { data } = await quitarAdelanto(a.id)
+    resumenAdelanto.value = data
+    toast.success('Adelanto borrado')
+    empleadosCargados = false
+    cargarPendientes()
+  } catch (err) { toast.error(err.response?.data?.message || 'No se pudo borrar') }
+}
+
 // ── Novedades del trabajador: faltas y ajustes ────────────────────────────
 const mostrarNovedades  = ref(false)
 const empleadoNovedades = ref(null)
@@ -886,9 +989,32 @@ const historialAjustes  = ref([])
 const historialProd     = ref([])
 const cargandoHistorial = ref(false)
 
-// Atajos para lo que más se repite, y para que "préstamo" no haya que
-// escribirlo cada vez ni acordarse de ponerle el signo menos.
-const CONCEPTOS_DESCUENTO = ['Préstamo', 'Herramienta', 'Anticipo']
+// Atajos para lo que más se repite, para no acordarse de ponerle el signo menos.
+// "Anticipo" y "Préstamo" ya no van aquí: un descuento baja lo que la nómina
+// costó y Finanzas veía la quincena más barata. Van por Adelanto de sueldo y
+// por Préstamos, que se descuentan solos sin tocar el costo.
+const CONCEPTOS_DESCUENTO = ['Herramienta']
+
+/** Si escriben "anticipo"/"adelanto" o "préstamo" como descuento, se manda a su módulo. */
+const ajusteVaAOtroLado = computed(() => {
+  if (formAjuste.value.signo !== -1) return null
+  const n = formAjuste.value.nombre || ''
+  if (/anticip|adelant/i.test(n)) return 'adelanto'
+  if (/pr[eé]stam/i.test(n)) return 'prestamo'
+  return null
+})
+
+function irAAdelanto() {
+  const e = empleadoNovedades.value
+  mostrarNovedades.value = false
+  if (e) abrirAdelanto(e)
+}
+
+function irAPrestamos() {
+  const e = empleadoNovedades.value
+  mostrarNovedades.value = false
+  if (e) abrirPrestamos(e)
+}
 const CONCEPTOS_BONO      = ['Hora extra', 'Bonificación', 'Recargo']
 
 async function abrirNovedades(e) {
@@ -1235,10 +1361,12 @@ async function quitarAjuste(id) {
                         · {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes
                       </span>
                       <span v-if="p.bonificacion" class="text-green-600 font-medium">· +{{ formatoPesos(p.bonificacion) }} bono</span>
+                      <span v-if="p.adelantos" class="text-purple-600 font-medium">· −{{ formatoPesos(p.adelantos) }} adelantado</span>
+                      <span v-if="p.dias_vacaciones" class="text-blue-600 font-medium">· {{ p.dias_vacaciones }} días de vacaciones</span>
                     </p>
                   </div>
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <p class="font-bold text-sm text-gray-800">{{ formatoPesos(p.total) }}</p>
+                    <p class="font-bold text-sm text-gray-800">{{ formatoPesos(entregar(p)) }}</p>
                     <component :is="pagoAbierto === clave(p) ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-300" />
                   </div>
                 </div>
@@ -1349,8 +1477,15 @@ async function quitarAjuste(id) {
                   <p v-if="bloqueadoPorUnoViejo(persona, p)" class="text-[11px] text-amber-700">
                     Primero se paga el ciclo más viejo ({{ persona.ciclos[0].nombre }}), o todos juntos con el botón de arriba.
                   </p>
+                  <div v-if="p.adelantos" class="flex justify-between text-xs bg-purple-50 rounded-lg px-2.5 py-1.5">
+                    <span class="text-purple-700">Ya se le adelantó (el ciclo vale {{ formatoPesos(p.total) }})</span>
+                    <span class="text-purple-700 font-semibold">−{{ formatoPesos(p.adelantos) }}</span>
+                  </div>
                   <div class="flex items-center justify-between pt-2 border-t border-gray-50">
-                    <p class="text-sm font-bold text-gray-800">{{ formatoPesos(p.total) }}</p>
+                    <p class="text-sm font-bold text-gray-800">
+                      {{ formatoPesos(entregar(p)) }}
+                      <span v-if="p.adelantos" class="block text-[10px] font-normal text-gray-400">por entregar</span>
+                    </p>
                     <button
                       @click.stop="pagarUno(p)" :disabled="pagandoClave === clave(p) || bloqueadoPorUnoViejo(persona, p)"
                       class="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
@@ -1445,6 +1580,9 @@ async function quitarAjuste(id) {
             <div class="flex items-center gap-1 shrink-0">
               <button @click="abrirNovedades(e)" class="p-1.5 text-gray-300 hover:text-amber-600 transition-colors" aria-label="Faltas y ajustes">
                 <CalendarIcon class="w-4 h-4" />
+              </button>
+              <button @click="abrirAdelanto(e)" class="p-1.5 text-gray-300 hover:text-green-600 transition-colors" aria-label="Adelanto de sueldo" title="Adelanto de sueldo">
+                <ClockIcon class="w-4 h-4" />
               </button>
               <button @click="abrirPrestamos(e)" class="p-1.5 text-gray-300 hover:text-purple-600 transition-colors" aria-label="Préstamos">
                 <BanknotesIcon class="w-4 h-4" />
@@ -2344,21 +2482,36 @@ async function quitarAjuste(id) {
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1.5">Concepto *</label>
-                <input v-model="formAjuste.nombre" :placeholder="formAjuste.signo === 1 ? 'Hora extra, bonificación...' : 'Préstamo, herramienta...'" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                <input v-model="formAjuste.nombre" :placeholder="formAjuste.signo === 1 ? 'Hora extra, bonificación...' : 'Herramienta, daño...'" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                 <div class="flex flex-wrap gap-1.5 mt-1.5">
                   <button
                     v-for="c in (formAjuste.signo === 1 ? CONCEPTOS_BONO : CONCEPTOS_DESCUENTO)" :key="c"
                     type="button" @click="formAjuste.nombre = c"
                     class="text-[11px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
                   >{{ c }}</button>
+                  <button v-if="formAjuste.signo !== 1" type="button" @click="irAAdelanto"
+                    class="text-[11px] font-medium text-green-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
+                  >Anticipo → Adelanto de sueldo</button>
+                  <button v-if="formAjuste.signo !== 1" type="button" @click="irAPrestamos"
+                    class="text-[11px] font-medium text-purple-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
+                  >Préstamo → Préstamos</button>
                 </div>
+              </div>
+              <div v-if="ajusteVaAOtroLado === 'adelanto'" class="text-[11px] text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
+                Un anticipo se registra en <strong>Adelanto de sueldo</strong>, no como descuento: así se descuenta solo
+                el día de pago y Finanzas no ve la nómina más barata.
+                <button type="button" @click="irAAdelanto" class="block mt-1 font-semibold text-green-700">Ir a Adelanto de sueldo →</button>
+              </div>
+              <div v-else-if="ajusteVaAOtroLado === 'prestamo'" class="text-[11px] text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
+                Un préstamo se registra en <strong>Préstamos</strong>, no como descuento: ahí se descuenta solo por cuotas,
+                se ve cuánto debe y Finanzas no ve la nómina más barata.
+                <button type="button" @click="irAPrestamos" class="block mt-1 font-semibold text-purple-700">Ir a Préstamos →</button>
               </div>
               <p class="text-[11px] text-gray-400">
                 Entra en el ciclo que contenga esa fecha, igual que una falta.
-                Un préstamo se registra como descuento y se resta del pago de ese ciclo.
               </p>
               <button
-                @click="guardarAjuste" :disabled="guardandoNovedad"
+                @click="guardarAjuste" :disabled="guardandoNovedad || !!ajusteVaAOtroLado"
                 :class="['w-full text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5', formAjuste.signo === 1 ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700']"
               >
                 <span v-if="guardandoNovedad" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -2513,6 +2666,10 @@ async function quitarAjuste(id) {
                     </p>
                     <p v-if="p.bonificacion_nombre" class="text-[11px] text-purple-500 mt-0.5">{{ p.bonificacion_nombre }}</p>
                     <p v-if="p.bonificacion_detalle" class="text-[10px] text-gray-400 mt-0.5">{{ p.bonificacion_detalle }}</p>
+                    <p v-if="p.dias_vacaciones" class="text-[11px] text-blue-600 mt-0.5">{{ p.dias_vacaciones }} días de vacaciones en este ciclo</p>
+                    <p v-if="p.adelantos" class="text-[11px] text-purple-600 mt-0.5">
+                      Se le adelantaron {{ formatoPesos(p.adelantos) }} · ese día se le entregaron {{ formatoPesos(p.a_entregar) }}
+                    </p>
                     <p class="text-[11px] text-gray-400 mt-1">Pagado el {{ formatoFechaHora(p.pagado_at) }}</p>
                     <CostoEmpleadorDetalle :costo="p.costo_empleador" class="mt-2 bg-white" />
                   </div>
@@ -2528,6 +2685,98 @@ async function quitarAjuste(id) {
 
             <div class="flex gap-2.5 p-5 pt-2">
               <button @click="mostrarHistorial = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Adelanto de sueldo -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="modalAdelanto" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          @click.self="modalAdelanto = false">
+          <div class="absolute inset-0 bg-black/40" />
+          <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white/95 backdrop-blur-sm px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-bold text-gray-800">Adelanto de sueldo</h3>
+                <p class="text-xs text-gray-500 mt-0.5">{{ empAdelanto?.nombre }}</p>
+              </div>
+              <button @click="modalAdelanto = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+
+            <div v-if="cargandoAdelanto || !resumenAdelanto" class="flex justify-center py-10">
+              <div class="w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+            <div v-else class="p-5 space-y-4">
+              <div class="bg-gray-50 rounded-xl p-3 space-y-1.5 text-xs">
+                <p class="text-[11px] font-semibold text-gray-400 uppercase">{{ resumenAdelanto.ciclo.nombre }}</p>
+                <div class="flex justify-between gap-2">
+                  <span class="text-gray-500">Lleva ganado hoy ({{ resumenAdelanto.ciclo.dias_hoy }} días)</span>
+                  <span class="font-medium text-gray-700">{{ formatoPesos(resumenAdelanto.ciclo.ganado_hoy) }}</span>
+                </div>
+                <div v-if="resumenAdelanto.ciclo_en_curso" class="flex justify-between gap-2">
+                  <span class="text-gray-500">El ciclo completo</span>
+                  <span class="font-medium text-gray-700">{{ formatoPesos(resumenAdelanto.ciclo_en_curso) }}</span>
+                </div>
+                <div v-if="resumenAdelanto.sin_pagar" class="flex justify-between gap-2">
+                  <span class="text-amber-700">Ciclos cerrados sin pagar</span>
+                  <span class="font-medium text-amber-700">{{ formatoPesos(resumenAdelanto.sin_pagar) }}</span>
+                </div>
+                <div v-if="resumenAdelanto.adelantado" class="flex justify-between gap-2">
+                  <span class="text-purple-700">Ya se le adelantó</span>
+                  <span class="font-medium text-purple-700">−{{ formatoPesos(resumenAdelanto.adelantado) }}</span>
+                </div>
+                <div class="flex justify-between gap-2 pt-1.5 border-t border-gray-200">
+                  <span class="font-semibold text-gray-700">Se le puede adelantar</span>
+                  <span class="font-bold text-gray-800">{{ formatoPesos(resumenAdelanto.disponible) }}</span>
+                </div>
+              </div>
+
+              <template v-if="resumenAdelanto.disponible > 0">
+                <div class="space-y-2">
+                  <label class="block text-xs font-semibold text-gray-500">Cuánto se le entrega hoy</label>
+                  <InputPesos v-model="formAdelanto.monto" placeholder="Una parte o todo"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  <div class="flex gap-2">
+                    <button @click="formAdelanto.monto = Math.round(resumenAdelanto.disponible / 2)"
+                      class="flex-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 py-1.5 hover:bg-gray-200">La mitad</button>
+                    <button @click="formAdelanto.monto = resumenAdelanto.disponible"
+                      class="flex-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 py-1.5 hover:bg-gray-200">Todo el sueldo</button>
+                  </div>
+                  <input v-model="formAdelanto.nota" type="text" maxlength="160" placeholder="Nota (opcional): en efectivo, por el festivo…"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+                <p class="text-xs text-gray-500">
+                  El día de pago se le descuenta solo y se le entrega lo que falte.
+                  Si después falta, lo adelantado de más pasa al siguiente pago.
+                </p>
+                <button @click="guardarAdelanto" :disabled="guardandoAdelanto"
+                  class="w-full bg-green-600 text-white text-sm font-semibold rounded-xl py-2.5 hover:bg-green-700 disabled:opacity-50 transition-colors">
+                  {{ guardandoAdelanto ? 'Guardando...' : 'Registrar adelanto' }}
+                </button>
+              </template>
+              <p v-else class="text-xs text-gray-500 text-center">Ya se le adelantó todo lo que va a ganar hasta el final de este ciclo.</p>
+
+              <div v-if="resumenAdelanto.adelantos.length" class="border-t border-gray-100 pt-4 space-y-2">
+                <p class="text-[11px] font-semibold text-gray-400 uppercase">Adelantos</p>
+                <div v-for="a in resumenAdelanto.adelantos" :key="a.id" class="flex items-start justify-between gap-2 text-xs">
+                  <div class="min-w-0">
+                    <p class="text-gray-700 font-medium">{{ formatoPesos(a.monto) }} · {{ formatoFechaCorta(a.fecha) }}</p>
+                    <p class="text-[11px] text-gray-400 truncate">
+                      <template v-if="a.descontado">Descontado{{ a.en_pago ? ' en ' + a.en_pago : ' en la liquidación' }}</template>
+                      <template v-else-if="a.es_resto">Lo que sobró de un adelanto: va en el próximo pago</template>
+                      <template v-else>Se descuenta en el próximo pago</template>
+                      <template v-if="a.nota"> · {{ a.nota }}</template>
+                    </p>
+                  </div>
+                  <button v-if="!a.descontado && !a.es_resto" @click="quitarAdelantoDe(a)"
+                    class="text-[11px] font-semibold text-red-500 hover:text-red-700 shrink-0">Borrar</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2568,6 +2817,9 @@ async function quitarAjuste(id) {
                       <p class="text-[11px] text-gray-500 mt-0.5">
                         {{ formatoPesos(pr.valor_cuota) }} por pago · {{ pr.cuotas_pagadas }} de {{ pr.cuotas }} cuotas
                       </p>
+                      <p v-if="pr.abonado_aparte" class="text-[11px] text-gray-500">
+                        Pagó por fuera {{ formatoPesos(pr.abonado_aparte) }}
+                      </p>
                     </div>
                     <div class="text-right shrink-0">
                       <p v-if="pr.saldado" class="text-xs font-bold text-green-600">Saldado</p>
@@ -2577,16 +2829,50 @@ async function quitarAjuste(id) {
                       </template>
                     </div>
                   </div>
-                  <div v-if="!pr.saldado" class="flex gap-2 mt-2 pt-2 border-t border-purple-100">
+                  <div v-if="!pr.saldado" class="flex gap-3 mt-2 pt-2 border-t border-purple-100">
+                    <button @click="abrirAbono(pr)" class="text-[11px] font-semibold text-purple-700 hover:text-purple-900">
+                      Pagó por fuera
+                    </button>
                     <button @click="pausarPrestamo(pr)" class="text-[11px] font-semibold text-gray-600 hover:text-gray-800">
                       {{ pr.activo ? 'Pausar el descuento' : 'Reanudar' }}
                     </button>
-                    <button v-if="!pr.cuotas_pagadas" @click="quitarPrestamo(pr)"
+                    <button v-if="!pr.cuotas_pagadas && !pr.abonos?.length" @click="quitarPrestamo(pr)"
                       class="text-[11px] font-semibold text-red-500 hover:text-red-700 ml-auto">
                       Borrar
                     </button>
                   </div>
                   <p v-else-if="!pr.activo" class="text-[11px] text-gray-400 mt-1">Pausado</p>
+
+                  <!-- Abono por fuera de la nómina -->
+                  <div v-if="abonandoId === pr.id && !pr.saldado" class="mt-2 space-y-2 bg-white rounded-lg border border-purple-200 p-2.5">
+                    <div class="flex gap-2">
+                      <InputPesos v-model="formAbono.monto" placeholder="Cuánto pagó"
+                        class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      <button @click="formAbono.monto = pr.saldo" class="text-[11px] font-semibold text-purple-700 px-2 shrink-0">Todo</button>
+                    </div>
+                    <input v-model="formAbono.nota" type="text" maxlength="160" placeholder="Nota (opcional): en efectivo, transferencia…"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    <p class="text-[11px] text-gray-500">
+                      <template v-if="Number(formAbono.monto) >= pr.saldo">Queda saldado: en el próximo pago ya no se le descuenta nada.</template>
+                      <template v-else-if="Number(formAbono.monto) > 0">
+                        Quedan {{ formatoPesos(pr.saldo - Number(formAbono.monto)) }}; se le sigue descontando
+                        {{ formatoPesos(Math.min(pr.valor_cuota, pr.saldo - Number(formAbono.monto))) }} por pago hasta saldar.
+                      </template>
+                    </p>
+                    <button @click="guardarAbono(pr)" :disabled="guardandoAbono"
+                      class="w-full bg-purple-600 text-white text-xs font-semibold rounded-lg py-2 hover:bg-purple-700 disabled:opacity-50">
+                      {{ guardandoAbono ? 'Guardando...' : 'Registrar abono' }}
+                    </button>
+                  </div>
+
+                  <div v-if="pr.abonos?.length" class="mt-2 space-y-1">
+                    <div v-for="ab in pr.abonos" :key="ab.id" class="flex items-center justify-between gap-2 text-[11px] text-gray-500">
+                      <span class="min-w-0 truncate">
+                        Abono {{ formatoFechaCorta(ab.fecha) }} · {{ formatoPesos(ab.monto) }}<template v-if="ab.nota"> · {{ ab.nota }}</template>
+                      </span>
+                      <button @click="quitarAbono(pr, ab)" class="font-semibold text-red-500 hover:text-red-700 shrink-0">Deshacer</button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <p v-else class="text-xs text-gray-400 text-center py-2">No tiene préstamos.</p>

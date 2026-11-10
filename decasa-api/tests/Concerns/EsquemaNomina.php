@@ -74,7 +74,8 @@ trait EsquemaNomina
         });
         Schema::create('nomina_prestamo_cuotas', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('prestamo_id'); $t->unsignedBigInteger('nomina_pago_id')->nullable();
-            $t->decimal('monto', 12, 2); $t->date('fecha')->nullable(); $t->timestamps();
+            $t->decimal('monto', 12, 2); $t->date('fecha')->nullable();
+            $t->string('tipo', 20)->nullable(); $t->string('nota', 160)->nullable(); $t->unsignedBigInteger('registrado_por')->nullable(); $t->timestamps();
         });
         Schema::create('configuracion', function (Blueprint $t) {
             $t->string('clave')->primary(); $t->text('valor'); $t->timestamp('updated_at')->nullable();

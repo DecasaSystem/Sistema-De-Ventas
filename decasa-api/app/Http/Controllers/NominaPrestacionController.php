@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\NominaLiquidacion;
+use App\Models\NominaPago;
 use App\Models\NominaPrestacionPago;
 use App\Models\Usuario;
 use App\Services\CicloNomina;
@@ -117,45 +118,170 @@ class NominaPrestacionController extends Controller
     }
 
     /**
+     * GET /api/nomina/prestaciones/vacaciones/fechas?usuario_id=&desde=&dias=
+     * Hasta cuándo descansa y qué día vuelve (salta domingos y festivos), y
+     * cuánto le toca si se le pagan antes de salir. Para verlo antes de guardar.
+     */
+    public function fechasVacaciones(Request $request)
+    {
+        $data = $request->validate([
+            'usuario_id' => 'required|exists:usuarios,id',
+            'desde'      => 'required|date',
+            'dias'       => 'required|numeric|min:0.5|max:90',
+        ]);
+        $u = Usuario::with('sueldo')->findOrFail($data['usuario_id']);
+        $f = Prestaciones::fechasVacaciones(CicloNomina::fecha($data['desde']), (float) $data['dias']);
+
+        return response()->json($f + [
+            'monto_adelantado' => $this->montoVacacionesAdelantadas($u, $f['dias_calendario']),
+            'monto_dinero'     => round((float) $data['dias'] * $u->valorDiaEfectivo()),
+            'tope_dinero'      => $this->topeEnDinero($u),
+        ]);
+    }
+
+    /**
      * POST /api/nomina/prestaciones/vacaciones — registrar unas vacaciones.
      *
-     * `con_nomina`: la persona descansa y el sueldo de esos días ya va en su
-     * nómina normal (no sale plata aparte; Finanzas no lo cuenta dos veces).
-     * `pago`: se le pagan aparte (por adelantado o en dinero).
+     * - `con_nomina`: descansa y la quincena le paga esos días como siempre
+     *   (no sale plata aparte; Finanzas no lo cuenta dos veces).
+     * - `adelantado`: descansa y se le paga antes de salir. Se guarda como un
+     *   adelanto de sueldo, así la quincena lo descuenta y no se paga doble.
+     * - `dinero`: compensadas en plata sin descansar; la ley deja hasta la mitad.
+     *
+     * Con descanso, la fecha de regreso la calcula el sistema (domingos y
+     * festivos no cuentan) y la quincena ya sabe que esos días estuvo de
+     * vacaciones (sin auxilio de transporte, si está así en Ajustes).
      */
     public function registrarVacaciones(Request $request)
     {
         $data = $request->validate([
             'usuario_id' => 'required|exists:usuarios,id',
             'dias'       => 'required|numeric|min:0.5|max:90',
-            'desde'      => 'required|date',
-            'hasta'      => 'required|date|after_or_equal:desde',
-            'forma'      => ['required', Rule::in(['pago', 'con_nomina'])],
+            'desde'      => 'required_unless:forma,dinero|nullable|date',
+            'forma'      => ['required', Rule::in(['con_nomina', 'adelantado', 'dinero'])],
             'monto'      => 'nullable|numeric|min:0',
             'fecha_pago' => 'nullable|date',
             'notas'      => 'nullable|string|max:500',
         ]);
 
         $u = Usuario::with('sueldo')->findOrFail($data['usuario_id']);
-        $pendientes = collect(Prestaciones::vacaciones($u->id))->firstWhere('usuario_id', $u->id)['dias_pendientes'] ?? 0;
+        $fila = collect(Prestaciones::vacaciones($u->id))->firstWhere('usuario_id', $u->id);
+        $pendientes = $fila['dias_pendientes'] ?? 0;
         if ($data['dias'] > $pendientes + 0.01) {
             throw ValidationException::withMessages(['dias' => ["{$u->nombre} tiene {$pendientes} días pendientes."]]);
         }
 
-        $p = NominaPrestacionPago::create([
-            'usuario_id'     => $u->id,
-            'tipo'           => 'vacaciones',
-            'periodo_desde'  => $data['desde'],
-            'periodo_hasta'  => $data['hasta'],
-            'dias'           => $data['dias'],
-            'monto'          => $data['monto'] ?? round($data['dias'] * $u->valorDiaEfectivo()),
-            'forma'          => $data['forma'],
-            'fecha_pago'     => $data['fecha_pago'] ?? $data['desde'],
-            'notas'          => $data['notas'] ?? null,
-            'registrado_por' => $request->user()->id,
-        ]);
+        $hoy = CicloNomina::hoy()->toDateString();
 
-        return response()->json(['id' => $p->id, 'monto' => (float) $p->monto], 201);
+        if ($data['forma'] === 'dinero') {
+            $tope = $this->topeEnDinero($u);
+            if ($data['dias'] > $tope + 0.01) {
+                throw ValidationException::withMessages(['dias' => [
+                    "En plata, sin descansar, se puede pagar hasta la mitad de las vacaciones: a {$u->nombre} le quedan {$tope} días así.",
+                ]]);
+            }
+            $p = NominaPrestacionPago::create([
+                'usuario_id'     => $u->id,
+                'tipo'           => 'vacaciones',
+                'periodo_desde'  => $data['fecha_pago'] ?? $hoy,
+                'periodo_hasta'  => $data['fecha_pago'] ?? $hoy,
+                'dias'           => $data['dias'],
+                'monto'          => $data['monto'] ?? round($data['dias'] * $u->valorDiaEfectivo()),
+                'forma'          => 'dinero',
+                'fecha_pago'     => $data['fecha_pago'] ?? $hoy,
+                'notas'          => $data['notas'] ?? null,
+                'registrado_por' => $request->user()->id,
+            ]);
+
+            return response()->json(['id' => $p->id, 'monto' => (float) $p->monto], 201);
+        }
+
+        $f = Prestaciones::fechasVacaciones(CicloNomina::fecha($data['desde']), (float) $data['dias']);
+
+        // Si esos días ya se pagaron en una quincena, esa quincena no se
+        // entera: hay que deshacer ese pago primero.
+        $pagado = NominaPago::where('usuario_id', $u->id)
+            ->whereDate('fecha_fin', '>=', $f['desde'])->whereDate('fecha_inicio', '<=', $f['hasta'])
+            ->orderBy('fecha_inicio')->first();
+        if ($pagado) {
+            throw ValidationException::withMessages(['desde' => [
+                "Esos días caen en {$pagado->nombreCiclo()}, que ya se le pagó: deshaz ese pago primero o escoge otras fechas.",
+            ]]);
+        }
+        // Ni encima de otras vacaciones.
+        $choca = NominaPrestacionPago::where('usuario_id', $u->id)->where('tipo', 'vacaciones')->where('estado', 'pagado')
+            ->whereIn('forma', NominaPrestacionPago::VACACIONES_CON_DESCANSO)
+            ->whereDate('periodo_hasta', '>=', $f['desde'])->whereDate('periodo_desde', '<=', $f['hasta'])->exists();
+        if ($choca) {
+            throw ValidationException::withMessages(['desde' => ['Ya tiene vacaciones en esas fechas.']]);
+        }
+
+        $p = DB::transaction(function () use ($u, $data, $f, $hoy, $request) {
+            $monto = $data['forma'] === 'adelantado'
+                ? ($data['monto'] ?? $this->montoVacacionesAdelantadas($u, $f['dias_calendario']))
+                : round($data['dias'] * $u->valorDiaEfectivo());
+
+            $adelantoId = null;
+            if ($data['forma'] === 'adelantado' && $monto > 0) {
+                // Lo que se le entrega antes de salir es sueldo de esas
+                // quincenas: el pago lo descuenta solo (NominaAdelanto).
+                $adelantoId = \App\Models\NominaAdelanto::create([
+                    'usuario_id'     => $u->id,
+                    'fecha'          => $data['fecha_pago'] ?? $hoy,
+                    'monto'          => $monto,
+                    'nota'           => 'Vacaciones del ' . $f['desde'] . ' al ' . $f['hasta'],
+                    'registrado_por' => $request->user()->id,
+                ])->id;
+            }
+
+            return NominaPrestacionPago::create([
+                'usuario_id'     => $u->id,
+                'tipo'           => 'vacaciones',
+                'periodo_desde'  => $f['desde'],
+                'periodo_hasta'  => $f['hasta'],
+                'dias'           => $data['dias'],
+                'monto'          => $monto,
+                'forma'          => $data['forma'],
+                'fecha_pago'     => $data['fecha_pago'] ?? ($data['forma'] === 'adelantado' ? $hoy : $f['desde']),
+                'detalle'        => ['regreso' => $f['regreso'], 'dias_calendario' => $f['dias_calendario']],
+                'notas'          => $data['notas'] ?? null,
+                'registrado_por' => $request->user()->id,
+            ] + ($adelantoId ? ['adelanto_id' => $adelantoId] : []));
+        });
+
+        return response()->json([
+            'id' => $p->id, 'monto' => (float) $p->monto,
+            'hasta' => $f['hasta'], 'regreso' => $f['regreso'],
+        ], 201);
+    }
+
+    /**
+     * Lo que se le entrega antes de salir: el sueldo de los días que
+     * descansa, menos la seguridad social de esos días (la quincena se la
+     * descuenta igual). Sin auxilio de transporte si así está en Ajustes.
+     */
+    private function montoVacacionesAdelantadas(Usuario $u, int $diasCalendario): float
+    {
+        $monto = $u->valorDiaEfectivo() * $diasCalendario
+            - \App\Models\NominaSueldo::prorratear($u->valorSeguridadSocialMesEfectivo(), $diasCalendario);
+        if (! Prestaciones::config()['vacaciones_sin_auxilio']) {
+            $monto += \App\Models\NominaSueldo::prorratear($u->valorAuxilioMesEfectivo(), $diasCalendario);
+        }
+
+        return max(0.0, round($monto));
+    }
+
+    /** Días que todavía se le pueden pagar en plata sin descansar: la mitad de lo causado. */
+    private function topeEnDinero(Usuario $u): float
+    {
+        $fila = collect(Prestaciones::vacaciones($u->id))->firstWhere('usuario_id', $u->id);
+        $yaEnDinero = (float) NominaPrestacionPago::where('usuario_id', $u->id)->where('tipo', 'vacaciones')
+            ->where('estado', 'pagado')->where('forma', 'dinero')->sum('dias');
+
+        return max(0.0, min(
+            round(($fila['dias_causados'] ?? 0) / 2 - $yaEnDinero, 2),
+            (float) ($fila['dias_pendientes'] ?? 0),
+        ));
     }
 
     /** POST /api/nomina/prestaciones/{id}/anular — un pago hecho por error (no se borra). */
@@ -166,7 +292,20 @@ class NominaPrestacionController extends Controller
         if ($p->liquidacion_id) {
             throw ValidationException::withMessages(['id' => ['Es parte de una liquidación: anula la liquidación.']]);
         }
-        $p->update(['estado' => 'anulado', 'motivo_anulacion' => $data['motivo']]);
+
+        DB::transaction(function () use ($p, $data) {
+            // Vacaciones pagadas antes de salir: se quita el adelanto, si
+            // ninguna quincena lo ha descontado todavía.
+            if ($p->adelanto_id && ($a = \App\Models\NominaAdelanto::find($p->adelanto_id))) {
+                if ($a->estaDescontado()) {
+                    throw ValidationException::withMessages(['id' => [
+                        'Lo que se le adelantó por estas vacaciones ya se descontó en una quincena: deshaz ese pago primero.',
+                    ]]);
+                }
+                $a->delete();
+            }
+            $p->update(['estado' => 'anulado', 'motivo_anulacion' => $data['motivo']]);
+        });
 
         return response()->json(['ok' => true]);
     }
@@ -187,6 +326,8 @@ class NominaPrestacionController extends Controller
             'intereses_limite'                  => $md,
             'cesantias_limite'                  => $md,
             'dias_vacaciones_anio'              => 'sometimes|numeric|min:0|max:60',
+            'vacaciones_sabado_habil'           => 'sometimes|boolean',
+            'vacaciones_sin_auxilio'            => 'sometimes|boolean',
             'smmlv'                             => 'sometimes|numeric|min:0',
             'indemnizacion_tope_smmlv'          => 'sometimes|numeric|min:0',
             'indemnizacion_primer_anio'         => 'sometimes|numeric|min:0',

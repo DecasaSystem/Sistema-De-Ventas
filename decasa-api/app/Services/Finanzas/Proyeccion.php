@@ -192,7 +192,7 @@ class Proyeccion
 
         // Nómina: lo atrasado y cada ciclo en su fecha de pago (neto + aportes).
         foreach (FuenteNomina::pendientes() as $p) {
-            $filas[0]['nomina'] += (float) $p['total'] + (float) $p['descuento_seguridad_social'] + (float) $p['costo_empleador']['aportes'];
+            $filas[0]['nomina'] += (float) ($p['a_entregar'] ?? $p['total']) + (float) $p['descuento_seguridad_social'] + (float) $p['costo_empleador']['aportes'];
         }
         foreach (FuenteNomina::proyeccion($fin)['pagos'] as $p) {
             $i = $semanaDe($p['fecha_pago']);

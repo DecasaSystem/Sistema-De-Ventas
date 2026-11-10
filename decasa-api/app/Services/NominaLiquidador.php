@@ -88,7 +88,18 @@ class NominaLiquidador
         //
         // Se prorratea desde el valor mensual y se redondea UNA vez: sumar
         // el valor por día ya redondeado daba 124.545 en vez de 124.548.
-        $auxilioTransporte = NominaSueldo::prorratear($empleado->valorAuxilioMesEfectivo(), $dias);
+        // Los días que estuvo de vacaciones (Prestaciones → Vacaciones, con
+        // descanso). El sueldo de esos días se paga igual —eso son las
+        // vacaciones—, pero no hay desplazamiento al trabajo: sin auxilio de
+        // transporte por esos días, si está así en Ajustes.
+        $vacacionesCiclo = self::vacacionesEn($empleado, $desde, $hasta);
+        $diasVacaciones  = min($dias, count($vacacionesCiclo['dias']));
+        $sinAuxilio      = $diasVacaciones > 0 && (bool) (Prestaciones::config()['vacaciones_sin_auxilio'] ?? true);
+
+        $auxilioTransporte = NominaSueldo::prorratear(
+            $empleado->valorAuxilioMesEfectivo(),
+            $sinAuxilio ? $dias - $diasVacaciones : $dias,
+        );
         $seguridadSocial   = NominaSueldo::prorratear($empleado->valorSeguridadSocialMesEfectivo(), $dias);
 
         // Lo ya corrido se descuenta; lo que la persona avisó que va a
@@ -151,6 +162,10 @@ class NominaLiquidador
             'cerrado'            => $fin->lessThanOrEqualTo($hoy),
             'dias'               => $dias,
             'dias_ciclo'         => $diasCiclo,
+            // De esos días, cuántos estuvo de vacaciones (se pagan igual).
+            'dias_vacaciones'    => $diasVacaciones,
+            'vacaciones_sin_auxilio' => $sinAuxilio,
+            'vacaciones'         => $vacacionesCiclo['rangos'],
             'sueldo_nombre'      => $empleado->labelEfectivo(),
             'valor_dia'          => $valorDia,
             'valor_hora'         => $valorHora,
@@ -369,6 +384,9 @@ class NominaLiquidador
         $pendientes = [];
 
         foreach ($empleados as $empleado) {
+            // Lo adelantado se descuenta del ciclo más viejo primero, como
+            // hace el pago al registrarse (NominaPagoController::registrar).
+            $adelantoRestante = self::adelantosPendientes($empleado);
             $piso = self::pisoDe($empleado, $ultimoFin[$empleado->id] ?? null, $pisoGlobal);
 
             if ($piso->greaterThan($hoy)) {
@@ -389,7 +407,7 @@ class NominaLiquidador
                             // trabajador, que se mantiene desde Trabajadores.
                             'empleado_cargo'  => $empleado->rolAsignado?->nombre,
                             'empleado_cedula' => $empleado->cedula,
-                        ] + $liquidacion;
+                        ] + self::conAdelantos($liquidacion, $adelantoRestante);
                     }
                 }
 
@@ -398,6 +416,66 @@ class NominaLiquidador
         }
 
         return $pendientes;
+    }
+
+    /**
+     * Qué días de [$desde, $hasta] estuvo de vacaciones con descanso, y los
+     * rangos para mostrarlos ("vacaciones del 3 al 17").
+     *
+     * @return array{dias: array<string, true>, rangos: array}
+     */
+    private static function vacacionesEn(Usuario $empleado, Carbon $desde, Carbon $hasta): array
+    {
+        $dias = [];
+        $rangos = [];
+        if (! $empleado->relationLoaded('vacaciones') || $hasta->lessThan($desde)) {
+            return ['dias' => $dias, 'rangos' => $rangos];
+        }
+
+        foreach ($empleado->vacaciones as $v) {
+            $ini = CicloNomina::fecha($v->periodo_desde);
+            $fin = CicloNomina::fecha($v->periodo_hasta);
+            $a = $ini->greaterThan($desde) ? $ini : $desde->copy();
+            $b = $fin->lessThan($hasta) ? $fin : $hasta->copy();
+            if ($b->lessThan($a)) continue;
+
+            for ($d = $a->copy(), $i = 0; $d->lessThanOrEqualTo($b) && $i < 62; $d->addDay(), $i++) {
+                $dias[$d->toDateString()] = true;
+            }
+            $rangos[] = [
+                'id'    => $v->id,
+                'desde' => $ini->toDateString(),
+                'hasta' => $fin->toDateString(),
+                'forma' => $v->forma,
+            ];
+        }
+
+        return ['dias' => $dias, 'rangos' => $rangos];
+    }
+
+    /** Lo adelantado que todavía no se le ha descontado (relación ya cargada). */
+    public static function adelantosPendientes(Usuario $empleado): float
+    {
+        return $empleado->relationLoaded('adelantos')
+            ? round((float) $empleado->adelantos->sum('monto'), 2)
+            : 0.0;
+    }
+
+    /**
+     * Le suma a una liquidación cuánto de lo adelantado se descuenta en ella y
+     * cuánto se entrega al pagar. El `total` no cambia: el adelanto es parte
+     * del mismo sueldo, entregada antes (Finanzas lo cuenta como costo igual).
+     * Nunca deja el pago en negativo: lo que sobra pasa al siguiente ciclo.
+     */
+    public static function conAdelantos(array $l, float &$restante): array
+    {
+        $aplica = round(min($restante, max(0.0, (float) $l['total'])), 2);
+        $restante = round($restante - $aplica, 2);
+
+        return $l + [
+            'adelantos'  => $aplica,
+            'a_entregar' => round((float) $l['total'] - $aplica, 2),
+        ];
     }
 
     /**
@@ -499,7 +577,18 @@ class NominaLiquidador
             'ajustes'      => $sinCobrar,
             'prestamos'    => $prestamosVivos,
             'producciones' => $recientes,
-        ] + (CostoEmpleador::hayTablas()
+        ] + (\App\Support\Esquema::tabla('nomina_prestaciones_pagos')
+            // Las vacaciones en las que descansa: la quincena tiene que saber
+            // qué días fueron (sin auxilio de transporte esos días).
+            ? ['vacaciones' => fn ($q) => $q->where('estado', 'pagado')
+                ->whereIn('forma', \App\Models\NominaPrestacionPago::VACACIONES_CON_DESCANSO)
+                ->where('periodo_hasta', '>=', $piso)]
+            : []
+        ) + (\App\Support\Esquema::tabla('nomina_adelantos')
+            // Lo adelantado que ningún pago ha descontado todavía.
+            ? ['adelantos' => fn ($q) => $q->whereNull('nomina_pago_id')->whereNull('liquidacion_id')->orderBy('fecha')->orderBy('id')]
+            : []
+        ) + (CostoEmpleador::hayTablas()
             // Sus excepciones a lo que paga la empresa por detrás, de una vez
             // para todos y no una consulta por trabajador.
             ? ['conceptosEmpleador' => fn ($q) => $q]
