@@ -859,6 +859,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/materiales/{material}/historial', [MaterialController::class, 'historial']);
         Route::post('/materiales',             [MaterialController::class, 'store']);
         Route::patch('/materiales/{material}', [MaterialController::class, 'update']);
+        // Pasar el material a otro solo en las fichas escogidas (el viejo se queda)
+        Route::post('/materiales/{material}/reemplazar', [MaterialController::class, 'reemplazar']);
     });
     Route::middleware(['role:supervisor', 'permiso:acceso_costos'])->group(function () {
         Route::post('/materiales/importar',      [MaterialController::class, 'importar']);

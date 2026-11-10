@@ -431,4 +431,38 @@ class CostosConectadoConInventarioTest extends TestCase
         $this->assertSame('1.40', $r->medida('Cama 1,40'));
         $this->assertNull($r->medida('Sofá Roma'));
     }
+
+    /**
+     * Toda variante se puede enlazar (usuario, 2026-11-10), no solo las de tipos marcados
+     * "cambia el precio". Esas otras son opcionales: no dejan al producto en espera.
+     */
+    public function test_una_variante_que_no_cambia_el_precio_se_puede_enlazar_y_es_opcional(): void
+    {
+        $p    = DB::table('productos')->insertGetId(['nombre' => 'Silla Nube', 'categoria' => 'Sillas', 'precio_base' => 800000]);
+        $tipo = DB::table('tipos_variante')->insertGetId(['nombre' => 'Acabado', 'afecta_precio' => false]);
+        $op   = DB::table('tipo_variante_opciones')->insertGetId(['tipo_variante_id' => $tipo, 'nombre' => 'Cuero']);
+        $cfg  = DB::table('producto_variante_configs')->insertGetId(['producto_id' => $p, 'tipo_variante_id' => $tipo, 'opcion_id' => $op, 'precio_adicional' => 950000]);
+        $silla = fn () => collect($this->listado()['productos'])->firstWhere('id', $p);
+
+        // Sale como variante opcional; sin receta, el producto sigue simplemente sin receta
+        $this->assertSame([['config_id' => $cfg, 'requerida' => false]],
+            collect($silla()['versiones'])->map(fn ($v) => ['config_id' => $v['config_id'], 'requerida' => $v['requerida']])->all());
+        $this->assertSame(0, $silla()['faltan']);
+
+        // Con la receta general ya está lista: la variante opcional no la deja en espera
+        $this->ficha(['nombre' => 'SILLA NUBE', 'producto_id' => $p], 300000);
+        $this->assertSame('lista', $silla()['estado']);
+
+        // Y una ficha suelta se puede enlazar a esa variante
+        $suelta = $this->ficha(['nombre' => 'SILLA EN CUERO'], 400000);
+        $this->actingAs($this->ebanista)->patchJson("/api/fichas-tecnicas/{$suelta}/producto", [
+            'producto_id' => $p, 'variante_config_id' => $cfg,
+        ])->assertOk();
+
+        $v = $silla()['versiones'][0];
+        $this->assertSame($suelta, $v['fichas'][0]['id']);
+        $this->assertEquals(950000, $v['fichas'][0]['precio_venta']);
+        $this->assertSame('lista', $silla()['estado']);
+        $this->assertSame('SILLA NUBE CUERO', DB::table('fichas_tecnicas')->where('id', $suelta)->value('nombre'));
+    }
 }

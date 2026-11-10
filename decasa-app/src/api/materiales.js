@@ -4,4 +4,6 @@ export const getMateriales       = (search = '') => api.get('/materiales', { par
 export const crearMaterial       = (data) => api.post('/materiales', data)
 export const actualizarMaterial  = (id, data) => api.patch(`/materiales/${id}`, data)
 export const importarMateriales  = () => api.post('/materiales/importar')
+// Pasa el material a otro solo en las fichas escogidas: { reemplazar_con_id, fichas: [ids] }
+export const reemplazarMaterial  = (id, data) => api.post(`/materiales/${id}/reemplazar`, data)
 export const getHistorialMaterial = (id) => api.get(`/materiales/${id}/historial`)

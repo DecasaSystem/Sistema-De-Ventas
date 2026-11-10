@@ -540,4 +540,43 @@ class CostosFichasTest extends TestCase
             ->assertOk();
         $this->assertSame(3, DB::table('materiales')->count());
     }
+
+    public function test_reemplazar_un_material_solo_en_las_fichas_escogidas(): void
+    {
+        $vieja = DB::table('materiales')->insertGetId(['nombre' => 'TELA VIEJA', 'unidad' => 'METRO', 'precio_unitario' => 10000]);
+        $nueva = DB::table('materiales')->insertGetId(['nombre' => 'TELA NUEVA', 'unidad' => 'METRO', 'precio_unitario' => 25000]);
+
+        $a = $this->ficha('SOFA A', [
+            ['descripcion' => 'TELA VIEJA', 'cantidad' => 2, 'unidad' => 'METRO', 'precio_unitario' => 10000, 'material_id' => $vieja],
+            ['descripcion' => 'ESPUMA', 'cantidad' => 1, 'precio_unitario' => 5000],
+        ]);
+        // Ítem viejo sin enlazar por id: se reconoce por el nombre
+        $b = $this->ficha('SOFA B', [['descripcion' => 'tela vieja', 'cantidad' => 3, 'precio_unitario' => 10000]]);
+        $c = $this->ficha('SOFA C', [['descripcion' => 'TELA VIEJA', 'cantidad' => 1, 'precio_unitario' => 10000, 'material_id' => $vieja]]);
+
+        $this->actingAs($this->ebanista)->postJson("/api/materiales/{$vieja}/reemplazar", [
+            'reemplazar_con_id' => $nueva, 'fichas' => [$a, $b],
+        ])->assertOk()->assertJsonPath('fichas', 2)->assertJsonPath('items', 2);
+
+        // A y B pasan a la tela nueva con su misma cantidad; C se queda con la vieja
+        $this->assertEquals(55000, DB::table('fichas_tecnicas')->where('id', $a)->value('costo_total'));
+        $this->assertEquals(75000, DB::table('fichas_tecnicas')->where('id', $b)->value('costo_total'));
+        $this->assertEquals(10000, DB::table('fichas_tecnicas')->where('id', $c)->value('costo_total'));
+        $itemB = DB::table('ficha_tecnica_items')->where('ficha_tecnica_id', $b)->first();
+        $this->assertEquals($nueva, $itemB->material_id);
+        $this->assertSame('TELA NUEVA', $itemB->descripcion);
+        $this->assertEquals(3, $itemB->cantidad);
+        // La espuma de A no se toca y el material viejo sigue en el catálogo
+        $this->assertSame(1, DB::table('ficha_tecnica_items')->where('descripcion', 'ESPUMA')->count());
+        $this->assertTrue(DB::table('materiales')->where('id', $vieja)->exists());
+
+        // Por el mismo, o con fichas que no lo usan: no se hace nada
+        $this->actingAs($this->ebanista)->postJson("/api/materiales/{$vieja}/reemplazar", [
+            'reemplazar_con_id' => $vieja, 'fichas' => [$c],
+        ])->assertStatus(422);
+        $this->actingAs($this->ebanista)->postJson("/api/materiales/{$vieja}/reemplazar", [
+            'reemplazar_con_id' => $nueva, 'fichas' => [$a],
+        ])->assertStatus(422);
+        $this->assertEquals(10000, DB::table('fichas_tecnicas')->where('id', $c)->value('costo_total'));
+    }
 }

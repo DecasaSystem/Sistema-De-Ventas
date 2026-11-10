@@ -2,17 +2,19 @@
 /** Catálogo de materiales: lo que se compra para fabricar, a qué precio y en cuántas fichas se usa. */
 import { ref, computed, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
-import { MagnifyingGlassIcon, PlusIcon, ArrowDownTrayIcon, TrashIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PlusIcon, ArrowDownTrayIcon, TrashIcon, ChevronRightIcon, ArrowsRightLeftIcon } from '@heroicons/vue/24/outline'
 import { getMateriales } from '@/api/materiales'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import MaterialForm from './MaterialForm.vue'
 import MaterialEliminar from './MaterialEliminar.vue'
+import MaterialReemplazar from './MaterialReemplazar.vue'
 import { useCostos } from './useCostos'
 
 // Cuando cambian precios, cambian los costos de las fichas
-const emit = defineEmits(['fichas-cambiaron'])
+// `abrir`: abrir una ficha desde "Dónde se usa" del material
+const emit = defineEmits(['fichas-cambiaron', 'abrir'])
 
 const auth  = useAuthStore()
 const toast = useToast()
@@ -50,6 +52,15 @@ const eliminando = ref(null)
 
 function onGuardado({ afectados }) {
   editando.value = undefined
+  cargar()
+  if (afectados) emit('fichas-cambiaron')
+}
+
+// Pasar el material a otro solo en algunas fichas (el material se queda)
+const reemplazando = ref(null)
+
+function onReemplazado({ afectados }) {
+  reemplazando.value = null
   cargar()
   if (afectados) emit('fichas-cambiaron')
 }
@@ -128,6 +139,10 @@ onMounted(cargar)
           </div>
           <ChevronRightIcon class="w-4 h-4 text-gray-300 flex-shrink-0" />
         </button>
+        <button v-if="Number(m.usos)" @click="reemplazando = m" title="Reemplazar en fichas" :aria-label="`Reemplazar ${m.nombre} en fichas`"
+          class="self-stretch px-3 text-gray-300 hover:text-blue-600 hover:bg-gray-50">
+          <ArrowsRightLeftIcon class="w-4 h-4" />
+        </button>
         <button v-if="auth.isSupervisor" @click="eliminando = m" title="Eliminar material" :aria-label="`Eliminar ${m.nombre}`"
           class="self-stretch px-3 text-gray-300 hover:text-red-600 hover:bg-gray-50">
           <TrashIcon class="w-4 h-4" />
@@ -136,6 +151,9 @@ onMounted(cargar)
     </div>
   </div>
 
-  <MaterialForm v-if="editando !== undefined" :material="editando" @cerrar="editando = undefined" @guardado="onGuardado" />
+  <MaterialForm v-if="editando !== undefined" :material="editando" @cerrar="editando = undefined" @guardado="onGuardado"
+    @reemplazar="m => { editando = undefined; reemplazando = m }"
+    @abrir="id => { editando = undefined; emit('abrir', id) }" />
+  <MaterialReemplazar v-if="reemplazando" :material="reemplazando" @cerrar="reemplazando = null" @reemplazado="onReemplazado" />
   <MaterialEliminar v-if="eliminando" :material="eliminando" @cerrar="eliminando = null" @eliminado="onEliminado" />
 </template>

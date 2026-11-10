@@ -168,7 +168,11 @@ class MaterialController extends Controller
                 'ft.id   as ficha_id',
                 'ft.nombre as ficha_nombre',
                 'ft.categoria as ficha_categoria',
+                // Para mostrar cuánto queda costando la ficha al reemplazar el material
+                'ft.costo_total as ficha_costo',
+                'ft.producto_id',
                 'fti.id  as item_id',
+                'fti.seccion',
                 'fti.cantidad',
                 'fti.unidad',
                 'fti.precio_unitario',
@@ -182,6 +186,59 @@ class MaterialController extends Controller
             'usos'     => $usos,
             'total'    => $usos->count(),
         ]);
+    }
+
+    /**
+     * POST /materiales/{id}/reemplazar — pasa este material a otro, pero solo en las fichas
+     * que se escojan. Pedido del usuario (2026-11-10): "creo un material nuevo para
+     * reemplazar otro en algunos productos, para no tener que ir producto por producto";
+     * el material viejo se queda en el catálogo (lo siguen usando las demás fichas).
+     * Body: { reemplazar_con_id: int, fichas: int[] }
+     *
+     * Igual que al eliminar con reemplazo: el ítem toma nombre, unidad y precio del nuevo y
+     * conserva su cantidad (no se convierte entre unidades; la pantalla lo advierte).
+     */
+    public function reemplazar(Request $request, Material $material)
+    {
+        $data = $request->validate([
+            'reemplazar_con_id' => 'required|integer|exists:materiales,id|not_in:' . $material->id,
+            'fichas'            => 'required|array|min:1',
+            'fichas.*'          => 'integer',
+        ], [
+            'reemplazar_con_id.not_in' => 'Escoge un material distinto al que se reemplaza.',
+        ]);
+
+        $nuevo = Material::findOrFail($data['reemplazar_con_id']);
+
+        $resultado = DB::transaction(function () use ($material, $nuevo, $data) {
+            $items = $this->itemsDe($material->id, $material->nombre)
+                ->whereIn('ficha_tecnica_id', array_unique($data['fichas']));
+
+            $fichaIds = (clone $items)->distinct()->pluck('ficha_tecnica_id');
+            if ($fichaIds->isEmpty()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'fichas' => 'Ninguna de las fichas escogidas usa este material.',
+                ]);
+            }
+
+            $precio = (float) $nuevo->precio_unitario;
+            $cantidadItems = $items->update([
+                'material_id'     => $nuevo->id,
+                'descripcion'     => trim($nuevo->nombre),
+                'unidad'          => $nuevo->unidad,
+                'precio_unitario' => $precio,
+                'subtotal'        => DB::raw('ROUND(cantidad * ' . $precio . ', 2)'),
+                'updated_at'      => now(),
+            ]);
+
+            foreach ($fichaIds as $fichaId) {
+                FichaTecnica::recalcularTotales($fichaId);
+            }
+
+            return ['items' => $cantidadItems, 'fichas' => $fichaIds->count()];
+        });
+
+        return response()->json($resultado + ['material' => $nuevo->only(['id', 'nombre'])]);
     }
 
     /**

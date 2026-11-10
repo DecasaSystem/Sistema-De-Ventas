@@ -126,7 +126,7 @@ watch(pestana, () => { fichaAbierta.value = null; productoAbierto.value = null }
       <TabProductos v-if="pestana === 'productos'" ref="refProductos"
         @abrir="id => fichaAbierta = id" @producto="id => productoAbierto = id" @cargado="d => recetas = d" />
     </KeepAlive>
-    <TabMateriales v-if="pestana === 'materiales'" @fichas-cambiaron="fichasCambiaron" />
+    <TabMateriales v-if="pestana === 'materiales'" @fichas-cambiaron="fichasCambiaron" @abrir="id => fichaAbierta = id" />
     <TabTarifas    v-if="pestana === 'tarifas'" ref="refTarifas" @fichas-cambiaron="fichasCambiaron" />
     <TabMargenes   v-if="pestana === 'margenes'" ref="refMargenes" @abrir="id => fichaAbierta = id" />
     <TabPrecision  v-if="pestana === 'precision'" />

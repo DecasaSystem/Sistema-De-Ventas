@@ -4,7 +4,8 @@
  * todas las fichas que lo usan, y el cambio queda en el historial de abajo.
  */
 import { ref, computed, onMounted } from 'vue'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowsRightLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
+import api from '@/api'
 import { crearMaterial, actualizarMaterial, getHistorialMaterial } from '@/api/materiales'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
@@ -13,10 +14,10 @@ import { formatPct } from '@/utils/descuentos'
 import { useCostos } from './useCostos'
 
 const props = defineProps({ material: { type: Object, default: null } })
-const emit  = defineEmits(['cerrar', 'guardado'])
+const emit  = defineEmits(['cerrar', 'guardado', 'reemplazar', 'abrir'])
 
 const toast = useToast()
-const { formatPeso, formatFecha } = useCostos()
+const { formatPeso, formatFecha, formatCantidad } = useCostos()
 
 const esNuevo = !props.material
 const form = ref({
@@ -34,8 +35,33 @@ const cambiaUnidad  = computed(() => !esNuevo && (form.value.unidad.trim().toUpp
 const historial         = ref([])
 const cargandoHistorial = ref(false)
 
+// Dónde se usa, sin tener que tocar Eliminar para verlo (pedido del usuario, 2026-11-10).
+// Una fila por ficha: una ficha puede usar el material en varias secciones.
+const usosFichas    = ref([])
+const cargandoUsos  = ref(false)
+
+async function cargarUsos() {
+  cargandoUsos.value = true
+  try {
+    const { data } = await api.get(`/materiales/${props.material.id}/usos`)
+    const porFicha = new Map()
+    for (const u of data.usos) {
+      if (!porFicha.has(u.ficha_id)) porFicha.set(u.ficha_id, { id: u.ficha_id, nombre: u.ficha_nombre, categoria: u.ficha_categoria, items: [], subtotal: 0 })
+      const f = porFicha.get(u.ficha_id)
+      f.items.push(u)
+      f.subtotal += Number(u.subtotal) || 0
+    }
+    usosFichas.value = [...porFicha.values()]
+  } catch {
+    usosFichas.value = []
+  } finally {
+    cargandoUsos.value = false
+  }
+}
+
 onMounted(async () => {
   if (esNuevo) return
+  if (usos.value) cargarUsos()
   cargandoHistorial.value = true
   try {
     const { data } = await getHistorialMaterial(props.material.id)
@@ -124,6 +150,34 @@ const variacion = h => ((h.precio_nuevo - h.precio_anterior) / (Number(h.precio_
           <p v-else-if="!esNuevo && !(cambiaUnidad && usos)" class="text-xs text-gray-400">
             {{ usos ? `Se usa en ${usos} ${usos === 1 ? 'ficha' : 'fichas'}.` : 'Ninguna ficha lo usa todavía.' }}
           </p>
+
+          <!-- Pasarlo a otro material en algunas fichas, sin ir ficha por ficha ni eliminarlo -->
+          <button v-if="!esNuevo && usos" type="button" @click="emit('reemplazar', props.material)"
+            class="w-full flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-gray-50">
+            <ArrowsRightLeftIcon class="w-4 h-4" />Reemplazar por otro material en fichas…
+          </button>
+
+          <!-- Dónde se usa: tocar una ficha la abre -->
+          <div v-if="!esNuevo && usos" class="pt-2">
+            <h4 class="text-sm font-semibold text-gray-700 mb-1.5">Dónde se usa</h4>
+            <p v-if="cargandoUsos" class="text-xs text-gray-400">Buscando…</p>
+            <ul v-else-if="usosFichas.length" class="rounded-xl border border-gray-200 divide-y divide-gray-100 max-h-56 overflow-y-auto">
+              <li v-for="f in usosFichas" :key="f.id">
+                <button type="button" @click="emit('abrir', f.id)"
+                  class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50">
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-sm text-gray-800 truncate">{{ f.nombre }}</span>
+                    <span class="block text-xs text-gray-500 tabular-nums truncate">
+                      <template v-for="(u, i) in f.items" :key="u.item_id">{{ i ? ' + ' : '' }}{{ formatCantidad(u.cantidad) }} {{ u.unidad || 'und' }}<template v-if="u.seccion"> ({{ u.seccion }})</template></template>
+                    </span>
+                  </span>
+                  <span class="text-xs font-semibold text-gray-700 tabular-nums flex-shrink-0">{{ formatPeso(f.subtotal) }}</span>
+                  <ChevronRightIcon class="w-4 h-4 text-gray-300 flex-shrink-0" />
+                </button>
+              </li>
+            </ul>
+            <p v-else class="text-xs text-gray-400">No se pudo cargar la lista.</p>
+          </div>
 
           <!-- Historial de precios -->
           <div v-if="!esNuevo" class="pt-2">

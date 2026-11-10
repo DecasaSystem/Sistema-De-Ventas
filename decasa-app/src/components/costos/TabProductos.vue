@@ -81,17 +81,28 @@ const sueltas = computed(() => datos.value.sueltas.filter(f => coincide(f.nombre
 // Lo que se muestra a la derecha de un producto: el costo de su receta; con medidas, el
 // de la medida más barata que ya tiene receta ("desde"). La receta general de un producto
 // con medidas no es el costo de ninguna, así que no se muestra aquí.
+// Las medidas (variantes que cambian el precio) son las que necesitan receta; las demás
+// variantes son opcionales y no cuentan aquí.
+const medidasDe = p => p.versiones.filter(v => v.requerida)
+
 function costoDe(p) {
-  if (!p.versiones.length) return p.fichas[0] ? { ficha: p.fichas[0], precio: p.precio_base } : null
-  const conReceta = p.versiones.filter(v => v.fichas[0]).sort((a, b) => a.fichas[0].costo_total - b.fichas[0].costo_total)
-  return conReceta[0] ? { ficha: conReceta[0].fichas[0], precio: conReceta[0].precio, desde: p.versiones.length > 1 } : null
+  const medidas = medidasDe(p)
+  if (!medidas.length) {
+    if (p.fichas[0]) return { ficha: p.fichas[0], precio: p.precio_base }
+    // Solo tiene recetas de variantes opcionales: la más barata
+    const opc = p.versiones.filter(v => v.fichas[0]).sort((a, b) => a.fichas[0].costo_total - b.fichas[0].costo_total)
+    return opc[0] ? { ficha: opc[0].fichas[0], precio: opc[0].precio, desde: opc.length > 1 } : null
+  }
+  const conReceta = medidas.filter(v => v.fichas[0]).sort((a, b) => a.fichas[0].costo_total - b.fichas[0].costo_total)
+  return conReceta[0] ? { ficha: conReceta[0].fichas[0], precio: conReceta[0].precio, desde: medidas.length > 1 } : null
 }
 
 function versionesConReceta(p) {
-  return p.versiones.filter(v => v.fichas.length).length
+  return medidasDe(p).filter(v => v.fichas.length).length
 }
 
-// Un producto sin versiones con una sola receta abre la ficha directo; los demás, su panel
+// Un producto sin variantes con una sola receta abre la ficha directo; los demás, su panel
+// (ahí se escoge de qué variante es cada receta)
 function abrir(p) {
   if (!p.no_fabricado && !p.versiones.length && p.fichas.length === 1) emit('abrir', p.fichas[0].id)
   else emit('producto', p.id)
@@ -229,8 +240,8 @@ const ORIGEN = { importado: 'Importado', comprado: 'Comprado' }
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
               <p class="text-xs text-gray-400 truncate">
-                <template v-if="p.versiones.length">
-                  {{ p.versiones.length }} {{ p.versiones.length === 1 ? 'medida' : 'medidas' }}
+                <template v-if="medidasDe(p).length">
+                  {{ medidasDe(p).length }} {{ medidasDe(p).length === 1 ? 'medida' : 'medidas' }}
                   · <span :class="p.faltan ? 'text-amber-700 font-medium' : 'text-green-700'">{{ versionesConReceta(p) }} con receta</span>
                 </template>
                 <template v-else>venta {{ formatPeso(p.precio_base) }}</template>

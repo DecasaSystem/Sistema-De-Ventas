@@ -30,8 +30,12 @@ const emit = defineEmits(['cerrar', 'abrir', 'crear', 'cambio'])
 const toast = useToast()
 const { formatPeso, formatFactor, margenDe, COLOR_MARGEN, TEXTO_MARGEN, porRevisar } = useCostos()
 
-const conMedidas = computed(() => props.producto.versiones.length > 0)
-const hechas     = computed(() => props.producto.versiones.filter(v => v.fichas.length).length)
+// Medidas = variantes que cambian el precio: cada una necesita su receta. Las demás
+// variantes se pueden enlazar a una receta, pero son opcionales (usuario, 2026-11-10).
+const medidas    = computed(() => props.producto.versiones.filter(v => v.requerida))
+const conMedidas = computed(() => medidas.value.length > 0)
+const conVariantes = computed(() => props.producto.versiones.length > 0)
+const hechas     = computed(() => medidas.value.filter(v => v.fichas.length).length)
 const ocupado    = ref(null)          // clave del botón que está trabajando
 const picker     = ref(null)          // { version } para enlazar una ficha existente
 const eligiendo  = ref(null)          // config_id de la medida que está escogiendo de cuál copiar
@@ -157,15 +161,17 @@ function sugeridasPara(version) {
 
       <template v-else>
       <!-- Medidas: cada una con su receta -->
-      <section v-if="conMedidas">
+      <section v-if="conVariantes">
         <div class="flex items-baseline justify-between mb-0.5 px-1">
-          <h3 class="text-sm font-semibold text-gray-700">Medidas</h3>
-          <span :class="['text-xs font-semibold', hechas === producto.versiones.length ? 'text-green-700' : 'text-gray-500']">
-            {{ hechas }} de {{ producto.versiones.length }} con receta
+          <h3 class="text-sm font-semibold text-gray-700">{{ conMedidas ? 'Medidas y variantes' : 'Variantes' }}</h3>
+          <span v-if="conMedidas" :class="['text-xs font-semibold', hechas === medidas.length ? 'text-green-700' : 'text-gray-500']">
+            {{ hechas }} de {{ medidas.length }} medidas con receta
           </span>
         </div>
         <p class="text-xs text-gray-400 mb-1.5 px-1">
-          Cada una lleva su receta: no todas cuestan lo mismo. Copia la de otra medida y ajusta lo que cambia.
+          <template v-if="conMedidas">Cada medida lleva su receta: no todas cuestan lo mismo.</template>
+          Las variantes marcadas «opcional» pueden tener su receta si cuestan distinto.
+          Copia la de otra y ajusta lo que cambia.
         </p>
 
         <div class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
@@ -192,7 +198,7 @@ function sugeridasPara(version) {
                 </span>
                 <ChevronRightIcon class="w-4 h-4 text-gray-300" />
               </button>
-              <span v-else class="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">En espera</span>
+              <span v-else class="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">{{ v.requerida ? 'En espera' : 'Opcional' }}</span>
             </div>
 
             <p v-if="v.repetida" class="flex items-center gap-1 text-xs text-amber-700">

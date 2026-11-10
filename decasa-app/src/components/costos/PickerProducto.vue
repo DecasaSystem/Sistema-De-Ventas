@@ -57,11 +57,14 @@ async function escoger(p) {
   buscandoVers.value = p.id
   try {
     const { data } = await api.get(`/productos/${p.id}/variante-configs`)
-    // Solo las opciones que cambian el precio; `precio_adicional` es su precio completo (0 = el del producto)
-    const vers = (data ?? []).filter(t => t.tipo?.afecta_precio).flatMap(t => t.items.map(i => ({
-      config_id: i.id, opcion: i.opcion_nombre, tipo: t.tipo.nombre,
-      precio: Number(i.precio_adicional) > 0 ? Number(i.precio_adicional) : Number(p.precio_base),
-    })))
+    // Todas sus variantes (antes solo las de tipos que "cambian el precio", y esa marca
+    // casi nunca está puesta). Primero las que cambian el precio: esas necesitan su receta.
+    // `precio_adicional` es su precio completo (0 = el del producto).
+    const vers = [...(data ?? [])].sort((a, b) => Number(!!b.tipo?.afecta_precio) - Number(!!a.tipo?.afecta_precio))
+      .flatMap(t => t.items.map(i => ({
+        config_id: i.id, opcion: i.opcion_nombre, tipo: t.tipo.nombre, requerida: !!t.tipo?.afecta_precio,
+        precio: Number(i.precio_adicional) > 0 ? Number(i.precio_adicional) : Number(p.precio_base),
+      })))
     if (!vers.length) { emit('elegir', { producto: p, version: null }); return }
     elegido.value   = p
     versiones.value = vers
@@ -83,7 +86,7 @@ async function escoger(p) {
           <ChevronLeftIcon class="w-3.5 h-3.5" />Otro producto
         </button>
         <p class="text-sm font-semibold text-gray-800">{{ elegido.nombre }}</p>
-        <p class="text-xs text-gray-500">¿De qué medida es esta receta? Cada una lleva la suya: no todas cuestan lo mismo.</p>
+        <p class="text-xs text-gray-500">¿De qué variante es esta receta? Escoge una, o la receta general si es la del producto.</p>
       </div>
       <ul class="divide-y divide-gray-100">
         <li v-for="v in versiones" :key="v.config_id">
@@ -104,7 +107,9 @@ async function escoger(p) {
           <button @click="emit('elegir', { producto: elegido, version: null })" :disabled="ocupado"
             class="w-full text-left px-4 py-3 hover:bg-gray-50 disabled:opacity-50">
             <span class="block text-sm font-medium text-gray-600">Receta general</span>
-            <span class="block text-xs text-gray-400">De ninguna medida: para copiarla a las medidas y de referencia al cotizar</span>
+            <span class="block text-xs text-gray-400">{{ versiones.some(v => v.requerida)
+              ? 'De ninguna medida: para copiarla a las medidas y de referencia al cotizar'
+              : 'La del producto, sin variante' }}</span>
           </button>
         </li>
       </ul>

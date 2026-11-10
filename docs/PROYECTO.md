@@ -753,6 +753,12 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   nombre + categoría + medida "1,40"). El cotizador, con `producto_id`, usa la receta
   enlazada antes que buscarla por nombre (`AgentService::recetaDelProducto`). "Ficha
   suelta" sigue existiendo para muebles de referencia que no son productos.
+  **Cualquier variante se puede enlazar** (2026-11-10, pedido del usuario: "si me sale el producto,
+  que también me salgan sus variantes para elegir"): el buscador "Vincular producto" y el panel del
+  producto muestran todas las opciones de sus tipos de variante, no solo las de tipos marcados
+  "cambia el precio" en Inventario (esa marca casi nunca está puesta). Solo las de tipos que cambian
+  el precio son **medidas requeridas** (cuentan en "faltan N" y dejan el producto en espera); las
+  demás salen "opcional" y no cambian su estado (`versiones[].requerida`).
   Al guardar una ficha, el precio de lo enlazado lo pone el servidor (`Support/PreciosVigentes`).
   **Importados y comprados** (2026-11-10, pedido del usuario: "omitir productos importados que no
   sabemos sus costos"): en el panel del producto, "¿No se fabrica aquí?" → *Es importado* / *Se
@@ -771,6 +777,17 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   el producto en Inventario renombra sus recetas (`Producto::booted`). El cotizador indexa
   también la descripción; el buscador de fichas busca en ella.
 - **Materiales** (~314) con unidad normalizada, historial de precios, duplicados marcados.
+  **Reemplazar en fichas** (2026-11-10, pedido del usuario: "creo un material nuevo para
+  reemplazar otro en algunos productos, sin ir producto por producto"): en Materiales, el botón
+  ⇄ de un material en uso (o "Reemplazar por otro material en fichas…" al editarlo) muestra las
+  fichas donde se usa; se marcan las que se quieren, se escoge el nuevo y
+  `POST /materiales/{id}/reemplazar` (`reemplazar_con_id`, `fichas`) les pasa ese material con la
+  misma cantidad (nombre, unidad y precio del nuevo) y recalcula su costo. Las no marcadas y el
+  material viejo quedan como estaban. La cantidad no se convierte: la pantalla avisa si la unidad
+  es otra. Mismo permiso que editar materiales (`acceso_costos` o ebanista).
+  Al abrir un material sale **"Dónde se usa"** (`GET /materiales/{id}/usos`): cada ficha con la
+  cantidad, la sección y lo que cuesta ese material en ella; tocarla abre la ficha. Antes solo
+  se veía entrando a Eliminar (pedido del usuario, 2026-11-10).
 - **Cotizador** (`POST /calcular-precio-item` y tool `cotizar_fabricacion` del chat):
   `FichaRetriever` (embeddings) → `BomBuilder` (LLM arma receta con IDs y
   cantidades, ve la foto en `detail:high`) → `CostoCalculator` (precios de la BD)

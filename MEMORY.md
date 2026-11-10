@@ -897,6 +897,18 @@ escribiendo precios (Fase 1b).
   mío (**falta confirmar**): nota opcional; lo marca quien tiene acceso a Costos (o el ebanista);
   un producto con una sola receta abre la ficha directo, así que el botón solo se ve en el panel
   (productos en espera o con medidas). Tests en `CostosConectadoConInventarioTest`.
+- **Reemplazar un material solo en algunas fichas** (2026-11-10, **sin subir**, sin migración,
+  rama `claude/analisis-modulo-costos-39e664`). Pedido del usuario: desde Materiales, escoger en
+  qué fichas se cambia un material por otro (uno recién creado) sin eliminarlo. Detalle en
+  `docs/PROYECTO.md` §6.11. Por defecto mío (**falta confirmar**): lo puede hacer quien edita
+  materiales (no solo supervisor); si la ficha ya tenía el material nuevo, quedan dos renglones
+  (no se juntan). Test al final de `CostosFichasTest`.
+  Mismo día y rama: al abrir un material sale "Dónde se usa" (antes solo en Eliminar), y
+  **cualquier variante del producto se puede enlazar a una receta**, no solo las de tipos con
+  `afecta_precio` (queja: "solo me deja enlazarlo al producto"; la marca solo esconde el campo en
+  Inventario). Por defecto mío (**falta confirmar**): solo las de tipos con `afecta_precio` son
+  requeridas (en espera / "faltan N"); las demás son opcionales. Finanzas, Márgenes (receta general
+  sin margen) y el cotizador no cambiaron. Test al final de `CostosConectadoConInventarioTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

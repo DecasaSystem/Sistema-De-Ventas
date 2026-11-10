@@ -111,7 +111,9 @@ class RecetasDeProductos
 
             // Con medidas, cada una lleva su receta: no todas cuestan lo mismo (usuario,
             // 2026-11-06). La receta general no cubre a ninguna; queda de plantilla.
-            $faltan = $vers->filter(fn ($v) => empty($v['fichas']))->count();
+            // Solo las que cambian el precio la necesitan; las otras versiones son opcionales.
+            $requeridas = $vers->where('requerida', true)->count();
+            $faltan = $vers->filter(fn ($v) => $v['requerida'] && empty($v['fichas']))->count();
             $todas  = $suyas->values();
 
             return [
@@ -129,7 +131,7 @@ class RecetasDeProductos
                 'no_fabricado' => ($nf = $noFabricados->get($p->id))
                     ? ['origen' => $nf->origen, 'nota' => $nf->nota]
                     : null,
-                'estado'      => $nf ? 'no_fabricado' : $this->estado($todas, $vers->count(), $faltan),
+                'estado'      => $nf ? 'no_fabricado' : $this->estado($todas, $requeridas, $faltan),
             ];
         })->values();
 
@@ -319,7 +321,17 @@ class RecetasDeProductos
         return $this->categorias ??= DB::table('fichas_tecnicas')->distinct()->pluck('categoria')->filter()->values();
     }
 
-    /** Versiones con precio propio: opciones de tipos de variante que cambian el precio. */
+    /**
+     * Las versiones del producto: cada opción de sus tipos de variante (la cama de 1.40, la
+     * silla eléctrica, el baúl…). Todas se pueden enlazar a una receta (usuario, 2026-11-10:
+     * "si me sale el producto, que también me salgan sus variantes para elegir"); antes solo
+     * salían las de tipos marcados "cambia el precio", y esa marca en Inventario solo esconde
+     * el campo de precio, así que muchos productos no mostraban ninguna.
+     *
+     * `requerida`: la de un tipo que cambia el precio. Solo esas quedan "en espera" si les
+     * falta la receta (cada medida lleva la suya, 2026-11-06); las demás son opcionales y no
+     * cambian el estado del producto.
+     */
     private function versionesDe(array $productoIds): Collection
     {
         if (empty($productoIds) || ! Schema::hasTable('producto_variante_configs')) return collect();
@@ -329,9 +341,8 @@ class RecetasDeProductos
             ->join('tipo_variante_opciones as o', 'o.id', '=', 'c.opcion_id')
             ->join('productos as p', 'p.id', '=', 'c.producto_id')
             ->whereIn('c.producto_id', $productoIds)
-            ->where('t.afecta_precio', true)
-            ->orderBy('t.nombre')->orderBy('o.nombre')
-            ->get(['c.id', 'c.producto_id', 'c.precio_adicional', 't.nombre as tipo', 'o.nombre as opcion', 'p.precio_base'])
+            ->orderByDesc('t.afecta_precio')->orderBy('t.nombre')->orderBy('o.nombre')
+            ->get(['c.id', 'c.producto_id', 'c.precio_adicional', 't.nombre as tipo', 't.afecta_precio', 'o.nombre as opcion', 'p.precio_base'])
             ->groupBy('producto_id')
             ->map(fn ($g) => $g->map(fn ($c) => [
                 'config_id' => (int) $c->id,
@@ -339,6 +350,7 @@ class RecetasDeProductos
                 'opcion'    => $c->opcion,
                 // `precio_adicional` es el precio completo de esa versión (0 = el del producto)
                 'precio'    => (float) $c->precio_adicional > 0 ? (float) $c->precio_adicional : (float) $c->precio_base,
+                'requerida' => (bool) $c->afecta_precio,
             ])->values()->all());
     }
 
