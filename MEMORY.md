@@ -1183,6 +1183,13 @@ Decisiones del dueño del 2026-10-08:
   El adelanto de vacaciones = días calendario × valor día − seguridad social de esos días.
   Test en `PrestacionesYLiquidacionTest`.
 
+- **Detalle de la orden se recargaba solo sin fin** (2026-11-10, #1282, **subido a `main`** ese día,
+  solo front). Orden firmada a distancia el 16 oct con un diseño especial; la declaración se exige
+  desde el 21 oct, así que la tarjeta `FirmaRemotaOrden` seguía a la vista, veía el enlace viejo
+  `firmado`, emitía `firmada` → `cargarOrden` → spinner (`v-if="loading"`) desmonta y vuelve a
+  montar la tarjeta → otra vez. Ahora solo emite al pasar de `pendiente` a `firmado`. Trampa
+  general: un hijo que emite "recarga" al montarse dentro de un `v-if` que la recarga apaga = bucle.
+
 - **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
   `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con
   cotización por vencer/vencida (dueño, 2026-11-04: "es solo para las personas que las

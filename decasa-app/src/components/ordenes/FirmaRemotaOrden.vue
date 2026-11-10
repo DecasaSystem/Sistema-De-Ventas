@@ -46,10 +46,17 @@ const faltaFicha = computed(() => (props.orden.declaracion?.sin_ficha?.length ??
 const faltaPrecio = computed(() => vivos.value.some(i =>
   !i.es_regalo && Number(i.precio_unitario) === 0 && (i.es_personalizado || i.retapizar)))
 
+// Solo se avisa "firmada" cuando el cliente firma MIENTRAS se espera (pasa de
+// pendiente a firmado). Antes se avisaba cada vez que el último enlace venía
+// firmado: con una orden ya firmada a la que le falta la declaración de diseños
+// especiales, la tarjeta sigue a la vista con ese enlace viejo firmado; la orden
+// se recargaba, la pantalla ponía el spinner, la tarjeta se volvía a montar,
+// veía "firmado" otra vez y volvía a recargar: el detalle se recargaba solo sin fin.
 async function cargar() {
   try {
+    const antes = firma.value?.estado
     firma.value = (await firmaRemotaDeOrden(props.orden.id)).data || null
-    if (firma.value?.estado === 'firmado') emit('firmada')
+    if (antes === 'pendiente' && firma.value?.estado === 'firmado') emit('firmada')
   } catch { /* sin enlace todavía */ }
 }
 onMounted(() => {
