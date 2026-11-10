@@ -113,15 +113,43 @@ class NominaPagoController extends Controller
         $pagados  = [];
         $omitidos = [];
 
-        foreach ($data['pagos'] as $fila) {
+        // Los trabajadores con todo lo de la liquidación, en una sola carga
+        // y no ~10 consultas por cada uno. Con ~200 ms por consulta (la base
+        // está lejos del servidor), pagar 20 personas pasaba de los 100 s y
+        // Render cortaba la petición con 502: los pagos quedaban hechos, pero
+        // la pantalla no se enteraba. Por lo mismo la respuesta va liviana
+        // (la pantalla solo cuenta y suma) y la pantalla manda de a pocos.
+        $empleados = Usuario::with(NominaLiquidador::relaciones())
+            ->whereIn('id', array_unique(array_column($data['pagos'], 'usuario_id')))
+            ->get()
+            ->keyBy('id');
+
+        // Del más viejo al más nuevo: si no, el ciclo nuevo de alguien se
+        // frenaría por el viejo que viene más abajo en la misma lista.
+        $filas = collect($data['pagos'])->sortBy(fn ($f) => CicloNomina::fecha($f['fecha_inicio'])->toDateString())->values();
+
+        foreach ($filas as $fila) {
             try {
-                $empleado = $this->trabajadorLiquidable($fila['usuario_id']);
+                // `pull`: la carga de una vez sirve solo para su primer ciclo.
+                // Si la misma persona trae otro ciclo en el lote, se vuelve a
+                // leer: sus faltas y la cuota del préstamo ya cambiaron con
+                // el pago anterior (si no, la cuota saldría con el saldo viejo).
+                $empleado = $this->conSueldo(
+                    $empleados->pull($fila['usuario_id']) ?? $this->trabajadorLiquidable($fila['usuario_id'])
+                );
                 $pago = DB::transaction(fn () => $this->registrar(
                     $empleado,
                     CicloNomina::fecha($fila['fecha_inicio']),
                     null
                 ));
-                $pagados[] = $this->comoJson($pago->load('trabajador', 'ausencias', 'ajustes', 'producciones'));
+                $pagados[] = [
+                    'id'              => $pago->id,
+                    'usuario_id'      => $pago->usuario_id,
+                    'empleado_nombre' => $empleado->nombre,
+                    'fecha_inicio'    => $pago->fecha_inicio->toDateString(),
+                    'fecha_fin'       => $pago->fecha_fin->toDateString(),
+                    'total'           => (float) $pago->total,
+                ];
             } catch (ValidationException $e) {
                 $omitidos[] = [
                     'usuario_id' => $fila['usuario_id'],
@@ -218,6 +246,17 @@ class NominaPagoController extends Controller
         if (NominaPago::where('usuario_id', $empleado->id)->whereDate('fecha_inicio', $inicio->toDateString())->exists()) {
             throw ValidationException::withMessages([
                 'fecha_inicio' => ["Ese ciclo de {$empleado->nombre} ya estaba pagado."],
+            ]);
+        }
+
+        // Del más viejo al más nuevo: los pendientes arrancan después del
+        // último pago, así que pagar uno más nuevo escondía para siempre los
+        // anteriores sin pagar. La liquidación (con corte) paga todos los
+        // ciclos juntos, en orden, dentro de su propia transacción.
+        if (! $corte && ($viejo = NominaLiquidador::cicloAnteriorSinPagar($empleado, $inicio, $hoy))) {
+            $nombre = CicloNomina::nombre($empleado->periodicidad, $viejo[0], $viejo[1]);
+            throw ValidationException::withMessages([
+                'fecha_inicio' => ["{$empleado->nombre} tiene sin pagar un ciclo anterior ({$nombre}): primero se paga ese."],
             ]);
         }
 
@@ -337,8 +376,12 @@ class NominaPagoController extends Controller
     /** El trabajador con todo lo que la liquidación necesita cargado. */
     private function trabajadorLiquidable(int|string $id): Usuario
     {
-        $empleado = Usuario::with(NominaLiquidador::relaciones())->findOrFail($id);
+        return $this->conSueldo(Usuario::with(NominaLiquidador::relaciones())->findOrFail($id));
+    }
 
+    /** Frena al que no tiene sueldo asignado: no hay con qué liquidarlo. */
+    private function conSueldo(Usuario $empleado): Usuario
+    {
         if (! $empleado->nomina_sueldo_id) {
             throw ValidationException::withMessages([
                 'usuario_id' => ["{$empleado->nombre} todavía no tiene un sueldo asignado."],

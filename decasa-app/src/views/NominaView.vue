@@ -68,6 +68,9 @@ const costoEmpleadorTotal = ref(0)
 const cargandoPagos  = ref(true)
 const pagandoClave   = ref(null)
 const pagandoTodos   = ref(false)
+// "Pagar todos" va en tandas de 5 (ver pagarTodos); esto pinta "5 de 20".
+const PAGOS_POR_TANDA = 5
+const progresoPago   = ref(null)
 const pagoAbierto    = ref(null)
 
 const clave = (p) => `${p.usuario_id}|${p.fecha_inicio}`
@@ -98,9 +101,52 @@ const gruposPagos = computed(() => {
   return [...grupos.entries()].map(([label, items]) => ({
     label,
     items,
+    personas: agruparPorPersona(items),
     total: items.reduce((s, i) => s + i.total, 0),
   }))
 })
+
+// Si a alguien se le acumularon varios ciclos sin pagar, van juntos en una
+// sola tarjeta con el total de todo lo que se le debe y un botón para
+// pagárselo de una. Del más viejo al más nuevo.
+function agruparPorPersona(items) {
+  const personas = new Map()
+  for (const p of items) {
+    if (!personas.has(p.usuario_id)) personas.set(p.usuario_id, [])
+    personas.get(p.usuario_id).push(p)
+  }
+  return [...personas.values()].map(ciclos => {
+    ciclos.sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
+    return {
+      usuario_id: ciclos[0].usuario_id,
+      nombre: ciclos[0].empleado_nombre,
+      cargo: ciclos[0].empleado_cargo,
+      ciclos,
+      total: ciclos.reduce((s, c) => s + c.total, 0),
+    }
+  })
+}
+
+// Con ciclos acumulados, solo se paga suelto el más viejo: los pendientes
+// arrancan después del último pago, así que pagar uno más nuevo escondía
+// para siempre los anteriores que seguían sin pagar.
+function bloqueadoPorUnoViejo(persona, p) {
+  return persona.ciclos.length > 1 && clave(persona.ciclos[0]) !== clave(p)
+}
+
+const personaAbierta = ref(null)
+const pagandoPersona = ref(null)
+
+async function pagarPersona(persona) {
+  const n = persona.ciclos.length
+  if (!confirm(`¿Marcar como pagados los ${n} ciclos de ${persona.nombre}, por ${formatoPesos(persona.total)}?`)) return
+  pagandoPersona.value = persona.usuario_id
+  try {
+    await pagarFilas(persona.ciclos)
+  } finally {
+    pagandoPersona.value = null
+  }
+}
 
 async function pagarUno(p) {
   pagandoClave.value = clave(p)
@@ -121,22 +167,49 @@ async function pagarTodos() {
   if (!confirm(`¿Marcar como pagados los ${n} pagos pendientes, por ${formatoPesos(totalGeneral.value)}?`)) return
   pagandoTodos.value = true
   try {
-    // Se manda la lista exacta que está en pantalla: nunca se cobra algo
-    // que el usuario no llegó a ver.
-    const { data } = await pagarLote(
-      pendientes.value.map(p => ({ usuario_id: p.usuario_id, fecha_inicio: p.fecha_inicio }))
-    )
-    if (data.omitidos?.length) {
-      toast.error(`${data.pagados.length} pagados, ${data.omitidos.length} omitidos (${data.omitidos[0].motivo})`)
-    } else {
-      toast.success(`${data.pagados.length} pagos registrados por ${formatoPesos(data.total)}`)
-    }
-    empleadosCargados = false
-    await cargarPendientes()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudieron registrar los pagos')
+    // Del más viejo al más nuevo, por lo mismo que bloqueadoPorUnoViejo.
+    await pagarFilas([...pendientes.value].sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio)))
   } finally {
     pagandoTodos.value = false
+  }
+}
+
+/**
+ * Paga esos ciclos en tandas y al final recarga la lista, salga bien o mal.
+ * Se manda la lista exacta que está en pantalla: nunca se cobra algo que
+ * el usuario no llegó a ver.
+ */
+async function pagarFilas(ciclos) {
+  const filas = ciclos.map(p => ({ usuario_id: p.usuario_id, fecha_inicio: p.fecha_inicio }))
+  let pagados = 0
+  let total = 0
+  const omitidos = []
+  try {
+    // De a pocos: todo en una sola petición pasaba de los 100 s con muchos
+    // trabajadores y Render la cortaba (502). Los pagos quedaban hechos,
+    // pero la pantalla se quedaba cargando sin avisar ni recargar.
+    for (let i = 0; i < filas.length; i += PAGOS_POR_TANDA) {
+      progresoPago.value = { hechos: i, de: filas.length }
+      const { data } = await pagarLote(filas.slice(i, i + PAGOS_POR_TANDA))
+      pagados += data.pagados.length
+      total += data.total
+      omitidos.push(...(data.omitidos ?? []))
+    }
+    if (omitidos.length) {
+      toast.error(`${pagados} pagados, ${omitidos.length} omitidos (${omitidos[0].motivo})`)
+    } else {
+      toast.success(`${pagados} pagos registrados por ${formatoPesos(total)}`)
+    }
+  } catch (e) {
+    // Una tanda que se cortó pudo haber quedado pagada en el servidor: se
+    // recarga la lista para que se vea qué quedó, en vez de suponer.
+    const hechos = pagados ? `${pagados} quedaron pagados. ` : ''
+    toast.error(e.response?.data?.message
+      || `${hechos}Se cortó la conexión: revisa la lista, lo que ya no aparece quedó pagado.`)
+  } finally {
+    progresoPago.value = null
+    empleadosCargados = false
+    await cargarPendientes()
   }
 }
 
@@ -1092,7 +1165,9 @@ async function quitarAjuste(id) {
             >
               <span v-if="pagandoTodos" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
               <CheckCircleIcon v-else class="w-4 h-4" />
-              {{ pagandoTodos ? 'Registrando...' : 'Marcar todos como pagados' }}
+              {{ pagandoTodos
+                ? (progresoPago ? `Registrando ${progresoPago.hechos} de ${progresoPago.de}...` : 'Registrando...')
+                : 'Marcar todos como pagados' }}
             </button>
           </div>
 
@@ -1103,11 +1178,53 @@ async function quitarAjuste(id) {
             </div>
 
             <div class="space-y-2.5">
-              <div v-for="p in grupo.items" :key="clave(p)" class="bg-white rounded-xl shadow-sm overflow-hidden">
+             <div
+               v-for="persona in grupo.personas" :key="persona.usuario_id"
+               :class="persona.ciclos.length > 1 ? 'bg-white rounded-xl shadow-sm overflow-hidden' : ''"
+             >
+              <!-- Varios ciclos acumulados: una tarjeta con todo lo que se le debe -->
+              <div v-if="persona.ciclos.length > 1" class="p-4">
+                <div
+                  class="flex items-start justify-between gap-2 cursor-pointer"
+                  @click="personaAbierta = personaAbierta === persona.usuario_id ? null : persona.usuario_id"
+                >
+                  <div class="min-w-0">
+                    <p class="font-semibold text-sm text-gray-800 truncate">{{ persona.nombre }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ persona.cargo || 'Sin cargo' }}</p>
+                    <span class="inline-block mt-1 text-[11px] font-semibold rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">
+                      {{ persona.ciclos.length }} ciclos sin pagar · desde {{ formatoFechaCorta(persona.ciclos[0].fecha_inicio) }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <div class="text-right">
+                      <p class="font-bold text-sm text-gray-800">{{ formatoPesos(persona.total) }}</p>
+                      <p class="text-[11px] text-gray-400">acumulado</p>
+                    </div>
+                    <component :is="personaAbierta === persona.usuario_id ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-300" />
+                  </div>
+                </div>
+                <button
+                  @click="pagarPersona(persona)" :disabled="pagandoPersona === persona.usuario_id || pagandoTodos"
+                  class="mt-3 w-full bg-green-600 text-white text-xs font-semibold rounded-lg px-3 py-2 hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  <span v-if="pagandoPersona === persona.usuario_id" class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  <CheckCircleIcon v-else class="w-3.5 h-3.5" />
+                  {{ pagandoPersona === persona.usuario_id ? 'Guardando...' : `Pagar los ${persona.ciclos.length} ciclos · ${formatoPesos(persona.total)}` }}
+                </button>
+              </div>
+
+              <div
+                v-if="persona.ciclos.length === 1 || personaAbierta === persona.usuario_id"
+                :class="persona.ciclos.length > 1 ? 'border-t border-gray-100 p-2 space-y-2' : ''"
+              >
+              <div
+                v-for="p in persona.ciclos" :key="clave(p)"
+                :class="persona.ciclos.length > 1 ? 'rounded-lg border border-gray-100 overflow-hidden' : 'bg-white rounded-xl shadow-sm overflow-hidden'"
+              >
                 <div class="p-4 flex items-start justify-between gap-2 cursor-pointer" @click="pagoAbierto = pagoAbierto === clave(p) ? null : clave(p)">
                   <div class="min-w-0">
-                    <p class="font-semibold text-sm text-gray-800 truncate">{{ p.empleado_nombre }}</p>
-                    <p class="text-xs text-gray-500 mt-0.5">{{ p.empleado_cargo || 'Sin cargo' }} · {{ p.nombre }}</p>
+                    <p class="font-semibold text-sm text-gray-800 truncate">{{ persona.ciclos.length > 1 ? p.nombre : p.empleado_nombre }}</p>
+                    <p v-if="persona.ciclos.length === 1" class="text-xs text-gray-500 mt-0.5">{{ p.empleado_cargo || 'Sin cargo' }} · {{ p.nombre }}</p>
                     <p class="text-xs text-gray-400 mt-0.5">
                       {{ p.dias }} de {{ p.dias_ciclo }} días × {{ formatoPesos(p.valor_dia) }}
                       <span v-if="p.descuento_faltas" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_faltas) }} faltas</span>
@@ -1229,10 +1346,13 @@ async function quitarAjuste(id) {
                     Para agregar una falta, un ajuste o producción a este ciclo, hazlo desde el trabajador en la pestaña Gente.
                   </p>
 
+                  <p v-if="bloqueadoPorUnoViejo(persona, p)" class="text-[11px] text-amber-700">
+                    Primero se paga el ciclo más viejo ({{ persona.ciclos[0].nombre }}), o todos juntos con el botón de arriba.
+                  </p>
                   <div class="flex items-center justify-between pt-2 border-t border-gray-50">
                     <p class="text-sm font-bold text-gray-800">{{ formatoPesos(p.total) }}</p>
                     <button
-                      @click.stop="pagarUno(p)" :disabled="pagandoClave === clave(p)"
+                      @click.stop="pagarUno(p)" :disabled="pagandoClave === clave(p) || bloqueadoPorUnoViejo(persona, p)"
                       class="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
                     >
                       <span v-if="pagandoClave === clave(p)" class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -1242,6 +1362,8 @@ async function quitarAjuste(id) {
                   </div>
                 </div>
               </div>
+              </div>
+             </div>
             </div>
           </div>
         </template>

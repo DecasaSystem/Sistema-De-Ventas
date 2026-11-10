@@ -369,19 +369,7 @@ class NominaLiquidador
         $pendientes = [];
 
         foreach ($empleados as $empleado) {
-            $ultimo = $ultimoFin[$empleado->id] ?? null;
-
-            // Desde el día siguiente al último pago; si nunca cobró, desde
-            // que está dado de alta (sin irse más atrás que el piso).
-            if ($ultimo) {
-                $piso = CicloNomina::fecha($ultimo)->addDay();
-            } else {
-                // Desde que entró a NÓMINA, no desde que existe como
-                // trabajador: a alguien creado en junio al que se le asigna
-                // sueldo hoy no se le deben las quincenas de junio.
-                $alta = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
-                $piso = $alta->greaterThan($pisoGlobal) ? $alta : $pisoGlobal->copy();
-            }
+            $piso = self::pisoDe($empleado, $ultimoFin[$empleado->id] ?? null, $pisoGlobal);
 
             if ($piso->greaterThan($hoy)) {
                 continue;
@@ -410,6 +398,60 @@ class NominaLiquidador
         }
 
         return $pendientes;
+    }
+
+    /**
+     * Desde dónde se buscan ciclos sin pagar: el día siguiente al último
+     * pago; si nunca cobró, desde que está dado de alta (sin irse más atrás
+     * que el piso).
+     */
+    private static function pisoDe(Usuario $empleado, $ultimoFin, Carbon $pisoGlobal): Carbon
+    {
+        if ($ultimoFin) {
+            return CicloNomina::fecha($ultimoFin)->addDay();
+        }
+
+        // Desde que entró a NÓMINA, no desde que existe como trabajador: a
+        // alguien creado en junio al que se le asigna sueldo hoy no se le
+        // deben las quincenas de junio.
+        $alta = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
+
+        return $alta->greaterThan($pisoGlobal) ? $alta : $pisoGlobal->copy();
+    }
+
+    /**
+     * El ciclo más viejo que la persona tiene sin pagar ANTES de `$inicio`,
+     * o null. Los pendientes arrancan después del último pago, así que
+     * pagar un ciclo más nuevo escondía para siempre los viejos que seguían
+     * sin pagar: NominaPagoController::registrar frena eso con esto.
+     *
+     * Mismo recorrido que `pendientes()`, sin liquidar: un ciclo cerrado
+     * tiene días por pagar si termina después del alta.
+     *
+     * @return array{0: Carbon, 1: Carbon}|null
+     */
+    public static function cicloAnteriorSinPagar(Usuario $empleado, Carbon $inicio, Carbon $hoy): ?array
+    {
+        $hoy    = CicloNomina::fecha($hoy);
+        $inicio = CicloNomina::fecha($inicio);
+        $pisoGlobal = $hoy->copy()->subDays(self::DIAS_ATRAS_MAX);
+
+        $pagos = NominaPago::where('usuario_id', $empleado->id)->get(['fecha_inicio', 'fecha_fin']);
+        $yaPagados = $pagos->map(fn (NominaPago $p) => $p->fecha_inicio->toDateString())->flip();
+
+        $piso = self::pisoDe($empleado, $pagos->max(fn (NominaPago $p) => $p->fecha_fin->toDateString()), $pisoGlobal);
+        $alta = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
+
+        [$i, $f] = CicloNomina::rango($empleado->periodicidad, $piso);
+
+        for ($vuelta = 0; $vuelta < self::MAX_CICLOS && $f->lessThanOrEqualTo($hoy) && $i->lessThan($inicio); $vuelta++) {
+            if (! $yaPagados->has($i->toDateString()) && $f->greaterThanOrEqualTo($alta)) {
+                return [$i, $f];
+            }
+            [$i, $f] = CicloNomina::siguiente($empleado->periodicidad, $i);
+        }
+
+        return null;
     }
 
     /**

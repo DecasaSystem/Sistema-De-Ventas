@@ -136,6 +136,10 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
     public function test_el_pago_congela_el_costo_del_empleador_sin_cambiar_lo_que_recibe(): void
     {
         $jefa = Usuario::find(1);
+        // Agosto ya está pagado: se paga del más viejo al más nuevo.
+        DB::table('nomina_pagos')->insert([
+            'usuario_id' => 2, 'periodicidad' => 'quincenal', 'fecha_inicio' => '2026-08-16', 'fecha_fin' => '2026-08-31',
+        ]);
 
         $r = $this->actingAs($jefa)->postJson('/api/nomina/pagos', [
             'usuario_id' => 2, 'fecha_inicio' => '2026-09-01',
@@ -144,7 +148,7 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
         $this->assertEquals(929912, $r['total'], 'lo que recibe el trabajador no cambia');
         $this->assertEquals(357726, $r['costo_empleador']['total']);
 
-        $pago = NominaPago::first();
+        $pago = NominaPago::find($r['id']);
         $this->assertEquals(357726, (float) $pago->costo_empleador);
         $this->assertEquals(144634, $pago->costo_empleador_detalle['aportes']);
 
@@ -155,6 +159,58 @@ class NominaCongelaCostoEmpleadorTest extends TestCase
 
         $historial = $this->actingAs($jefa)->getJson('/api/nomina/pagos')->assertOk()->json();
         $this->assertEquals(357726, $historial[0]['costo_empleador']['total']);
+    }
+
+    /**
+     * "Pagar todos" carga a los trabajadores de una vez (antes se pasaba de
+     * los 100 s y Render cortaba con 502). Si la misma persona trae dos
+     * ciclos en el lote, el segundo se liquida con lo que dejó el primero:
+     * la cuota del préstamo sale con el saldo que quedaba, no con el viejo.
+     */
+    public function test_pagar_todos_con_dos_ciclos_de_la_misma_persona_y_su_prestamo(): void
+    {
+        DB::table('nomina_prestamos')->insert([
+            'usuario_id' => 2, 'monto' => 60000, 'cuotas' => 2, 'valor_cuota' => 50000,
+            'fecha' => '2026-08-10', 'activo' => true,
+        ]);
+        DB::table('usuarios')->insert([
+            'id' => 3, 'nombre' => 'Sin sueldo', 'rol' => 'taller', 'nomina_sueldo_id' => null, 'created_at' => now(),
+        ]);
+
+        // Desordenados a propósito: el lote los paga del más viejo al más nuevo.
+        $r = $this->actingAs(Usuario::find(1))->postJson('/api/nomina/pagos/lote', ['pagos' => [
+            ['usuario_id' => 2, 'fecha_inicio' => '2026-09-01'],
+            ['usuario_id' => 2, 'fecha_inicio' => '2026-08-16'],
+            ['usuario_id' => 3, 'fecha_inicio' => '2026-09-01'],
+            ['usuario_id' => 2, 'fecha_inicio' => '2026-08-01'],
+        ]])->assertCreated()->json();
+
+        $this->assertSame(['2026-08-01', '2026-08-16', '2026-09-01'], array_column($r['pagados'], 'fecha_inicio'));
+        $this->assertCount(1, $r['omitidos']);
+        $this->assertSame(3, $r['omitidos'][0]['usuario_id']);
+        $this->assertEquals(array_sum(array_column($r['pagados'], 'total')), $r['total']);
+
+        $this->assertEquals([50000, 10000], DB::table('nomina_prestamo_cuotas')->orderBy('id')->pluck('monto')->map(fn ($m) => (float) $m)->all());
+        $this->assertSame(3, NominaPago::count());
+    }
+
+    /**
+     * Pagar un ciclo más nuevo dejando uno viejo sin pagar lo escondía para
+     * siempre (los pendientes arrancan después del último pago): se frena.
+     */
+    public function test_no_se_paga_un_ciclo_nuevo_con_uno_viejo_sin_pagar(): void
+    {
+        $jefa = Usuario::find(1);
+
+        $this->actingAs($jefa)->postJson('/api/nomina/pagos', ['usuario_id' => 2, 'fecha_inicio' => '2026-09-01'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.fecha_inicio.0', fn ($m) => str_contains($m, 'primero se paga ese'));
+        $this->assertSame(0, NominaPago::count());
+
+        // En orden sí, y los que faltan siguen saliendo en pendientes.
+        $this->actingAs($jefa)->postJson('/api/nomina/pagos', ['usuario_id' => 2, 'fecha_inicio' => '2026-08-01'])->assertCreated();
+        $this->assertNotNull($this->pendiente('2026-08-16'));
+        $this->assertNotNull($this->pendiente('2026-09-01'));
     }
 
     public function test_los_pendientes_traen_lo_que_pone_la_empresa(): void

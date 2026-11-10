@@ -1126,6 +1126,21 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
+- **Nómina "Marcar todos como pagados" daba 502** (2026-11-10, **sin subir**, sin migración, rama
+  `claude/nomina-pago-lote-502-503-38cb6e`). Una sola petición con ~25 consultas por trabajador
+  (×200 ms) pasaba de los ~100 s y Render la cortaba: los pagos quedaban hechos, pero la pantalla
+  no recargaba ni avisaba. Ahora `NominaPagoController::lote` carga a todos de una (si la misma
+  persona trae otro ciclo, se relee: la cuota del préstamo cambia), responde liviano, y la pantalla
+  manda tandas de 5 y siempre recarga la lista al final (también si algo se corta). Mismo patrón
+  que "Recalcular comisiones": nada pesado en una sola petición.
+  Mismo día, pedido del usuario: **los ciclos acumulados van en una tarjeta por persona** (total
+  acumulado + "Pagar los N ciclos", del más viejo al más nuevo). Trampa: `NominaLiquidador::pendientes`
+  arranca después del ÚLTIMO pago (`MAX(fecha_fin)`), así que pagar un ciclo más nuevo escondía para
+  siempre los viejos sin pagar. La pantalla solo deja pagar suelto el más viejo y **el servidor lo frena**
+  (`NominaLiquidador::cicloAnteriorSinPagar` en `registrar`, 422; el lote se ordena solo). La
+  liquidación al retiro (con corte) no pasa por ese freno. Huecos de antes (un ciclo viejo sin pagar
+  detrás de uno pagado) no frenan nada: el recorrido empieza después del último pago, como la lista.
+
 - **`NotificacionService::crear` con usuario `null` = a TODOS los supervisores.** Pasar
   `$orden->vendedor_id` sin revisar que exista reparte el aviso a todos. Pasó con
   cotización por vencer/vencida (dueño, 2026-11-04: "es solo para las personas que las
