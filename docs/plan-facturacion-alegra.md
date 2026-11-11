@@ -145,7 +145,9 @@ Respuestas del contador y lo que cambió (trae **migración**
 | **Retención:** compró $1.000.000, retención $25.000, paga $975.000; se cruza al pagar la factura | En la revisión se anota la retención del cliente: deja de contar como deuda (la factura sale de **contado**), se guarda en la factura (`retencion_cliente`) y sale en "Para terminar en Alegra". Sugiere el 2,5 % de la base; no deja anotar más de lo que falta |
 | Datáfono → Bold → Davivienda de Decasa (llega después); Addi parecido | No cambia nada mientras los pagos no se registren desde el sistema. Si algún día se prende, tarjeta y Addi deberían ir a una cuenta puente ("Bold por cobrar", "Addi por cobrar"), no directo a Davivienda |
 
-Sin respuesta todavía: si las ventas de **independientes** son ingresos de Decasa o para terceros.
+**Independientes** (usuario, 2026-11-11): sus ventas **son ingresos de Decasa** ("son vendedores
+normales pero sin tienda fija"). Se facturan como cualquier venta: "Facturar las ventas de
+independientes" queda prendido (así venía) y no se usa "ingresos para terceros".
 
 ## 6. Nunca dos facturas de lo mismo
 

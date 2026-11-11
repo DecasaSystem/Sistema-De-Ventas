@@ -903,7 +903,9 @@ escribiendo precios (Fase 1b).
   "Registrar pagos" queda **apagado**, el módulo ya no toca esa marca, avisa los recibos sin
   digitar, anota la retención (factura de contado) y muestra "Para terminar en Alegra" con qué
   cruzar (**sin subir**, migración `2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas`).
-  La API de Alegra no documenta cruzar anticipos en Colombia: el cruce sigue a mano. Por defecto mío
+  La API de Alegra no documenta cruzar anticipos en Colombia: el cruce sigue a mano.
+  **Independientes = ingresos de Decasa** (usuario, 2026-11-11: "vendedores normales pero sin
+  tienda fija"): se facturan como cualquier venta, nada de "ingresos para terceros". Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la
