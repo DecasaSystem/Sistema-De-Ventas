@@ -289,8 +289,26 @@ class FacturacionElectronicaController extends Controller
             'momentos'    => ReglasFacturacion::MOMENTOS,
             'medios_dian' => ReglasFacturacion::MEDIOS_DIAN,
             'medios_pago' => ReglasFacturacion::MEDIOS_PAGO_ALEGRA,
-            'tiendas'     => DB::table('tiendas')->select('id', 'nombre')->orderBy('nombre')->get(),
+            'tiendas'     => self::tiendasQueFacturan(),
         ]);
+    }
+
+    /**
+     * Las tiendas a las que se les puede escoger numeración y cajas: solo las
+     * que siguen abiertas. Salían también las desactivadas y las cerradas
+     * (Circunvalar, 27 ago 2026), que ya no venden (usuario, 2026-11-11).
+     * Lo que ya tuvieran guardado se queda y no estorba.
+     */
+    public static function tiendasQueFacturan()
+    {
+        return DB::table('tiendas')
+            ->select('id', 'nombre')
+            ->when(Esquema::columna('tiendas', 'activa'), fn ($q) => $q->where('activa', true))
+            ->when(Esquema::columna('tiendas', 'cerrada_en'), fn ($q) => $q->where(fn ($w) => $w
+                ->whereNull('cerrada_en')
+                ->orWhere('cerrada_en', '>', now('America/Bogota')->toDateString())))
+            ->orderBy('nombre')
+            ->get();
     }
 
     public function guardarReglas(Request $request)
@@ -327,11 +345,13 @@ class FacturacionElectronicaController extends Controller
         $lista = fn ($r) => $r->ok && is_array($r->json) ? array_values(array_filter($r->json, 'is_array')) : [];
 
         return response()->json([
+            // Cada una con su estado (vigente, por vencer, pocos números, vencida,
+            // agotada): una resolución vencida no se deja escoger (EstadoNumeracion).
             'numeraciones' => array_map(fn ($n) => [
-                'id' => (string) ($n['id'] ?? ''), 'nombre' => $n['name'] ?? '', 'prefijo' => $n['prefix'] ?? '',
                 'electronica' => (bool) ($n['isElectronic'] ?? false), 'tipo' => $n['documentType'] ?? null,
                 'activa' => ($n['status'] ?? 'active') === 'active',
-            ], $lista($num)),
+                'preferida' => (bool) ($n['isDefault'] ?? $n['preferred'] ?? false),
+            ] + \App\Services\Alegra\EstadoNumeracion::de($n), $lista($num)),
             'cuentas' => array_map(fn ($c) => [
                 'id' => (string) ($c['id'] ?? ''), 'nombre' => $c['name'] ?? '', 'tipo' => $c['type'] ?? null,
             ], $lista($cuentas)),

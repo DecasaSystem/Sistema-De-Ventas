@@ -89,6 +89,16 @@ cambia los Ajustes**.
 escogido, un pago sin caja de Alegra, solicitud de cambio sin decidir, valor $0, la regla dice que
 no se factura.
 
+**Numeración (resolución DIAN)** (2026-11-11, `Services/Alegra/EstadoNumeracion`): en cada revisión
+se pregunta a Alegra por la numeración de la tienda (`endDate`, `maxInvoiceNumber`,
+`nextInvoiceNumber`, `status`; si faltan, se leen del texto de la resolución; se recuerda 10 min).
+Vencida, agotada o inactiva **bloquea** en modo "Mandar a la DIAN" (en borrador solo avisa); por
+vencer (30 días) o con pocos números (100) avisa sin frenar; los dos umbrales están en Ajustes. En
+Ajustes cada numeración sale con su fecha, los números que le quedan y su estado, y una vencida no
+se deja escoger. Caso real ese día: FEU vencida el 7 nov 2026, FP PEREIRA vencida en feb 2026, FEN
+con 83 números y vigente hasta el 20 feb 2027. En Ajustes por tienda solo salen las tiendas
+activas y sin cerrar.
+
 **Hay que marcarlas** (se guardan en la factura como aceptadas): precio lejos del de lista, la plata
 cambió hace poco, queda saldo (sale a crédito), pagos marcados facturados a mano, reembolso o pagos
 de más (los pagos no se registran), diferencia por decimales, consumidor final.

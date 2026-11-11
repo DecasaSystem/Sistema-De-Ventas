@@ -128,6 +128,7 @@ class ArmarFactura
             ],
             'forma_pago'    => $formaPago,
             'medio_pago'    => $factura['paymentMethod'],
+            'numeracion'    => $this->numeracion,
             'alertas'       => $this->alertas,
             'se_puede'      => ! $bloqueos,
             'advertencias'  => array_values(array_map(fn ($a) => $a['codigo'],
@@ -488,10 +489,36 @@ class ArmarFactura
         if ($llevaIva && ! $r['impuesto_iva_id']) {
             $this->bloqueo('sin_iva', 'Falta escoger en Ajustes el impuesto de IVA de Alegra.');
         }
-        if (! ReglasFacturacion::numeracionDe($this->orden->tienda_id)) {
+        $numeracion = ReglasFacturacion::numeracionDe($this->orden->tienda_id);
+        if (! $numeracion) {
             $this->advertencia('sin_numeracion', 'No hay numeración escogida para esta tienda: Alegra usará la preferida de la empresa.', false);
+        } else {
+            $this->revisarNumeracion($numeracion);
         }
     }
+
+    /**
+     * La resolución DIAN que se va a usar: vencida, agotada o inactiva no deja
+     * emitir (la DIAN la rechazaría). En modo borrador no se gasta número, así
+     * que solo se avisa. Por vencer o con pocos números: aviso, sin frenar.
+     */
+    private function revisarNumeracion(string $id): void
+    {
+        $estado = \App\Services\Alegra\EstadoNumeracion::consultar(app(\App\Services\Alegra\ClienteAlegra::class), $id);
+        $this->numeracion = $estado;
+        if (! $estado) return; // no se pudo preguntar: Alegra igual la revisa al emitir
+
+        if (! $estado['sirve']) {
+            ReglasFacturacion::emite()
+                ? $this->bloqueo('numeracion_' . $estado['estado'], $estado['mensaje'] . ' Escoge otra en Ajustes.')
+                : $this->advertencia('numeracion_' . $estado['estado'], $estado['mensaje'] . ' (En borrador no se usa, pero al emitir la DIAN la rechazaría.)', false);
+        } elseif (in_array($estado['estado'], ['por_vencer', 'pocos'], true)) {
+            $this->advertencia('numeracion_' . $estado['estado'], $estado['mensaje'], false);
+        }
+    }
+
+    /** Lo que se supo de la numeración al armar (para mostrarlo en la revisión). */
+    private ?array $numeracion = null;
 
     /** Una solicitud de cambio sin decidir o un cambio de plata reciente. */
     private function revisarCambiosDePlata(): void

@@ -29,6 +29,26 @@ const METODOS = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta:
 const MEDIOS_PAGO = { cash: 'Efectivo', transfer: 'Transferencia', deposit: 'Consignación', check: 'Cheque', 'credit-card': 'Tarjeta crédito', 'debit-card': 'Tarjeta débito' }
 
 const numeraciones = computed(() => (cat.value?.numeraciones ?? []).filter(n => n.activa !== false))
+
+// Cómo se ve cada resolución en la lista: con su estado, para no escoger una
+// vencida (2026-11-11: FEU y FP PEREIRA estaban vencidas y salían como las demás).
+const ESTADO_NUM = { vencida: 'VENCIDA', agotada: 'SIN NÚMEROS', inactiva: 'inactiva', por_vencer: 'vence pronto', pocos: 'quedan pocos' }
+function fechaCorta(f) {
+  return f ? new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+}
+function textoNum(n) {
+  const partes = [n.nombre + (n.prefijo && n.prefijo !== n.nombre ? ` (${n.prefijo})` : '')]
+  if (n.vence) partes.push(`hasta ${fechaCorta(n.vence)}`)
+  if (n.quedan != null) partes.push(`quedan ${n.quedan}`)
+  if (ESTADO_NUM[n.estado]) partes.push(ESTADO_NUM[n.estado])
+  return partes.join(' · ')
+}
+/** El aviso de la numeración escogida, si no está bien. */
+function avisoNum(id) {
+  const n = id ? numeraciones.value.find(x => x.id === id) : null
+  if (!n || n.estado === 'vigente') return null
+  return { texto: n.mensaje, grave: !n.sirve }
+}
 const impuestosIva = computed(() => (cat.value?.impuestos ?? []))
 
 async function cargar() {
@@ -169,6 +189,10 @@ onMounted(cargar)
           <input v-model.number="r.alerta_precio_pct" type="number" min="0" max="100" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500 col-span-2">Pedir mirar otra vez si la plata cambió hace menos de (horas)
           <input v-model.number="r.horas_cambio_reciente" type="number" min="0" max="720" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+        <label class="text-xs text-gray-500">Avisar cuando a la resolución DIAN le falten (días)
+          <input v-model.number="r.aviso_numeracion_dias" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+        <label class="text-xs text-gray-500">…o le queden (números)
+          <input v-model.number="r.aviso_numeracion_numeros" type="number" min="0" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
       </div>
       <div class="space-y-2 text-sm text-gray-700">
         <label class="flex items-center justify-between gap-3"><span>Las restauraciones llevan IVA</span><input v-model="r.iva_en_restauraciones" type="checkbox" class="w-5 h-5" /></label>
@@ -215,8 +239,11 @@ onMounted(cargar)
         <label class="block text-xs text-gray-500">Numeración (resolución DIAN) general
           <select v-model="r.numeraciones['*']" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
             <option :value="undefined">La preferida de Alegra</option>
-            <option v-for="n in numeraciones" :key="n.id" :value="n.id">{{ n.nombre }} {{ n.prefijo ? `(${n.prefijo})` : '' }}{{ n.electronica ? ' · electrónica' : '' }}</option>
+            <option v-for="n in numeraciones" :key="n.id" :value="n.id" :disabled="!n.sirve && r.numeraciones['*'] !== n.id">{{ textoNum(n) }}</option>
           </select></label>
+        <p v-if="avisoNum(r.numeraciones['*'])" :class="['text-xs', avisoNum(r.numeraciones['*']).grave ? 'text-red-600' : 'text-amber-700']">
+          {{ avisoNum(r.numeraciones['*']).texto }}
+        </p>
 
         <label class="block text-xs text-gray-500">Impuesto de IVA
           <select v-model="r.impuesto_iva_id" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
@@ -266,8 +293,11 @@ onMounted(cargar)
             <p class="text-xs font-semibold text-gray-700">{{ t.nombre }}</p>
             <select v-model="r.numeraciones[String(t.id)]" class="w-full border border-gray-200 rounded-lg px-1 py-1 text-xs bg-white">
               <option :value="undefined">Numeración: la general</option>
-              <option v-for="n in numeraciones" :key="n.id" :value="n.id">{{ n.nombre }} {{ n.prefijo ? `(${n.prefijo})` : '' }}</option>
+              <option v-for="n in numeraciones" :key="n.id" :value="n.id" :disabled="!n.sirve && r.numeraciones[String(t.id)] !== n.id">{{ textoNum(n) }}</option>
             </select>
+            <p v-if="avisoNum(r.numeraciones[String(t.id)])" :class="['text-xs', avisoNum(r.numeraciones[String(t.id)]).grave ? 'text-red-600' : 'text-amber-700']">
+              {{ avisoNum(r.numeraciones[String(t.id)]).texto }}
+            </p>
             <div class="grid grid-cols-2 gap-1.5">
               <select v-for="m in meta.metodos" :key="m" v-model="r.cuentas[String(t.id)][m]" class="border border-gray-200 rounded-lg px-1 py-1 text-xs bg-white">
                 <option :value="undefined">{{ METODOS[m] }}: la general</option>

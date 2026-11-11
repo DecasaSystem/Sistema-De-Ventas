@@ -90,6 +90,10 @@ class ReglasFacturacion
         'alerta_precio_pct'       => 50,
         // Horas después de un cambio de plata en las que se pide mirar otra vez.
         'horas_cambio_reciente'   => 24,
+        // Avisar cuando a la resolución DIAN le falten estos días o estos números
+        // (2026-11-11: FEN tenía 83 números y vencía en 3 meses).
+        'aviso_numeracion_dias'    => 30,
+        'aviso_numeracion_numeros' => 100,
 
         // ── Alegra ─────────────────────────────────────────────────────────────
         'impuesto_iva_id'         => null,
@@ -215,6 +219,7 @@ class ReglasFacturacion
         $numeros = [
             'iva_pct' => [0, 100], 'decimales' => [0, 6], 'dias_credito' => [0, 365],
             'alerta_precio_pct' => [0, 100], 'horas_cambio_reciente' => [0, 720],
+            'aviso_numeracion_dias' => [0, 365], 'aviso_numeracion_numeros' => [0, 100000],
         ];
         foreach ($numeros as $n => [$min, $max]) {
             if (! array_key_exists($n, $valores)) continue;

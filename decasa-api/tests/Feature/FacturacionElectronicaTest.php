@@ -49,7 +49,10 @@ class FacturacionElectronicaTest extends TestCase
             $t->boolean('independiente')->default(false); $t->boolean('ve_todas_ordenes')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamps();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable(); });
+        Schema::create('tiendas', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable();
+            $t->boolean('activa')->default(true); $t->date('cerrada_en')->nullable();
+        });
         Schema::create('clientes', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('cedula')->nullable(); $t->string('telefono')->nullable();
             $t->string('email')->nullable(); $t->string('direccion')->nullable(); $t->timestamp('created_at')->nullable();
@@ -113,7 +116,18 @@ class FacturacionElectronicaTest extends TestCase
             'services.alegra.token' => 'token-de-prueba',
             'services.alegra.url'   => 'https://api.alegra.com/api/v1',
         ]);
+
+        // Nada sale a Alegra de verdad. La numeración "5" está vigente salvo que
+        // la prueba diga otra cosa (cada revisión pregunta por ella).
+        Http::preventStrayRequests();
+        Http::fake(['api.alegra.com/api/v1/number-templates/*' => fn () => Http::response($this->numeracion, 200)]);
     }
+
+    /** Lo que Alegra contesta de la numeración "5" (FEN, como la de Decasa). */
+    private array $numeracion = [
+        'id' => '5', 'name' => 'FEN', 'prefix' => 'FEN', 'status' => 'active', 'isElectronic' => true,
+        'nextInvoiceNumber' => 1500, 'maxInvoiceNumber' => 2000, 'endDate' => '2099-12-31',
+    ];
 
     // ── Ayudas ──────────────────────────────────────────────────────────────
 
@@ -577,6 +591,75 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame('emitida', FacturaElectronica::where('orden_id', $limpia)->value('estado'));
         $this->assertNull(FacturaElectronica::where('orden_id', $conSaldo)->where('estado', 'emitida')->first(),
             'La que tiene saldo (advertencia) la revisa una persona.');
+    }
+
+    // ── Numeración (resolución DIAN) ────────────────────────────────────────
+
+    public function test_con_la_numeracion_vencida_no_se_emite(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // FEU de Decasa: venció el 7 de noviembre de 2026.
+        $this->numeracion = ['id' => '5', 'name' => 'FEU', 'prefix' => 'FEU', 'status' => 'active',
+            'nextInvoiceNumber' => 106, 'maxInvoiceNumber' => 10000, 'endDate' => now('America/Bogota')->subDays(4)->toDateString()];
+        $id = $this->ordenEntregada();
+
+        $r = $this->facturar($id)->assertStatus(422);
+        $this->assertStringContainsString('venció', $r->json('message'));
+        $this->assertSame(0, $this->postsAFacturas());
+    }
+
+    public function test_en_modo_borrador_la_numeracion_vencida_solo_se_avisa(): void
+    {
+        $this->prender(['modo' => 'borrador']);
+        $this->alegraQueAcepta();
+        $this->numeracion['endDate'] = now('America/Bogota')->subDay()->toDateString();
+        $id = $this->ordenEntregada();
+
+        $this->facturar($id)->assertOk()->assertJsonPath('factura.estado', 'borrador_alegra');
+    }
+
+    public function test_con_pocos_numeros_o_por_vencer_se_avisa_sin_frenar(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // FEN de Decasa: va en 1918 de 2000 (quedan 83) y el aviso es con 100.
+        $this->prender(['aviso_numeracion_numeros' => 100]);
+        $this->numeracion['nextInvoiceNumber'] = 1918;
+        $id = $this->ordenEntregada();
+
+        $armado = $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado');
+        $this->assertTrue($armado['se_puede']);
+        $this->assertSame(83, $armado['numeracion']['quedan']);
+        $this->assertContains('numeracion_pocos', array_column($armado['alertas'], 'codigo'));
+        $this->facturar($id)->assertOk();
+    }
+
+    public function test_el_estado_sale_tambien_del_texto_de_la_resolucion(): void
+    {
+        // Si Alegra no mandara endDate/maxInvoiceNumber, se leen del texto (tal cual lo muestra Alegra).
+        $e = \App\Services\Alegra\EstadoNumeracion::de([
+            'id' => '9', 'name' => 'FP PEREIRA', 'prefix' => 'FEP', 'nextInvoiceNumber' => 261,
+            'invoiceText' => 'Autorización de numeración de facturación N° 18764089064697 de 2025-02-18 Modalidad Factura Electrónica Desde N° FEP212 hasta FEP1000 con vigencia hasta 2026-02-18',
+        ]);
+        $this->assertSame('2026-02-18', $e['vence']);
+        $this->assertSame(1000, $e['maximo']);
+        $this->assertSame('vencida', $e['estado']);
+        $this->assertFalse($e['sirve']);
+    }
+
+    public function test_en_ajustes_solo_salen_las_tiendas_abiertas(): void
+    {
+        DB::table('tiendas')->insert([
+            ['id' => 2, 'nombre' => 'Circunvalar', 'ciudad' => 'Pereira', 'activa' => true, 'cerrada_en' => '2026-08-27'],
+            ['id' => 3, 'nombre' => 'Vieja', 'ciudad' => 'Armenia', 'activa' => false, 'cerrada_en' => null],
+            ['id' => 4, 'nombre' => 'Unicentro', 'ciudad' => 'Pereira', 'activa' => true, 'cerrada_en' => null],
+        ]);
+
+        $nombres = collect($this->actingAs($this->como($this->supervisor))->getJson('/api/facturacion-electronica/reglas')
+            ->assertOk()->json('tiendas'))->pluck('nombre')->all();
+
+        $this->assertSame(['Decasa Norte', 'Unicentro'], $nombres);
     }
 
     // ── Cómo entra a Alegra ─────────────────────────────────────────────────

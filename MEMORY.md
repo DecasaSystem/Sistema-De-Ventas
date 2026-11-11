@@ -885,7 +885,12 @@ escribiendo precios (Fase 1b).
   apagado y en "solo borrador". Necesita `ALEGRA_TOKEN` en Render: el usuario creó el 2026-11-11 un
   **JWT** "Sodege" con permisos escogidos (vence **11 nov 2027**: renovarlo antes). El sistema lo
   manda como `Bearer`; con el token clásico usa Basic + `ALEGRA_EMAIL` (2026-11-11, **sin subir**).
-  La documentación de Alegra solo describe el clásico: el JWT en `/api/v1` no está probado. Por defecto mío
+  La documentación de Alegra solo describe el clásico: el JWT en `/api/v1` no está probado (subido
+  a `main`, a9a2295; Ajustes ya cargó los catálogos con él: funciona). **Numeraciones de Decasa
+  (2026-11-11):** FEN preferida, vigente hasta 20 feb 2027 con 83 números; FEF vigente hasta 30 ene
+  2027; **FEU vencida (7 nov 2026) y FP PEREIRA vencida (feb 2026)**: el contador tiene que pedir
+  resoluciones nuevas a la DIAN. El sistema ahora avisa/bloquea por numeración vencida o agotada
+  (`EstadoNumeracion`) y Ajustes solo muestra tiendas abiertas (**sin subir**). Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la
