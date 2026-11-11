@@ -479,7 +479,7 @@ class ArmarFactura
     {
         $r = ReglasFacturacion::todo();
         if (! \App\Services\Alegra\ClienteAlegra::configurado()) {
-            $this->bloqueo('sin_conexion', 'Alegra no está conectado (faltan ALEGRA_EMAIL y ALEGRA_TOKEN en el servidor).');
+            $this->bloqueo('sin_conexion', 'Alegra no está conectado (falta ALEGRA_TOKEN en el servidor, y ALEGRA_EMAIL si es el token clásico).');
         }
         if (! $r['item_producto_id']) {
             $this->bloqueo('sin_item', 'Falta escoger en Ajustes el producto de Alegra con que se facturan las ventas.');

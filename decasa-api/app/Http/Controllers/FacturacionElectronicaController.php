@@ -310,7 +310,7 @@ class FacturacionElectronicaController extends Controller
     {
         $this->exigirSupervisor($request);
         if (! ClienteAlegra::configurado()) {
-            return response()->json(['message' => 'Alegra no está conectado: faltan ALEGRA_EMAIL y ALEGRA_TOKEN en el servidor.'], 422);
+            return response()->json(['message' => 'Alegra no está conectado: falta ALEGRA_TOKEN en el servidor (y ALEGRA_EMAIL si es el token clásico).'], 422);
         }
 
         try {

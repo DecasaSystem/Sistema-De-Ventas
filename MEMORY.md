@@ -877,12 +877,15 @@ escribiendo precios (Fase 1b).
   alguien que no es de la tienda destino, a esa tienda le llega "Llegó mercancía"; y la pantalla
   de Traslado le saltaba el paso del receptor a quien tiene `acceso_surtir` sin rol vendedor (422).
   Tests en `TrasladoLoRecibeUnSupervisorTest`.
-- **Facturación electrónica con Alegra** (2026-11-09, **implementada, sin subir**, rama
+- **Facturación electrónica con Alegra** (2026-11-09, **subida a `main`** ese día, commit 0760199, rama
   `claude/alegra-billing-integration-a51e78`, trae **migración** `2026_11_10_000001_facturacion_electronica`,
   solo agrega). Detalle en `docs/plan-facturacion-alegra.md`. Decisiones del dueño ese día: se
   factura **al entregar**, **las FV2 no se facturan**, el **facturador revisa** la orden y toca
   Facturar, y **todo personalizable** desde el programa (Ajustes del módulo, solo supervisor). Viene
-  apagado y en "solo borrador". Necesita `ALEGRA_EMAIL`/`ALEGRA_TOKEN` en Render. Por defecto mío
+  apagado y en "solo borrador". Necesita `ALEGRA_TOKEN` en Render: el usuario creó el 2026-11-11 un
+  **JWT** "Sodege" con permisos escogidos (vence **11 nov 2027**: renovarlo antes). El sistema lo
+  manda como `Bearer`; con el token clásico usa Basic + `ALEGRA_EMAIL` (2026-11-11, **sin subir**).
+  La documentación de Alegra solo describe el clásico: el JWT en `/api/v1` no está probado. Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la

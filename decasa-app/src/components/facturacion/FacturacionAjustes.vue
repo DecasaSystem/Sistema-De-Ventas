@@ -206,7 +206,7 @@ onMounted(cargar)
         </span>
       </div>
       <p v-if="!meta.conectado" class="text-xs text-gray-500">
-        Falta poner en el servidor (Render) <b>ALEGRA_EMAIL</b> y <b>ALEGRA_TOKEN</b>. Salen de Alegra → Configuración → "API - Integraciones con otros sistemas". Por seguridad no se escriben aquí.
+        Falta poner en el servidor (Render) <b>ALEGRA_TOKEN</b>: el token JWT que se crea en Alegra → Configuración → "API - Integraciones con otros sistemas" (empieza por "eyJ"). Con el token clásico de "Credenciales de acceso" va también <b>ALEGRA_EMAIL</b>. Por seguridad no se escriben aquí.
       </p>
       <template v-else>
         <AppSpinner v-if="cargandoCat" />

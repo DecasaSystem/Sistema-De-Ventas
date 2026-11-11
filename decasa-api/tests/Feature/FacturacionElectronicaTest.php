@@ -579,6 +579,34 @@ class FacturacionElectronicaTest extends TestCase
             'La que tiene saldo (advertencia) la revisa una persona.');
     }
 
+    // ── Cómo entra a Alegra ─────────────────────────────────────────────────
+
+    public function test_con_el_jwt_nuevo_entra_como_bearer_y_no_necesita_correo(): void
+    {
+        $jwt = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzb2RlZ2UifQ.ZmlybWE';
+        config(['services.alegra.email' => null, 'services.alegra.token' => "  {$jwt}\n"]);
+        Http::fake(['api.alegra.com/*' => Http::response([], 200)]);
+
+        $this->assertTrue(\App\Services\Alegra\ClienteAlegra::configurado());
+        (new \App\Services\Alegra\ClienteAlegra())->get('number-templates');
+
+        Http::assertSent(fn ($r) => $r->header('Authorization') === ["Bearer {$jwt}"]);
+    }
+
+    public function test_con_el_token_clasico_entra_con_correo_y_token(): void
+    {
+        config(['services.alegra.email' => 'api@decasa.test ', 'services.alegra.token' => 'token-clasico']);
+        Http::fake(['api.alegra.com/*' => Http::response([], 200)]);
+
+        (new \App\Services\Alegra\ClienteAlegra())->get('number-templates');
+
+        Http::assertSent(fn ($r) => $r->header('Authorization') === ['Basic ' . base64_encode('api@decasa.test:token-clasico')]);
+
+        // El clásico sin correo no sirve: se dice que falta, no se intenta.
+        config(['services.alegra.email' => null]);
+        $this->assertFalse(\App\Services\Alegra\ClienteAlegra::configurado());
+    }
+
     public function test_con_revision_prendida_la_tarea_no_hace_nada(): void
     {
         $this->prender();

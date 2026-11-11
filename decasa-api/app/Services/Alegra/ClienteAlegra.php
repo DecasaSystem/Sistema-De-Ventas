@@ -10,7 +10,12 @@ use Illuminate\Support\Facades\Log;
 /**
  * El único lugar que habla con la API de Alegra (developer.alegra.com).
  *
- *  - Autenticación Basic con correo:token (config/services.php → alegra).
+ *  - Dos formas de entrar (config/services.php → alegra), según el token que
+ *    se ponga en ALEGRA_TOKEN:
+ *      · el JWT nuevo de Alegra ("eyJ…", el que Alegra recomienda y se crea
+ *        con permisos escogidos uno por uno) → `Authorization: Bearer`, sin
+ *        correo. Así lo creó el usuario el 2026-11-11 para "Sodege".
+ *      · el token clásico de "Credenciales de acceso" → Basic correo:token.
  *  - Límite de 150 peticiones por minuto: con un 429 espera lo que diga
  *    `X-Rate-Limit-Reset` (máximo 10 s) y lo intenta una vez más.
  *  - Si no hay respuesta (se cayó la red, se acabó el tiempo) lanza
@@ -22,7 +27,22 @@ class ClienteAlegra
 {
     public static function configurado(): bool
     {
-        return (bool) config('services.alegra.email') && (bool) config('services.alegra.token');
+        $token = self::token();
+        if ($token === '') return false;
+
+        return self::esJwt($token) || (bool) trim((string) config('services.alegra.email'));
+    }
+
+    /** El token sin espacios: al copiarlo del navegador a Render se cuelan. */
+    private static function token(): string
+    {
+        return trim((string) config('services.alegra.token'));
+    }
+
+    /** ¿Es el JWT nuevo de Alegra? (tres partes separadas por punto, empieza por "eyJ") */
+    public static function esJwt(string $token): bool
+    {
+        return str_starts_with($token, 'eyJ') && substr_count($token, '.') === 2;
     }
 
     public function get(string $ruta, array $query = []): RespuestaAlegra
@@ -91,13 +111,16 @@ class ClienteAlegra
     private function pedir(string $metodo, string $ruta, array $datos = [], bool $esReintento = false): RespuestaAlegra
     {
         if (! self::configurado()) {
-            return new RespuestaAlegra(false, 0, null, 'Alegra no está conectado: faltan ALEGRA_EMAIL y ALEGRA_TOKEN en el servidor.');
+            return new RespuestaAlegra(false, 0, null, 'Alegra no está conectado: falta ALEGRA_TOKEN en el servidor (y ALEGRA_EMAIL si es el token clásico).');
         }
 
         $url = rtrim((string) config('services.alegra.url'), '/') . '/' . ltrim($ruta, '/');
 
         try {
-            $http = Http::withBasicAuth((string) config('services.alegra.email'), (string) config('services.alegra.token'))
+            $token = self::token();
+            $http = (self::esJwt($token)
+                    ? Http::withToken($token)
+                    : Http::withBasicAuth(trim((string) config('services.alegra.email')), $token))
                 ->acceptJson()
                 ->timeout(max(5, (int) config('services.alegra.timeout', 60)));
 
@@ -152,7 +175,7 @@ class ClienteAlegra
         }
 
         return match ($status) {
-            401     => 'Alegra rechazó el correo o el token (401). Revisa ALEGRA_EMAIL y ALEGRA_TOKEN.',
+            401     => 'Alegra rechazó el token (401). Revisa ALEGRA_TOKEN (que no esté vencido ni con espacios) y, si es el token clásico, ALEGRA_EMAIL.',
             403     => 'El plan de Alegra no permite esto (403).',
             404     => 'Alegra no encontró ese documento (404).',
             429     => 'Demasiadas peticiones a Alegra (429). Intenta en un minuto.',

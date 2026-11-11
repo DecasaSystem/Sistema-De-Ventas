@@ -112,8 +112,15 @@ Emitir la nota crédito desde el sistema es lo siguiente (Fase 2, §9).
 
 ## 8. Para ponerlo a andar
 
-1. En Alegra → Configuración → "API - Integraciones con otros sistemas": correo y token.
-2. En Render: variables `ALEGRA_EMAIL` y `ALEGRA_TOKEN` (nunca en el repo).
+1. En Alegra → Configuración → "API - Integraciones con otros sistemas" → **Crear token** (JWT,
+   el recomendado). Permisos mínimos: Facturas (todo), Configuración de facturación > Numeraciones
+   (ver), Contactos (ver, crear, editar), Transacciones (ver, crear), Bancos (ver), Ítems (ver),
+   Impuestos (ver); Nota de crédito opcional. Se creó así el 2026-11-11 ("Sodege", vence 11 nov 2027:
+   **antes de esa fecha hay que crear otro y cambiarlo en Render**, o el botón deja de funcionar).
+2. En Render: variable `ALEGRA_TOKEN` con el JWT (empieza por `eyJ`; se manda como `Bearer`). Con el
+   token clásico de "Credenciales de acceso" (sin permisos finos) va también `ALEGRA_EMAIL` y se
+   entra con Basic. Nunca en el repo. La documentación de Alegra solo describe el clásico: si el JWT
+   da 401 en Ajustes, usar el clásico.
 3. Subir (trae migración).
 4. Un supervisor, en Facturación electrónica → Ajustes: escoge numeración, IVA, producto genérico
    ("Venta de muebles"), cajas/bancos por medio de pago; deja **Solo borrador** y prende.

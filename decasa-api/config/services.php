@@ -42,9 +42,10 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
     ],
 
-    // Facturación electrónica (docs/plan-facturacion-alegra.md). El correo y el
-    // token salen de Alegra → Configuración → "API - Integraciones con otros
-    // sistemas" y van SOLO en las variables de Render, nunca en el repo.
+    // Facturación electrónica (docs/plan-facturacion-alegra.md). El token sale
+    // de Alegra → Configuración → "API - Integraciones con otros sistemas" y va
+    // SOLO en las variables de Render, nunca en el repo. Con el JWT nuevo
+    // ("eyJ…") basta ALEGRA_TOKEN; con el token clásico va también el correo.
     'alegra' => [
         'url'     => env('ALEGRA_URL', 'https://api.alegra.com/api/v1'),
         'email'   => env('ALEGRA_EMAIL'),
