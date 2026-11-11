@@ -103,6 +103,36 @@ activas y sin cerrar.
 cambió hace poco, queda saldo (sale a crédito), pagos marcados facturados a mano, reembolso o pagos
 de más (los pagos no se registran), diferencia por decimales, consumidor final.
 
+## 5c. Revisión a fondo del 2026-11-11 (arreglado)
+
+Pedido del usuario: "analiza bien a fondo como un experto en Alegra y un contador" (empezó por las
+tiendas desactivadas que salían en Ajustes). Trae **migración** `2026_11_12_000001_pagos_alegra_en_facturas_electronicas`
+(solo agrega `facturas_electronicas.pagos_alegra`).
+
+| # | Qué pasaba | Arreglo |
+|---|---|---|
+| 1 | Cambiar "cuándo se factura" (por pago → al entregar) volvía a facturar la orden completa | `QueSeFactura::motivoParaNo` mira las facturas de la otra forma: una orden con facturas por pago no se factura completa, y un pago de una orden facturada completa no se factura aparte |
+| 2 | Una re-entrega por garantía revivía órdenes viejas facturadas a mano | "La última entrega" ignora las de `garantias.despacho_item_id` |
+| 3 | La lista traía las 300 últimas entregadas (con las facturadas) y las pendientes viejas desaparecían | Lo facturado se descarta en la consulta; hasta 500 pendientes, lo más viejo primero |
+| 4 | Una consulta por orden para la fecha de entrega (lenta con Aiven) | La fecha viene en la misma consulta (`ultima_entrega`) y pagos/ítems precargados |
+| 5 | Orden cancelada después de facturar no salía en Diferencias | Se compara contra $0 y avisa "anular con nota crédito" (también en el aviso de cancelación) |
+| 6 | Bancos, impuestos y productos inactivos en Alegra salían para escoger; uno desactivado después hacía fallar la factura | Ajustes solo muestra lo activo; la revisión revisa lo escogido contra lo de hoy en Alegra (`CatalogoAlegra`, 10 min) |
+| 7 | Los pagos iban dentro de la factura y por centavos de redondeo podían pasar el total (rechazo) | La factura se crea sin pagos; después `POST /payments` uno por uno, recortando al total que dice Alegra. Los que no entran quedan en "Problemas" con botón "Registrar pagos" (uno sin respuesta solo se reintenta si el facturador confirma que no está en Alegra) |
+| 8 | Municipio y departamento a mano: Alegra rechaza nombres que no son de su catálogo | Selector oficial (`DireccionColombia`) en la revisión y traducción al nombre exacto de Alegra (`MunicipiosAlegra`, `resources/data/municipios-alegra.json` sacado del catálogo de Alegra: 33 departamentos, 1.123 municipios) |
+| 9 | Si el cliente ya existía en Alegra, salía con los datos viejos de allá | Antes de facturar se actualiza el contacto (`PUT /contacts/{id}`) |
+| 10 | No se revisaba que el impuesto fuera del mismo % que el IVA de los precios | Bloqueo `iva_distinto` y aviso en Ajustes |
+| 11 | El producto genérico podía llevar inventario en Alegra | Aviso en la revisión y en la búsqueda de Ajustes |
+| 12 | "DIAN validando" y "sin confirmar" había que actualizarlas a mano | Tarea `facturacion:actualizar-estados` cada 10 min |
+
+Cambios de valores de fábrica: **"Registrar pagos en Alegra" viene apagado** (si hoy registran los
+recibos a mano, duplicaría la caja de Alegra) y la **fecha de los pagos** es la de la factura (con
+el día real en las notas); los dos los decide el contador en Ajustes.
+
+**Preguntas para el contador** (no se cambian sin él): ¿registran hoy los recibos en Alegra? ¿cómo
+llevan los anticipos (anticipo de clientes o pago con su fecha)? ¿las ventas de independientes son
+ingresos de Decasa o ingresos para terceros? ¿retenciones de clientes empresa? ¿cuenta puente para
+datáfono y Addi?
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:

@@ -55,6 +55,11 @@ class ClienteAlegra
         return $this->pedir('post', $ruta, $cuerpo);
     }
 
+    public function put(string $ruta, array $cuerpo = []): RespuestaAlegra
+    {
+        return $this->pedir('put', $ruta, $cuerpo);
+    }
+
     public function delete(string $ruta): RespuestaAlegra
     {
         return $this->pedir('delete', $ruta);
@@ -128,6 +133,7 @@ class ClienteAlegra
             $res = match ($metodo) {
                 'get'    => $http->get($url, $datos),
                 'post'   => $http->asJson()->post($url, $datos),
+                'put'    => $http->asJson()->put($url, $datos),
                 'delete' => $http->delete($url),
             };
         } catch (ConnectionException $e) {

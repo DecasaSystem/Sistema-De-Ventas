@@ -12,6 +12,8 @@ export const guardarClienteFE = (clienteId, datos) => api.put(`${base}/clientes/
 export const facturarFE    = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/facturar`, datos)
 export const externaFE     = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/externa`, datos)
 export const actualizarFE  = (facturaId) => api.post(`${base}/facturas/${facturaId}/actualizar`)
+export const registrarPagosFE = (facturaId, confirmoNoEstan = false) =>
+  api.post(`${base}/facturas/${facturaId}/registrar-pagos`, { confirmo_no_estan: confirmoNoEstan })
 export const diferenciaResueltaFE = (facturaId, nota) =>
   api.post(`${base}/facturas/${facturaId}/diferencia-resuelta`, { nota })
 

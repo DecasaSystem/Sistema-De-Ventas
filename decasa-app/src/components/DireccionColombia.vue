@@ -11,6 +11,8 @@ const props = defineProps({
   // Dirección del cliente: se ofrece como atajo para no volver a escribirla.
   sugerencia:    { type: String, default: '' },
   sugerenciaLabel: { type: String, default: 'Usar la dirección del cliente' },
+  // Facturación electrónica la usa para la dirección fiscal del cliente.
+  titulo:        { type: String, default: 'Dirección de envío' },
 })
 
 const emit = defineEmits(['update:departamento', 'update:ciudad', 'update:direccion'])
@@ -66,7 +68,7 @@ function usarSugerencia() {
     <!-- Encabezado -->
     <div class="flex items-center gap-1.5">
       <MapPinIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
-      <span class="text-sm font-semibold text-gray-700">Dirección de envío</span>
+      <span class="text-sm font-semibold text-gray-700">{{ titulo }}</span>
       <span v-if="!requerida" class="ml-auto text-xs text-gray-400 font-normal">opcional</span>
     </div>
 

@@ -101,15 +101,17 @@ class ArmarFactura
         if ($numeracion = ReglasFacturacion::numeracionDe($o->tienda_id)) {
             $factura['numberTemplate'] = ['id' => $numeracion];
         }
-        if ($r['registrar_pagos'] && $pagos) {
-            $factura['payments'] = array_map(fn ($p) => $p['alegra'], $pagos);
-        }
+        // Los pagos NO van dentro de la factura: se registran después, uno por uno
+        // y con el total exacto que diga Alegra (EmitirFactura::registrarPagos).
+        // Dentro de la factura, un centavo de redondeo de más la hacía rechazar.
         if (ReglasFacturacion::emite()) {
             $factura['stamp'] = ['generateStamp' => true];
         } else {
             $factura['status'] = 'draft';
-            unset($factura['payments']); // un borrador con pagos queda abierto en Alegra
         }
+        $pagosAlegra = (ReglasFacturacion::emite() && $r['registrar_pagos'])
+            ? array_values(array_map(fn ($p) => $p['alegra'] + ['pago_id' => $p['id']], array_filter($pagos, fn ($p) => $p['va_a_alegra'])))
+            : [];
 
         $bloqueos = array_values(array_filter($this->alertas, fn ($a) => $a['tipo'] === 'bloqueo'));
 
@@ -134,6 +136,7 @@ class ArmarFactura
             'advertencias'  => array_values(array_map(fn ($a) => $a['codigo'],
                                    array_filter($this->alertas, fn ($a) => $a['tipo'] === 'advertencia'))),
             'factura'       => $factura,
+            'pagos_alegra'  => $pagosAlegra,
             'contacto'      => $cliente['alegra'],
         ];
     }
@@ -335,12 +338,18 @@ class ArmarFactura
                 'comprobantes' => array_values(array_unique($fotos)),
                 'facturado_a_mano' => (bool) ($p->facturacion_hecha_at ?? false),
                 'va_a_alegra'  => $registrar,
+                // Lo que se manda a POST /payments (la factura y el cliente se
+                // ponen al registrarlo, cuando ya existen en Alegra).
                 'alegra'       => [
-                    'date'          => $p->created_at?->timezone('America/Bogota')->toDateString(),
-                    'account'       => ['id' => $cuenta],
+                    'date'          => $r['fecha_pagos'] === 'recibido'
+                        ? $p->created_at?->timezone('America/Bogota')->toDateString()
+                        : now('America/Bogota')->toDateString(),
+                    'bankAccount'   => ['id' => $cuenta],
                     'amount'        => round((float) $p->monto, 2),
                     'paymentMethod' => $r['medios_pago'][$p->metodo ?: 'otro'] ?? 'cash',
-                    'observations'  => 'Pago #' . $p->id . ($p->referencia ? ' · ' . $p->referencia : ''),
+                    'type'          => 'in',
+                    'observations'  => "[DECASA-PAGO-{$p->id}] Recibido el "
+                        . $p->created_at?->timezone('America/Bogota')->format('d/m/Y') . ($p->referencia ? ' · ' . $p->referencia : ''),
                 ],
             ];
         }
@@ -396,6 +405,21 @@ class ArmarFactura
             if ($direccion === '') $faltan[] = 'direccion';
             if ($ciudad === '')    $faltan[] = 'ciudad';
             if ($depto === '')     $faltan[] = 'departamento';
+        }
+        // Alegra solo acepta el departamento y el municipio con el nombre de su
+        // catálogo: se traducen, y si no se encuentran se pide escogerlos de la lista.
+        if (! $consumidorFinal && $depto !== '' && $ciudad !== '') {
+            $depOficial = \App\Support\MunicipiosAlegra::departamento($depto);
+            $munOficial = \App\Support\MunicipiosAlegra::municipio($depto, $ciudad);
+            if (! $depOficial) {
+                $faltan[] = 'departamento';
+                $this->bloqueo('municipio_no_oficial', "El departamento \"{$depto}\" no está en la lista de la DIAN: escógelo de la lista.");
+            } elseif (! $munOficial) {
+                $faltan[] = 'ciudad';
+                $this->bloqueo('municipio_no_oficial', "El municipio \"{$ciudad}\" no está en {$depOficial} según la DIAN: escógelo de la lista.");
+            } else {
+                [$depto, $ciudad] = [$depOficial, $munOficial];
+            }
         }
         if ($faltan) {
             $this->bloqueo('datos_cliente', 'Faltan datos del cliente para la DIAN: ' . implode(', ', $faltan) . '. Complétalos arriba.');
@@ -489,11 +513,61 @@ class ArmarFactura
         if ($llevaIva && ! $r['impuesto_iva_id']) {
             $this->bloqueo('sin_iva', 'Falta escoger en Ajustes el impuesto de IVA de Alegra.');
         }
+        $this->revisarCatalogo($lineas, $pagos);
+
         $numeracion = ReglasFacturacion::numeracionDe($this->orden->tienda_id);
         if (! $numeracion) {
             $this->advertencia('sin_numeracion', 'No hay numeración escogida para esta tienda: Alegra usará la preferida de la empresa.', false);
         } else {
             $this->revisarNumeracion($numeracion);
+        }
+    }
+
+    /**
+     * Lo escogido en Ajustes contra lo que hay HOY en Alegra. Si Alegra no
+     * responde, no se frena: igual valida al emitir.
+     */
+    private function revisarCatalogo(array $lineas, array $pagos): void
+    {
+        if (! \App\Services\Alegra\ClienteAlegra::configurado()) return;
+        $r = ReglasFacturacion::todo();
+        $cat = app(\App\Services\Alegra\CatalogoAlegra::class);
+
+        // El impuesto: activo y del mismo porcentaje con que se calcula la base.
+        $llevaIva = array_filter($lineas, fn ($l) => $l['iva_pct'] > 0);
+        if ($llevaIva && $r['impuesto_iva_id'] && ($impuestos = $cat->impuestos()) !== null) {
+            $t = $impuestos[(string) $r['impuesto_iva_id']] ?? null;
+            if (! $t || ! \App\Services\Alegra\CatalogoAlegra::activo($t)) {
+                $this->bloqueo('iva_no_sirve', 'El impuesto de IVA escogido en Ajustes ya no está activo en Alegra. Escoge otro.');
+            } elseif (isset($t['percentage']) && abs((float) $t['percentage'] - (float) $r['iva_pct']) > 0.001) {
+                $this->bloqueo('iva_distinto', "El impuesto escogido en Ajustes (\"" . ($t['name'] ?? '') . "\", {$t['percentage']} %) no es del "
+                    . "{$r['iva_pct']} % con que se calculan los precios: la factura no cuadraría. Escoge el IVA de {$r['iva_pct']} %.");
+            }
+        }
+
+        // Los productos genéricos: que existan, activos y sin inventario en Alegra.
+        $usados = array_unique(array_filter(array_map(fn ($l) => $l['es_servicio']
+            ? ($r['item_servicio_id'] ?: $r['item_producto_id']) : $r['item_producto_id'], $lineas)));
+        foreach ($usados as $id) {
+            $item = $cat->item((string) $id);
+            if ($item === null) continue;
+            if (! empty($item['_no_existe']) || ! \App\Services\Alegra\CatalogoAlegra::activo($item)) {
+                $this->bloqueo('item_no_sirve', "El producto de Alegra escogido en Ajustes (id {$id}) ya no existe o está inactivo. Escoge otro.");
+            } elseif (\App\Services\Alegra\CatalogoAlegra::llevaInventario($item)) {
+                $this->advertencia('item_con_inventario', 'El producto de Alegra "' . ($item['name'] ?? $id) . '" lleva inventario: '
+                    . 'cada factura le descuenta existencias allá y, si no deja inventario negativo, la factura falla. Conviene uno sin inventario.', false);
+            }
+        }
+
+        // Las cajas/bancos de los pagos que se van a registrar.
+        $cuentasUsadas = array_unique(array_filter(array_map(fn ($p) => ($p['va_a_alegra'] ?? false) ? $p['cuenta'] : null, $pagos)));
+        if ($cuentasUsadas && ($cuentas = $cat->cuentas()) !== null) {
+            foreach ($cuentasUsadas as $id) {
+                $c = $cuentas[(string) $id] ?? null;
+                if (! $c || ! \App\Services\Alegra\CatalogoAlegra::activo($c)) {
+                    $this->bloqueo('cuenta_no_sirve', "Una caja o banco escogido en Ajustes (id {$id}) ya no está activo en Alegra. Escoge otro.");
+                }
+            }
         }
     }
 

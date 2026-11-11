@@ -50,6 +50,12 @@ function avisoNum(id) {
   return { texto: n.mensaje, grave: !n.sirve }
 }
 const impuestosIva = computed(() => (cat.value?.impuestos ?? []))
+/** El porcentaje del impuesto escogido si no es el del IVA con que se calculan los precios. */
+const ivaNoCuadra = computed(() => {
+  const t = impuestosIva.value.find(x => x.id === r.value?.impuesto_iva_id)
+  if (!t || t.porcentaje == null) return null
+  return Math.abs(Number(t.porcentaje) - Number(r.value.iva_pct)) > 0.001 ? Number(t.porcentaje) : null
+})
 
 async function cargar() {
   cargando.value = true
@@ -196,7 +202,19 @@ onMounted(cargar)
       </div>
       <div class="space-y-2 text-sm text-gray-700">
         <label class="flex items-center justify-between gap-3"><span>Las restauraciones llevan IVA</span><input v-model="r.iva_en_restauraciones" type="checkbox" class="w-5 h-5" /></label>
-        <label class="flex items-center justify-between gap-3"><span>Registrar en Alegra los pagos del cliente</span><input v-model="r.registrar_pagos" type="checkbox" class="w-5 h-5" /></label>
+        <label class="flex items-center justify-between gap-3">
+          <span>Registrar en Alegra los pagos del cliente
+            <span class="block text-xs text-amber-700">Préndanlo solo si hoy NO registran los recibos en Alegra a mano: si no, la caja de Alegra queda doble. Que lo confirme el contador.</span></span>
+          <input v-model="r.registrar_pagos" type="checkbox" class="w-5 h-5" />
+        </label>
+        <div v-if="r.registrar_pagos">
+          <p class="text-xs text-gray-500 mb-1">Fecha con que va cada pago a Alegra</p>
+          <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+            <button @click="r.fecha_pagos = 'factura'" :class="['flex-1 py-2 text-xs font-semibold rounded-lg', r.fecha_pagos === 'factura' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">El día de la factura</button>
+            <button @click="r.fecha_pagos = 'recibido'" :class="['flex-1 py-2 text-xs font-semibold rounded-lg', r.fecha_pagos === 'recibido' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">El día que entró la plata</button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">En las notas del pago siempre queda el día real en que se recibió. Lo decide el contador.</p>
+        </div>
         <label class="flex items-center justify-between gap-3"><span>Mandarle la factura al correo del cliente desde Alegra</span><input v-model="r.enviar_correo" type="checkbox" class="w-5 h-5" /></label>
       </div>
       <div>
@@ -250,6 +268,9 @@ onMounted(cargar)
             <option :value="null">Sin escoger</option>
             <option v-for="t in impuestosIva" :key="t.id" :value="t.id">{{ t.nombre }} {{ t.porcentaje != null ? `(${t.porcentaje} %)` : '' }}</option>
           </select></label>
+        <p v-if="ivaNoCuadra" class="text-xs text-red-600">
+          Ese impuesto es de {{ ivaNoCuadra }} % y los precios se calculan con {{ r.iva_pct }} %: la factura no cuadraría. Escoge el IVA de {{ r.iva_pct }} % (no "ARRENDAMIENTO").
+        </p>
 
         <div class="space-y-1">
           <p class="text-xs text-gray-500">Producto de Alegra para las ventas: <b>{{ r.item_producto_id || 'sin escoger' }}</b> · para restauraciones: <b>{{ r.item_servicio_id || 'el mismo' }}</b></p>
@@ -259,7 +280,8 @@ onMounted(cargar)
             <button @click="buscarItems" class="px-3 bg-gray-100 rounded-lg text-xs font-semibold">Buscar</button>
           </div>
           <div v-for="i in items" :key="i.id" class="flex items-center justify-between text-xs text-gray-600 px-1">
-            <span>{{ i.nombre }} (id {{ i.id }})</span>
+            <span>{{ i.nombre }} (id {{ i.id }})
+              <span v-if="i.inventario" class="block text-amber-700">Lleva inventario en Alegra: mejor uno sin inventario.</span></span>
             <span class="flex gap-2">
               <button @click="r.item_producto_id = i.id" class="text-blue-600 font-semibold">Ventas</button>
               <button @click="r.item_servicio_id = i.id" class="text-blue-600 font-semibold">Restauraciones</button>
