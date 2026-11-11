@@ -890,6 +890,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/ordenes/{id}/facturar', 'facturar')->whereNumber('id')->middleware('throttle:20,1');
         Route::post('/ordenes/{id}/externa',  'registrarExterna')->whereNumber('id');
         Route::post('/facturas/{id}/actualizar',          'actualizar')->whereNumber('id');
+        Route::post('/facturas/{id}/registrar-pagos',     'registrarPagos')->whereNumber('id');
         Route::post('/facturas/{id}/diferencia-resuelta', 'diferenciaResuelta')->whereNumber('id');
     });
 

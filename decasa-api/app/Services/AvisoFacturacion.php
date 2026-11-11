@@ -123,12 +123,30 @@ class AvisoFacturacion
     public static function ordenCanceladaConPagos(Orden $orden, Usuario $autor): void
     {
         $pagado = $orden->totalPagado();
-        if ($pagado <= 0) {
+        // Ya tiene factura electrónica: aunque no haya plata recibida, la
+        // factura sigue valiendo ante la DIAN y hay que anularla con nota crédito.
+        $fe = self::facturaElectronicaHecha($orden);
+        if ($pagado <= 0 && ! $fe) {
             return;
         }
 
         $orden->loadMissing('cliente');
         $cliente = $orden->cliente?->nombre ?? 'cliente';
+
+        if ($fe) {
+            foreach (self::destinatarios($autor->id) as $d) {
+                NotificacionService::crear(
+                    tipo:      'factura_electronica',
+                    titulo:    "Se canceló una orden facturada — {$orden->referencia}",
+                    mensaje:   "Orden {$orden->referencia} de {$cliente} se canceló ({$autor->nombre}) y ya tiene la factura electrónica "
+                             . ($fe->numero ?: '') . '. Hay que anularla con nota crédito en Alegra (sale en Facturación electrónica → Diferencias).',
+                    datos:     ['orden_id' => $orden->id, 'factura_id' => $fe->id, 'factura_electronica' => true],
+                    usuarioId: $d->id,
+                    urgente:   true,
+                );
+            }
+            if ($pagado <= 0) return;
+        }
 
         foreach (self::destinatarios($autor->id) as $d) {
             NotificacionService::crear(

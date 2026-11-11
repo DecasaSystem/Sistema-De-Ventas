@@ -104,6 +104,37 @@ Artisan::command('facturacion:emitir-pendientes', function () {
     if ($hechas) $this->info("Facturadas: {$hechas}");
 })->purpose('Factura sola lo pendiente cuando la revisión del facturador está apagada');
 
+// Las facturas que quedaron "DIAN validando" o "sin confirmar" (Alegra no
+// respondió) se ponen al día solas; antes había que tocar "Revisar en Alegra".
+// Una incierta que sí está en Alegra se adopta (no se crea otra). Pocas por
+// vuelta para no gastar el límite de 150 peticiones por minuto.
+Artisan::command('facturacion:actualizar-estados', function () {
+    if (! \App\Services\Alegra\ClienteAlegra::configurado()) return;
+    $emitir = app(\App\Services\Facturacion\EmitirFactura::class);
+    $al = 0;
+    \App\Models\FacturaElectronica::whereIn('estado', ['pendiente_dian', 'incierta'])
+        ->where('updated_at', '<', now()->subMinutes(5))
+        ->orderBy('updated_at')->limit(15)->get()
+        ->each(function ($f) use ($emitir, &$al) {
+            try {
+                $antes = $f->estado;
+                $f = $emitir->actualizar($f);
+                if ($f->estado !== $antes) $al++;
+                // Que no vuelva a la cabeza de la fila si no cambió.
+                if ($f->estado === $antes) $f->touch();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::info('[facturacion] no se pudo actualizar', ['id' => $f->id, 'error' => $e->getMessage()]);
+            }
+        });
+    if ($al) $this->info("Facturas actualizadas: {$al}");
+})->purpose('Pone al día las facturas en "DIAN validando" o sin confirmar');
+
+Schedule::command('facturacion:actualizar-estados')
+    ->everyTenMinutes()
+    ->name('facturacion-actualizar-estados')
+    ->withoutOverlapping(30)
+    ->runInBackground();
+
 Schedule::command('facturacion:emitir-pendientes')
     ->everyFiveMinutes()
     ->name('facturacion-emitir-pendientes')

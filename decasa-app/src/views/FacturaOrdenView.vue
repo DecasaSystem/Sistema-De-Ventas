@@ -9,12 +9,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
+import DireccionColombia from '@/components/DireccionColombia.vue'
 import { useToast } from '@/composables/useToast'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 import { esUrlDePdf, cloudinaryOpt } from '@/utils/cloudinary'
 import { pesos } from '@/utils/pesos'
 import {
-  detalleFE, guardarClienteFE, facturarFE, externaFE, actualizarFE, diferenciaResueltaFE, ESTADOS_FE,
+  detalleFE, guardarClienteFE, facturarFE, externaFE, actualizarFE, diferenciaResueltaFE, registrarPagosFE, ESTADOS_FE,
 } from '@/api/facturacionElectronica'
 import { ArrowLeftIcon, ExclamationTriangleIcon, InformationCircleIcon, CheckCircleIcon, NoSymbolIcon } from '@heroicons/vue/24/outline'
 
@@ -126,6 +127,22 @@ async function preguntarAlegra() {
   }
 }
 
+const confirmoPagos = ref(false)
+async function reintentarPagos() {
+  if (!factura.value?.id) return
+  enviando.value = true
+  try {
+    const { data } = await registrarPagosFE(factura.value.id, confirmoPagos.value)
+    toast.success(data.message)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudieron registrar')
+  } finally {
+    enviando.value = false
+    confirmoPagos.value = false
+    await cargar()
+  }
+}
+
 async function guardarExterna() {
   if (!externa.value.numero.trim()) return
   enviando.value = true
@@ -210,9 +227,30 @@ onMounted(cargar)
             Revisar en Alegra
           </button>
         </div>
+        <!-- Pagos que no quedaron en Alegra -->
+        <div v-if="factura.pagos_sin_registrar?.length" class="border border-amber-200 rounded-lg p-3 space-y-2">
+          <p class="text-sm text-amber-800">
+            {{ factura.pagos_sin_registrar.length }} pago(s) no quedaron registrados en Alegra. La factura sí salió.
+          </p>
+          <p v-for="p in factura.pagos_sin_registrar" :key="p.pago_id" class="text-xs text-gray-600">
+            Pago #{{ p.pago_id }} · {{ pesos(p.monto) }} · {{ p.estado === 'incierto' ? 'sin confirmar' : 'no entró' }}<span v-if="p.error">: {{ p.error }}</span>
+          </p>
+          <label v-if="factura.pagos_sin_registrar.some(p => p.estado === 'incierto')" class="flex items-start gap-2 text-xs text-gray-700">
+            <input v-model="confirmoPagos" type="checkbox" class="mt-0.5" />
+            <span>Revisé en Alegra y esos pagos sin confirmar NO están (si están, no lo marques: quedarían dos veces).</span>
+          </label>
+          <button @click="reintentarPagos" :disabled="enviando" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">
+            Registrar pagos en Alegra
+          </button>
+        </div>
+
         <!-- Cambió la plata después de facturar -->
         <div v-if="factura.diferencia !== null && factura.diferencia !== undefined" class="border border-amber-200 rounded-lg p-3 space-y-2">
-          <p class="text-sm text-amber-800">
+          <p v-if="factura.orden_cancelada" class="text-sm text-amber-800">
+            La orden se <b>canceló</b> después de facturar: la factura sigue valiendo ante la DIAN.
+            Anúlala en Alegra con una nota crédito y anótala aquí.
+          </p>
+          <p v-else class="text-sm text-amber-800">
             La orden cambió <b>{{ pesos(factura.diferencia) }}</b> después de facturar
             ({{ pesos(factura.valor_sistema) }} → {{ pesos(factura.valor_sistema + factura.diferencia) }}).
             La factura no cambia sola: si bajó, nota crédito; si subió, factura por la diferencia. Hazla en Alegra y anótala aquí.
@@ -294,15 +332,16 @@ onMounted(cargar)
               <option value="responsable">Responsable</option>
             </select>
           </label>
-          <label class="col-span-2 text-xs text-gray-500">Dirección
-            <input v-model="cliente.direccion" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-          </label>
-          <label class="text-xs text-gray-500">Municipio
-            <input v-model="cliente.ciudad" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-          </label>
-          <label class="text-xs text-gray-500">Departamento
-            <input v-model="cliente.departamento" placeholder="Ej.: Quindío" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-          </label>
+          <!-- De la lista oficial: Alegra rechaza un municipio escrito distinto ("Armenia Q."). -->
+          <div class="col-span-2">
+            <DireccionColombia
+              v-model:departamento="cliente.departamento"
+              v-model:ciudad="cliente.ciudad"
+              v-model:direccion="cliente.direccion"
+              titulo="Dirección del cliente (la de la factura)"
+              requerida
+            />
+          </div>
           <label class="text-xs text-gray-500">Correo
             <input v-model="cliente.email" type="email" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
           </label>

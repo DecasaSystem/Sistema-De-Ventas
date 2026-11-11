@@ -68,6 +68,13 @@ class EmitirFactura
         }
 
         $factura = $this->tomar($armado, $usuario);
+        // Los pagos que se registrarán en Alegra cuando la factura exista (los
+        // que ya quedaron registrados en un intento anterior se conservan).
+        $yaRegistrados = collect((array) $factura->pagos_alegra)->where('estado', 'registrado')->keyBy('pago_id');
+        $factura->update(['pagos_alegra' => array_values(array_map(
+            fn ($p) => $yaRegistrados[$p['pago_id']] ?? ['pago_id' => $p['pago_id'], 'monto' => $p['amount'], 'estado' => 'pendiente', 'envio' => $p],
+            $armado['pagos_alegra'],
+        ))]);
 
         try {
             if ($adoptada = $this->resolverIntentoAnterior($factura)) {
@@ -202,19 +209,37 @@ class EmitirFactura
     private function contacto(?Cliente $cliente, array $armado): string
     {
         $datos = $armado['cliente'];
-        if ($datos['alegra_contacto_id']) return (string) $datos['alegra_contacto_id'];
+        // "Consumidor final": el contacto de Alegra escogido en Ajustes, tal cual.
+        if ($datos['consumidor_final']) return (string) $datos['alegra_contacto_id'];
 
-        $documento = $datos['documento'];
-        foreach ($this->alegra->buscarContactos($documento) as $c) {
-            $ident = $c['identificationObject']['number'] ?? $c['identification'] ?? null;
-            if ($ident !== null && preg_replace('/\D/', '', (string) $ident) === preg_replace('/\D/', '', $documento) && ! empty($c['id'])) {
-                $this->recordarContacto($cliente, (string) $c['id']);
+        $payload = array_filter($datos['alegra'], fn ($v) => $v !== null);
 
-                return (string) $c['id'];
+        $id = $datos['alegra_contacto_id'] ? (string) $datos['alegra_contacto_id'] : null;
+        if (! $id) {
+            $documento = $datos['documento'];
+            foreach ($this->alegra->buscarContactos($documento) as $c) {
+                $ident = $c['identificationObject']['number'] ?? $c['identification'] ?? null;
+                if ($ident !== null && preg_replace('/\D/', '', (string) $ident) === preg_replace('/\D/', '', $documento) && ! empty($c['id'])) {
+                    $id = (string) $c['id'];
+                    $this->recordarContacto($cliente, $id);
+                    break;
+                }
             }
         }
 
-        $payload = array_filter($datos['alegra'], fn ($v) => $v !== null);
+        // Ya existe en Alegra: se le ponen los datos de hoy. Si el facturador
+        // corrigió el correo o la dirección en la revisión, la factura no puede
+        // salir con lo viejo de allá (la DIAN se la manda a ese correo).
+        if ($id) {
+            $res = $this->alegra->put("contacts/{$id}", $payload);
+            if ($res->ok) return $id;
+            if ($res->status !== 404) {
+                throw new NoSePuedeFacturar('Alegra no aceptó los datos del cliente: ' . ($res->error ?? 'sin detalle') . '. Revisa los datos del cliente.', 422);
+            }
+            // Lo borraron en Alegra: se crea de nuevo.
+            $this->recordarContacto($cliente, null);
+        }
+
         $res = $this->alegra->crearContacto($payload);
         if (! $res->ok || empty($res->json['id'])) {
             throw new NoSePuedeFacturar('Alegra no aceptó el cliente: ' . ($res->error ?? 'sin detalle') . '. Revisa los datos del cliente.', 422);
@@ -224,7 +249,7 @@ class EmitirFactura
         return (string) $res->json['id'];
     }
 
-    private function recordarContacto(?Cliente $cliente, string $id): void
+    private function recordarContacto(?Cliente $cliente, ?string $id): void
     {
         if ($cliente && Esquema::columna('clientes', 'alegra_contacto_id')) {
             $cliente->forceFill(['alegra_contacto_id' => $id])->save();
@@ -234,6 +259,7 @@ class EmitirFactura
     private function guardarRespuesta(FacturaElectronica $f, RespuestaAlegra $res, ?array $armado): FacturaElectronica
     {
         $json = is_array($res->json) ? $res->json : [];
+        $yaEstabaEmitida = in_array($f->estado, ['emitida', 'pendiente_dian'], true);
 
         if (! $res->ok) {
             // Con generateStamp y un rechazo, Alegra crea la factura en borrador y
@@ -268,18 +294,18 @@ class EmitirFactura
             'total'       => isset($json['total']) && is_numeric($json['total']) ? (float) $json['total'] : $f->total,
             'respuesta'   => $json,
             'error'       => $estado === 'rechazada' ? ('La DIAN la rechazó: ' . ($json['stamp']['errors'][0] ?? $json['stamp']['message'] ?? 'revisa en Alegra')) : null,
-            'emitida_at'  => in_array($estado, ['emitida', 'pendiente_dian'], true) ? now() : $f->emitida_at,
+            'emitida_at'  => in_array($estado, ['emitida', 'pendiente_dian'], true) ? ($f->emitida_at ?? now()) : $f->emitida_at,
         ]);
 
         if (in_array($estado, ['emitida', 'pendiente_dian'], true)) {
-            $this->despuesDeEmitir($f);
+            $this->despuesDeEmitir($f, ! $yaEstabaEmitida);
         }
 
         return $f->fresh();
     }
 
     /** PDF, correo al cliente y la marca vieja de "facturado" en los pagos. */
-    private function despuesDeEmitir(FacturaElectronica $f): void
+    private function despuesDeEmitir(FacturaElectronica $f, bool $primeraVez = true): void
     {
         try {
             $ver = $this->alegra->verFactura($f->alegra_id, ['pdf']);
@@ -290,7 +316,10 @@ class EmitirFactura
             Log::info('[facturacion] sin PDF por ahora', ['id' => $f->alegra_id, 'error' => $e->getMessage()]);
         }
 
-        if (ReglasFacturacion::get('enviar_correo')) {
+        $this->registrarPagos($f);
+
+        // El correo, una sola vez (al pasar de "DIAN validando" a "emitida" no se repite).
+        if ($primeraVez && ReglasFacturacion::get('enviar_correo')) {
             $correo = $f->orden?->cliente?->email;
             if ($correo) {
                 try {
@@ -312,13 +341,74 @@ class EmitirFactura
         }
     }
 
+    /**
+     * Registra en Alegra los pagos del cliente contra la factura ya creada.
+     *
+     * Van aparte (no dentro de la factura) y nunca suman más que el total que
+     * dice Alegra: si por centavos de redondeo la factura quedó en
+     * $3.450.999,99 y los pagos suman $3.451.000, el último se recorta. Cada
+     * uno lleva [DECASA-PAGO-ID] en las observaciones.
+     *
+     * Un pago sin respuesta queda "incierto" y no se reintenta solo (podría
+     * quedar dos veces): se revisa en Alegra y se reintenta con el botón.
+     *
+     * @param bool $incluirInciertos el facturador confirmó que no quedó en Alegra
+     */
+    public function registrarPagos(FacturaElectronica $f, bool $incluirInciertos = false): FacturaElectronica
+    {
+        $plan = (array) $f->pagos_alegra;
+        if (! $plan || ! $f->alegra_id || ! in_array($f->estado, ['emitida', 'pendiente_dian'], true)) return $f;
+
+        $total = (float) $f->total;
+        $yaVa  = collect($plan)->where('estado', 'registrado')->sum('monto_registrado');
+
+        foreach ($plan as $i => $p) {
+            if (($p['estado'] ?? '') === 'registrado') continue;
+            if (($p['estado'] ?? '') === 'incierto' && ! $incluirInciertos) continue;
+
+            $monto = round(min((float) $p['monto'], max(0, $total - $yaVa)), 2);
+            if ($monto < 0.01) {
+                $plan[$i] = ['estado' => 'registrado', 'monto_registrado' => 0, 'nota' => 'No hizo falta: la factura ya estaba cubierta.'] + $p;
+                continue;
+            }
+
+            $envio = $p['envio'] + [
+                'client'   => ['id' => $f->alegra_contacto_id],
+                'invoices' => [['id' => $f->alegra_id, 'amount' => $monto]],
+            ];
+            $envio['amount'] = $monto;
+            unset($envio['pago_id']);
+
+            try {
+                $res = $this->alegra->post('payments', $envio);
+            } catch (SinRespuestaDeAlegra $e) {
+                $plan[$i] = ['estado' => 'incierto', 'error' => 'Alegra no respondió: revisa en Alegra si quedó el pago antes de reintentar.'] + $p;
+                continue;
+            }
+
+            if ($res->ok) {
+                $plan[$i] = ['estado' => 'registrado', 'monto_registrado' => $monto,
+                    'alegra_pago_id' => isset($res->json['id']) ? (string) $res->json['id'] : null, 'error' => null] + $p;
+                $yaVa += $monto;
+            } else {
+                $plan[$i] = ['estado' => 'error', 'error' => $res->error] + $p;
+            }
+        }
+
+        $f->update(['pagos_alegra' => array_values($plan)]);
+
+        return $f->fresh();
+    }
+
     /** Vuelve a preguntarle a Alegra cómo va (pendiente de la DIAN, incierta). */
     public function actualizar(FacturaElectronica $f): FacturaElectronica
     {
         if (! $f->alegra_id && $f->estado === 'incierta' && $f->alegra_contacto_id) {
             $id = $this->buscarPorMarca($f);
             if (! $id) {
-                $f->update(['error' => 'No está en Alegra: se puede volver a facturar.']);
+                // No quedó en Alegra: pasa a "No salió" y se puede volver a facturar
+                // (el reintento igual la busca otra vez por la marca antes de crear).
+                $f->update(['estado' => 'error', 'error' => 'Alegra no respondió y la factura no quedó allá: se puede volver a facturar.']);
 
                 return $f->fresh();
             }

@@ -91,7 +91,13 @@ class FacturacionElectronicaController extends Controller
                 ->orWhereHas('orden', fn ($o) => QueSeFactura::filtrarBusqueda($o, $b))));
 
         if ($grupo === 'problemas') {
-            $q->whereIn('estado', [...FacturaElectronica::ESTADOS_CON_PROBLEMA, 'enviando']);
+            // También las emitidas a las que les quedó un pago sin registrar en Alegra.
+            $q->where(fn ($w) => $w
+                ->whereIn('estado', [...FacturaElectronica::ESTADOS_CON_PROBLEMA, 'enviando'])
+                ->orWhere(fn ($e) => $e->whereIn('estado', FacturaElectronica::ESTADOS_HECHOS)
+                    ->where(fn ($p) => $p->where('pagos_alegra', 'like', '%"estado":"error"%')
+                        ->orWhere('pagos_alegra', 'like', '%"estado":"incierto"%')
+                        ->orWhere('pagos_alegra', 'like', '%"estado":"pendiente"%'))));
         } elseif ($grupo === 'diferencias') {
             $q->whereIn('estado', FacturaElectronica::ESTADOS_HECHOS);
         } else {
@@ -226,6 +232,24 @@ class FacturacionElectronicaController extends Controller
     }
 
     /**
+     * POST /facturacion-electronica/facturas/{id}/registrar-pagos — los pagos
+     * que no quedaron en Alegra. Uno "incierto" (Alegra no respondió) solo se
+     * reintenta si el facturador confirma que lo revisó allá y no está.
+     */
+    public function registrarPagos(Request $request, int $id, EmitirFactura $emitir)
+    {
+        $this->exigir($request);
+        $f = FacturaElectronica::findOrFail($id);
+        $f = $emitir->registrarPagos($f, $request->boolean('confirmo_no_estan'));
+        $faltan = count($f->pagosSinRegistrar());
+
+        return response()->json([
+            'message' => $faltan ? "Quedan {$faltan} pago(s) sin registrar: mira el error de cada uno." : 'Pagos registrados en Alegra.',
+            'factura' => $this->filaFactura($f) + ['error' => $f->error],
+        ], $faltan ? 422 : 200);
+    }
+
+    /**
      * POST /facturacion-electronica/ordenes/{id}/externa — ya se facturó por
      * fuera (a mano en Alegra): se anota el número y sale de la lista.
      */
@@ -270,7 +294,9 @@ class FacturacionElectronicaController extends Controller
             'diferencia_resuelta_por' => $u->id,
             'diferencia_nota'         => $datos['nota'],
             // Lo resuelto es contra lo que vale hoy: si vuelve a cambiar, vuelve a salir.
-            'valor_sistema'           => $f->pago_id ? (float) $f->pago?->monto : (float) $f->orden?->valor_total,
+            // Cancelada = $0 (se anuló con nota crédito).
+            'valor_sistema'           => $f->orden?->estado === 'cancelado' ? 0
+                : ($f->pago_id ? (float) $f->pago?->monto : (float) $f->orden?->valor_total),
         ]);
 
         return response()->json(['message' => 'Diferencia marcada como resuelta.', 'factura' => $this->filaFactura($f->fresh())]);
@@ -289,8 +315,26 @@ class FacturacionElectronicaController extends Controller
             'momentos'    => ReglasFacturacion::MOMENTOS,
             'medios_dian' => ReglasFacturacion::MEDIOS_DIAN,
             'medios_pago' => ReglasFacturacion::MEDIOS_PAGO_ALEGRA,
-            'tiendas'     => DB::table('tiendas')->select('id', 'nombre')->orderBy('nombre')->get(),
+            'tiendas'     => self::tiendasQueFacturan(),
         ]);
+    }
+
+    /**
+     * Las tiendas a las que se les puede escoger numeración y cajas: solo las
+     * que siguen abiertas. Salían también las desactivadas y las cerradas
+     * (Circunvalar, 27 ago 2026), que ya no venden (usuario, 2026-11-11).
+     * Lo que ya tuvieran guardado se queda y no estorba.
+     */
+    public static function tiendasQueFacturan()
+    {
+        return DB::table('tiendas')
+            ->select('id', 'nombre')
+            ->when(Esquema::columna('tiendas', 'activa'), fn ($q) => $q->where('activa', true))
+            ->when(Esquema::columna('tiendas', 'cerrada_en'), fn ($q) => $q->where(fn ($w) => $w
+                ->whereNull('cerrada_en')
+                ->orWhere('cerrada_en', '>', now('America/Bogota')->toDateString())))
+            ->orderBy('nombre')
+            ->get();
     }
 
     public function guardarReglas(Request $request)
@@ -310,7 +354,7 @@ class FacturacionElectronicaController extends Controller
     {
         $this->exigirSupervisor($request);
         if (! ClienteAlegra::configurado()) {
-            return response()->json(['message' => 'Alegra no está conectado: faltan ALEGRA_EMAIL y ALEGRA_TOKEN en el servidor.'], 422);
+            return response()->json(['message' => 'Alegra no está conectado: falta ALEGRA_TOKEN en el servidor (y ALEGRA_EMAIL si es el token clásico).'], 422);
         }
 
         try {
@@ -327,18 +371,21 @@ class FacturacionElectronicaController extends Controller
         $lista = fn ($r) => $r->ok && is_array($r->json) ? array_values(array_filter($r->json, 'is_array')) : [];
 
         return response()->json([
+            // Cada una con su estado (vigente, por vencer, pocos números, vencida,
+            // agotada): una resolución vencida no se deja escoger (EstadoNumeracion).
             'numeraciones' => array_map(fn ($n) => [
-                'id' => (string) ($n['id'] ?? ''), 'nombre' => $n['name'] ?? '', 'prefijo' => $n['prefix'] ?? '',
                 'electronica' => (bool) ($n['isElectronic'] ?? false), 'tipo' => $n['documentType'] ?? null,
                 'activa' => ($n['status'] ?? 'active') === 'active',
-            ], $lista($num)),
-            'cuentas' => array_map(fn ($c) => [
+                'preferida' => (bool) ($n['isDefault'] ?? $n['preferred'] ?? false),
+            ] + \App\Services\Alegra\EstadoNumeracion::de($n), $lista($num)),
+            // Solo lo activo en Alegra (como las tiendas: lo desactivado no se ofrece).
+            'cuentas' => array_values(array_map(fn ($c) => [
                 'id' => (string) ($c['id'] ?? ''), 'nombre' => $c['name'] ?? '', 'tipo' => $c['type'] ?? null,
-            ], $lista($cuentas)),
-            'impuestos' => array_map(fn ($t) => [
+            ], array_filter($lista($cuentas), [\App\Services\Alegra\CatalogoAlegra::class, 'activo']))),
+            'impuestos' => array_values(array_map(fn ($t) => [
                 'id' => (string) ($t['id'] ?? ''), 'nombre' => $t['name'] ?? '', 'porcentaje' => $t['percentage'] ?? null,
                 'tipo' => $t['type'] ?? null,
-            ], $lista($impuestos)),
+            ], array_filter($lista($impuestos), [\App\Services\Alegra\CatalogoAlegra::class, 'activo']))),
         ]);
     }
 
@@ -353,9 +400,11 @@ class FacturacionElectronicaController extends Controller
         }
         if (! $r->ok) return response()->json(['message' => $r->error], 502);
 
-        return response()->json(['data' => array_map(fn ($i) => [
+        // Solo los activos, y se dice cuál lleva inventario en Alegra (el genérico debe ser sin inventario).
+        return response()->json(['data' => array_values(array_map(fn ($i) => [
             'id' => (string) ($i['id'] ?? ''), 'nombre' => $i['name'] ?? '', 'tipo' => $i['type'] ?? null,
-        ], array_values(array_filter((array) $r->json, 'is_array')))]);
+            'inventario' => \App\Services\Alegra\CatalogoAlegra::llevaInventario($i),
+        ], array_filter((array) $r->json, fn ($i) => is_array($i) && \App\Services\Alegra\CatalogoAlegra::activo($i))))]);
     }
 
     /** GET /facturacion-electronica/alegra/contactos?buscar= (para escoger "Consumidor final"). */
@@ -417,6 +466,10 @@ class FacturacionElectronicaController extends Controller
     private function filaFactura(FacturaElectronica $f): array
     {
         $actual = $f->pago_id ? (float) ($f->pago?->monto ?? $f->valor_sistema) : (float) ($f->orden?->valor_total ?? $f->valor_sistema);
+        // Una orden cancelada después de facturar: al cancelar el valor no cambia,
+        // así que se compara contra $0 (hay que anular la factura con nota crédito).
+        $cancelada = $f->orden?->estado === 'cancelado';
+        if ($cancelada) $actual = 0.0;
         $dif = round($actual - (float) $f->valor_sistema, 2);
         $hayDiferencia = in_array($f->estado, FacturaElectronica::ESTADOS_HECHOS, true) && abs($dif) >= 1;
 
@@ -437,7 +490,13 @@ class FacturacionElectronicaController extends Controller
             'total'       => (float) $f->total,
             'valor_sistema' => (float) $f->valor_sistema,
             'diferencia'  => $hayDiferencia ? $dif : null,
+            'orden_cancelada' => $cancelada,
             'diferencia_nota' => $f->diferencia_nota,
+            // Pagos que debían quedar en Alegra y no quedaron (botón "Registrar pagos").
+            'pagos_sin_registrar' => array_map(fn ($p) => [
+                'pago_id' => $p['pago_id'] ?? null, 'monto' => (float) ($p['monto'] ?? 0),
+                'estado' => $p['estado'] ?? 'pendiente', 'error' => $p['error'] ?? null,
+            ], $f->pagosSinRegistrar()),
             'nota'        => $f->nota,
             'usuario'     => $f->usuario?->nombre,
             'emitida_at'  => $f->emitida_at,

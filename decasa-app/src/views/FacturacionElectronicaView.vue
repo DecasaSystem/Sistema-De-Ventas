@@ -177,8 +177,14 @@ onMounted(async () => {
               <span v-if="f.usuario"> · {{ f.usuario }}</span>
             </p>
             <p v-if="f.error" class="text-xs text-red-600 mt-1 line-clamp-2">{{ f.error }}</p>
-            <p v-if="f.diferencia !== null && f.diferencia !== undefined" class="text-xs text-amber-700 mt-1">
+            <p v-if="f.orden_cancelada && f.diferencia !== null && f.diferencia !== undefined" class="text-xs text-amber-700 mt-1">
+              Orden cancelada después de facturar: hay que anular la factura con nota crédito.
+            </p>
+            <p v-else-if="f.diferencia !== null && f.diferencia !== undefined" class="text-xs text-amber-700 mt-1">
               La orden cambió {{ pesos(f.diferencia) }} después de facturar.
+            </p>
+            <p v-if="f.pagos_sin_registrar?.length" class="text-xs text-amber-700 mt-1">
+              {{ f.pagos_sin_registrar.length }} pago(s) sin registrar en Alegra.
             </p>
           </div>
           <div class="text-right shrink-0">

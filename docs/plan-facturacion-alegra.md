@@ -89,9 +89,49 @@ cambia los Ajustes**.
 escogido, un pago sin caja de Alegra, solicitud de cambio sin decidir, valor $0, la regla dice que
 no se factura.
 
+**Numeración (resolución DIAN)** (2026-11-11, `Services/Alegra/EstadoNumeracion`): en cada revisión
+se pregunta a Alegra por la numeración de la tienda (`endDate`, `maxInvoiceNumber`,
+`nextInvoiceNumber`, `status`; si faltan, se leen del texto de la resolución; se recuerda 10 min).
+Vencida, agotada o inactiva **bloquea** en modo "Mandar a la DIAN" (en borrador solo avisa); por
+vencer (30 días) o con pocos números (100) avisa sin frenar; los dos umbrales están en Ajustes. En
+Ajustes cada numeración sale con su fecha, los números que le quedan y su estado, y una vencida no
+se deja escoger. Caso real ese día: FEU vencida el 7 nov 2026, FP PEREIRA vencida en feb 2026, FEN
+con 83 números y vigente hasta el 20 feb 2027. En Ajustes por tienda solo salen las tiendas
+activas y sin cerrar.
+
 **Hay que marcarlas** (se guardan en la factura como aceptadas): precio lejos del de lista, la plata
 cambió hace poco, queda saldo (sale a crédito), pagos marcados facturados a mano, reembolso o pagos
 de más (los pagos no se registran), diferencia por decimales, consumidor final.
+
+## 5c. Revisión a fondo del 2026-11-11 (arreglado)
+
+Pedido del usuario: "analiza bien a fondo como un experto en Alegra y un contador" (empezó por las
+tiendas desactivadas que salían en Ajustes). Trae **migración** `2026_11_12_000001_pagos_alegra_en_facturas_electronicas`
+(solo agrega `facturas_electronicas.pagos_alegra`).
+
+| # | Qué pasaba | Arreglo |
+|---|---|---|
+| 1 | Cambiar "cuándo se factura" (por pago → al entregar) volvía a facturar la orden completa | `QueSeFactura::motivoParaNo` mira las facturas de la otra forma: una orden con facturas por pago no se factura completa, y un pago de una orden facturada completa no se factura aparte |
+| 2 | Una re-entrega por garantía revivía órdenes viejas facturadas a mano | "La última entrega" ignora las de `garantias.despacho_item_id` |
+| 3 | La lista traía las 300 últimas entregadas (con las facturadas) y las pendientes viejas desaparecían | Lo facturado se descarta en la consulta; hasta 500 pendientes, lo más viejo primero |
+| 4 | Una consulta por orden para la fecha de entrega (lenta con Aiven) | La fecha viene en la misma consulta (`ultima_entrega`) y pagos/ítems precargados |
+| 5 | Orden cancelada después de facturar no salía en Diferencias | Se compara contra $0 y avisa "anular con nota crédito" (también en el aviso de cancelación) |
+| 6 | Bancos, impuestos y productos inactivos en Alegra salían para escoger; uno desactivado después hacía fallar la factura | Ajustes solo muestra lo activo; la revisión revisa lo escogido contra lo de hoy en Alegra (`CatalogoAlegra`, 10 min) |
+| 7 | Los pagos iban dentro de la factura y por centavos de redondeo podían pasar el total (rechazo) | La factura se crea sin pagos; después `POST /payments` uno por uno, recortando al total que dice Alegra. Los que no entran quedan en "Problemas" con botón "Registrar pagos" (uno sin respuesta solo se reintenta si el facturador confirma que no está en Alegra) |
+| 8 | Municipio y departamento a mano: Alegra rechaza nombres que no son de su catálogo | Selector oficial (`DireccionColombia`) en la revisión y traducción al nombre exacto de Alegra (`MunicipiosAlegra`, `resources/data/municipios-alegra.json` sacado del catálogo de Alegra: 33 departamentos, 1.123 municipios) |
+| 9 | Si el cliente ya existía en Alegra, salía con los datos viejos de allá | Antes de facturar se actualiza el contacto (`PUT /contacts/{id}`) |
+| 10 | No se revisaba que el impuesto fuera del mismo % que el IVA de los precios | Bloqueo `iva_distinto` y aviso en Ajustes |
+| 11 | El producto genérico podía llevar inventario en Alegra | Aviso en la revisión y en la búsqueda de Ajustes |
+| 12 | "DIAN validando" y "sin confirmar" había que actualizarlas a mano | Tarea `facturacion:actualizar-estados` cada 10 min |
+
+Cambios de valores de fábrica: **"Registrar pagos en Alegra" viene apagado** (si hoy registran los
+recibos a mano, duplicaría la caja de Alegra) y la **fecha de los pagos** es la de la factura (con
+el día real en las notas); los dos los decide el contador en Ajustes.
+
+**Preguntas para el contador** (no se cambian sin él): ¿registran hoy los recibos en Alegra? ¿cómo
+llevan los anticipos (anticipo de clientes o pago con su fecha)? ¿las ventas de independientes son
+ingresos de Decasa o ingresos para terceros? ¿retenciones de clientes empresa? ¿cuenta puente para
+datáfono y Addi?
 
 ## 6. Nunca dos facturas de lo mismo
 
@@ -112,8 +152,15 @@ Emitir la nota crédito desde el sistema es lo siguiente (Fase 2, §9).
 
 ## 8. Para ponerlo a andar
 
-1. En Alegra → Configuración → "API - Integraciones con otros sistemas": correo y token.
-2. En Render: variables `ALEGRA_EMAIL` y `ALEGRA_TOKEN` (nunca en el repo).
+1. En Alegra → Configuración → "API - Integraciones con otros sistemas" → **Crear token** (JWT,
+   el recomendado). Permisos mínimos: Facturas (todo), Configuración de facturación > Numeraciones
+   (ver), Contactos (ver, crear, editar), Transacciones (ver, crear), Bancos (ver), Ítems (ver),
+   Impuestos (ver); Nota de crédito opcional. Se creó así el 2026-11-11 ("Sodege", vence 11 nov 2027:
+   **antes de esa fecha hay que crear otro y cambiarlo en Render**, o el botón deja de funcionar).
+2. En Render: variable `ALEGRA_TOKEN` con el JWT (empieza por `eyJ`; se manda como `Bearer`). Con el
+   token clásico de "Credenciales de acceso" (sin permisos finos) va también `ALEGRA_EMAIL` y se
+   entra con Basic. Nunca en el repo. La documentación de Alegra solo describe el clásico: si el JWT
+   da 401 en Ajustes, usar el clásico.
 3. Subir (trae migración).
 4. Un supervisor, en Facturación electrónica → Ajustes: escoge numeración, IVA, producto genérico
    ("Venta de muebles"), cajas/bancos por medio de pago; deja **Solo borrador** y prende.

@@ -49,7 +49,10 @@ class FacturacionElectronicaTest extends TestCase
             $t->boolean('independiente')->default(false); $t->boolean('ve_todas_ordenes')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamps();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable(); });
+        Schema::create('tiendas', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable();
+            $t->boolean('activa')->default(true); $t->date('cerrada_en')->nullable();
+        });
         Schema::create('clientes', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('cedula')->nullable(); $t->string('telefono')->nullable();
             $t->string('email')->nullable(); $t->string('direccion')->nullable(); $t->timestamp('created_at')->nullable();
@@ -102,6 +105,10 @@ class FacturacionElectronicaTest extends TestCase
 
         // La migración de verdad: tabla nueva + columnas de clientes.
         (require base_path('database/migrations/2026_11_10_000001_facturacion_electronica.php'))->up();
+        (require base_path('database/migrations/2026_11_12_000001_pagos_alegra_en_facturas_electronicas.php'))->up();
+        Schema::create('garantias', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('despacho_item_id')->nullable();
+        });
 
         DB::table('tiendas')->insert(['id' => self::NORTE, 'nombre' => 'Decasa Norte', 'ciudad' => 'Armenia']);
         $this->supervisor = DB::table('usuarios')->insertGetId(['nombre' => 'Sup', 'rol' => 'supervisor']);
@@ -113,7 +120,43 @@ class FacturacionElectronicaTest extends TestCase
             'services.alegra.token' => 'token-de-prueba',
             'services.alegra.url'   => 'https://api.alegra.com/api/v1',
         ]);
+
+        // Nada sale a Alegra de verdad. La numeración "5" está vigente salvo que
+        // la prueba diga otra cosa (cada revisión pregunta por ella).
+        Http::preventStrayRequests();
+        Http::fake([
+            'api.alegra.com/api/v1/number-templates/*' => fn () => Http::response($this->numeracion, 200),
+            'api.alegra.com/api/v1/taxes'              => fn () => Http::response($this->impuestos, 200),
+            'api.alegra.com/api/v1/bank-accounts'      => fn () => Http::response($this->cuentas, 200),
+            'api.alegra.com/api/v1/items/*'            => fn () => Http::response($this->item, 200),
+            'api.alegra.com/api/v1/contacts/*'         => fn (PeticionHttp $r) => Http::response(['id' => '77'], 200),
+            'api.alegra.com/api/v1/payments'           => fn (PeticionHttp $r) => $this->respuestaPago
+                ? ($this->respuestaPago)($r)
+                : Http::response(['id' => 'P1'], 201),
+        ]);
     }
+
+    private array $impuestos = [['id' => '3', 'name' => 'IVA', 'percentage' => 19, 'status' => 'active'],
+        ['id' => '4', 'name' => 'IVA 5%', 'percentage' => 5, 'status' => 'active']];
+    private array $cuentas = [['id' => '1', 'name' => 'Caja', 'status' => 'active'], ['id' => '2', 'name' => 'Bancolombia', 'status' => 'active'],
+        ['id' => '3', 'name' => 'Datáfono', 'status' => 'active'], ['id' => '9', 'name' => 'Cuenta vieja', 'status' => 'inactive']];
+    private array $item = ['id' => '10', 'name' => 'Venta de muebles', 'status' => 'active', 'type' => 'service'];
+    /** Si una prueba quiere que Alegra conteste otra cosa a POST /payments. */
+    private ?\Closure $respuestaPago = null;
+
+    /** Los POST /payments que llegaron a Alegra. */
+    private function pagosMandados(): array
+    {
+        return collect(Http::recorded())->map(fn ($p) => $p[0])
+            ->filter(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/payments'))
+            ->map(fn ($r) => $r->data())->values()->all();
+    }
+
+    /** Lo que Alegra contesta de la numeración "5" (FEN, como la de Decasa). */
+    private array $numeracion = [
+        'id' => '5', 'name' => 'FEN', 'prefix' => 'FEN', 'status' => 'active', 'isElectronic' => true,
+        'nextInvoiceNumber' => 1500, 'maxInvoiceNumber' => 2000, 'endDate' => '2099-12-31',
+    ];
 
     // ── Ayudas ──────────────────────────────────────────────────────────────
 
@@ -350,11 +393,12 @@ class FacturacionElectronicaTest extends TestCase
 
     public function test_facturar_crea_el_cliente_y_la_factura_en_alegra_y_no_se_puede_dos_veces(): void
     {
-        $this->prender();
+        $this->prender(['registrar_pagos' => true]);
         $this->alegraQueAcepta();
         $id = $this->ordenEntregada();
 
         $this->facturar($id)->assertOk()
+            ->assertJsonPath('factura.pagos_sin_registrar', [])
             ->assertJsonPath('factura.estado', 'emitida')
             ->assertJsonPath('factura.numero', 'FE12')
             ->assertJsonPath('factura.cufe', 'cufe-abc')
@@ -367,9 +411,16 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame(['id' => '5'], $envio['numberTemplate']);
         $this->assertSame('CASH', $envio['paymentForm']);
         $this->assertStringContainsString("[DECASA-ORDEN-{$id}]", $envio['observations']);
-        $this->assertCount(2, $envio['payments']);
-        $this->assertSame(['id' => '2'], $envio['payments'][0]['account'], 'La transferencia entra al banco escogido.');
-        $this->assertSame('transfer', $envio['payments'][0]['paymentMethod']);
+        // Los pagos NO van dentro de la factura: se registran después, contra ella.
+        $this->assertArrayNotHasKey('payments', $envio->data());
+        $pagos = $this->pagosMandados();
+        $this->assertCount(2, $pagos);
+        $this->assertSame(['id' => '2'], $pagos[0]['bankAccount'], 'La transferencia entra al banco escogido.');
+        $this->assertSame('transfer', $pagos[0]['paymentMethod']);
+        $this->assertEquals([['id' => '500', 'amount' => 1725500]], $pagos[0]['invoices']);
+        $this->assertSame(['id' => '77'], $pagos[0]['client']);
+        $this->assertSame(now('America/Bogota')->toDateString(), $pagos[0]['date'], 'De fábrica, con la fecha de la factura.');
+        $this->assertStringContainsString('Recibido el 02/11/2026', $pagos[0]['observations']);
 
         // El cliente de Alegra se recuerda y la marca vieja de "facturado" queda puesta.
         $this->assertSame('77', DB::table('clientes')->value('alegra_contacto_id'));
@@ -577,6 +628,305 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame('emitida', FacturaElectronica::where('orden_id', $limpia)->value('estado'));
         $this->assertNull(FacturaElectronica::where('orden_id', $conSaldo)->where('estado', 'emitida')->first(),
             'La que tiene saldo (advertencia) la revisa una persona.');
+    }
+
+    // ── Revisión del 2026-11-11 ─────────────────────────────────────────────
+
+    public function test_cambiar_de_por_pago_a_al_entregar_no_factura_dos_veces(): void
+    {
+        $this->prender(['momento' => 'por_pago']);
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada();
+        $pago = DB::table('pagos')->where('orden_id', $id)->orderBy('id')->value('id');
+        $this->facturar($id, ['pago_id' => $pago])->assertOk();
+
+        // Cambian la regla: la orden ya tiene una factura por pago.
+        $this->prender(['momento' => 'al_entregar']);
+        $this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/pendientes')->assertJsonCount(0, 'data');
+        $this->facturar($id)->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'facturas por cada pago'));
+        $this->assertSame(1, $this->postsAFacturas());
+    }
+
+    public function test_un_pago_de_una_orden_facturada_completa_no_se_factura_aparte(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada();
+        $this->actingAs($this->como($this->facturador))
+            ->postJson("/api/facturacion-electronica/ordenes/{$id}/externa", ['numero' => 'FEN1900'])->assertOk();
+
+        $this->prender(['momento' => 'por_pago']);
+        $this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/pendientes')->assertJsonCount(0, 'data');
+    }
+
+    public function test_una_entrega_por_garantia_no_revive_una_orden_vieja(): void
+    {
+        $this->prender();
+        // Entregada en octubre (antes de "desde", facturada a mano)...
+        $id = $this->ordenEntregada();
+        DB::table('despacho_items')->where('orden_id', $id)->update(['entregado_at' => '2026-10-10 15:00:00']);
+        // ...y el 6 de noviembre se le entregó el mueble arreglado por garantía.
+        $garantia = DB::table('despacho_items')->insertGetId(['orden_id' => $id, 'estado' => 'entregado', 'entregado_at' => '2026-11-06 15:00:00']);
+        DB::table('garantias')->insert(['orden_id' => $id, 'despacho_item_id' => $garantia]);
+
+        $this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/pendientes')->assertJsonCount(0, 'data');
+        $this->facturar($id)->assertStatus(422);
+    }
+
+    public function test_la_lista_trae_solo_lo_pendiente_lo_mas_viejo_primero(): void
+    {
+        $this->prender();
+        $vieja = $this->ordenEntregada(['updated_at' => '2026-11-03 15:00:00']);
+        $nueva = $this->ordenEntregada(['updated_at' => '2026-11-08 15:00:00']);
+        $hecha = $this->ordenEntregada();
+        $this->actingAs($this->como($this->facturador))
+            ->postJson("/api/facturacion-electronica/ordenes/{$hecha}/externa", ['numero' => 'FEN1901'])->assertOk();
+
+        $ids = collect($this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/pendientes')
+            ->json('data'))->pluck('orden_id')->all();
+        $this->assertSame([$vieja, $nueva], $ids);
+    }
+
+    public function test_una_orden_cancelada_despues_de_facturar_sale_en_diferencias(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada();
+        $this->facturar($id)->assertOk();
+
+        DB::table('ordenes')->where('id', $id)->update(['estado' => 'cancelado']);
+
+        $dif = $this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/facturas?grupo=diferencias')->json('data');
+        $this->assertCount(1, $dif);
+        $this->assertTrue($dif[0]['orden_cancelada']);
+        $this->assertEquals(-3451000, $dif[0]['diferencia']);
+    }
+
+    public function test_lo_que_esta_inactivo_en_alegra_o_el_iva_equivocado_frena(): void
+    {
+        $this->prender(['registrar_pagos' => true]);
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada();
+        $codigos = fn () => array_column($this->actingAs($this->como($this->facturador))
+            ->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado.alertas'), 'codigo');
+
+        // Escogieron "IVA 5%": el sistema calcula con 19 % y Alegra con 5 %.
+        $this->prender(['impuesto_iva_id' => '4']);
+        $this->assertContains('iva_distinto', $codigos());
+
+        // Desactivaron en Alegra el banco de las transferencias.
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->prender(['impuesto_iva_id' => '3', 'cuentas' => ['*' => ['efectivo' => '1', 'transferencia' => '9']]]);
+        $this->assertContains('cuenta_no_sirve', $codigos());
+
+        // Y el producto genérico.
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->prender(['cuentas' => ['*' => ['efectivo' => '1', 'transferencia' => '2']]]);
+        $this->item['status'] = 'inactive';
+        $this->assertContains('item_no_sirve', $codigos());
+        $this->facturar($id)->assertStatus(422);
+        $this->assertSame(0, $this->postsAFacturas());
+    }
+
+    public function test_en_ajustes_no_salen_bancos_ni_impuestos_inactivos(): void
+    {
+        Http::fake(['api.alegra.com/api/v1/number-templates?*' => Http::response([$this->numeracion], 200)]);
+        $this->impuestos[] = ['id' => '8', 'name' => 'IVA viejo', 'percentage' => 16, 'status' => 'inactive'];
+
+        $cat = $this->actingAs($this->como($this->supervisor))->getJson('/api/facturacion-electronica/alegra/catalogos')->assertOk();
+
+        $this->assertSame(['1', '2', '3'], array_column($cat->json('cuentas'), 'id'), 'La "Cuenta vieja" inactiva no sale.');
+        $this->assertSame(['3', '4'], array_column($cat->json('impuestos'), 'id'));
+        $this->assertSame('vigente', $cat->json('numeraciones.0.estado'));
+    }
+
+    public function test_los_pagos_nunca_pasan_el_total_que_dice_alegra(): void
+    {
+        $this->prender(['registrar_pagos' => true]);
+        $id = $this->ordenEntregada();
+        Http::fake([
+            'api.alegra.com/api/v1/contacts?*' => Http::response([], 200),
+            'api.alegra.com/api/v1/contacts'   => Http::response(['id' => '77'], 201),
+            // Por los decimales, Alegra dejó la factura en $3.450.999,99.
+            'api.alegra.com/api/v1/invoices'   => Http::response(['id' => '500', 'status' => 'open', 'total' => 3450999.99,
+                'numberTemplate' => ['fullNumber' => 'FEN1918'], 'stamp' => ['legalStatus' => 'STAMPED_AND_ACCEPTED', 'cufe' => 'c']], 201),
+            'api.alegra.com/api/v1/invoices/500*' => Http::response(['id' => '500', 'status' => 'open'], 200),
+        ]);
+
+        $this->facturar($id)->assertOk();
+
+        $montos = array_map(fn ($p) => $p['invoices'][0]['amount'], $this->pagosMandados());
+        $this->assertEquals([1725500, 1725499.99], $montos, 'El último pago se recorta al total de Alegra.');
+    }
+
+    public function test_si_un_pago_no_entra_a_alegra_queda_para_reintentar(): void
+    {
+        $this->prender(['registrar_pagos' => true]);
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada();
+        $intentos = 0;
+        $this->respuestaPago = function () use (&$intentos) {
+            $intentos++;
+
+            return $intentos <= 2 ? Http::response(['message' => 'Período cerrado'], 400) : Http::response(['id' => 'P9'], 201);
+        };
+
+        $f = $this->facturar($id)->assertOk()->json('factura');
+        // La factura salió (es legal); los pagos quedaron para reintentar.
+        $this->assertSame('emitida', $f['estado']);
+        $this->assertCount(2, $f['pagos_sin_registrar']);
+        $this->assertCount(1, $this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/facturas?grupo=problemas')->json('data'));
+
+        $this->actingAs($this->como($this->facturador))->postJson("/api/facturacion-electronica/facturas/{$f['id']}/registrar-pagos")
+            ->assertOk()->assertJsonPath('factura.pagos_sin_registrar', []);
+    }
+
+    public function test_si_el_cliente_ya_existe_en_alegra_se_le_ponen_los_datos_de_hoy(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada(cliente: ['alegra_contacto_id' => '77', 'email' => 'nuevo@correo.test']);
+
+        $this->facturar($id)->assertOk();
+
+        $put = collect(Http::recorded())->map(fn ($p) => $p[0])->first(fn ($r) => $r->method() === 'PUT' && str_ends_with($r->url(), '/contacts/77'));
+        $this->assertNotNull($put, 'Se actualizó el contacto antes de facturar.');
+        $this->assertSame('nuevo@correo.test', $put['email']);
+    }
+
+    public function test_municipio_y_departamento_salen_con_el_nombre_de_alegra(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada(cliente: ['ciudad' => 'armenia', 'departamento' => 'QUINDIO']);
+        $this->facturar($id)->assertOk();
+        $contacto = collect(Http::recorded())->map(fn ($p) => $p[0])
+            ->first(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/contacts'));
+        $this->assertSame(['address' => 'Cra 14 # 20-30', 'city' => 'Armenia', 'department' => 'Quindío', 'country' => 'Colombia'], $contacto['address']);
+
+        $this->assertSame('Cartagena de Indias', \App\Support\MunicipiosAlegra::municipio('Bolivar', 'Cartagena'));
+        $this->assertSame('Guadalajara de Buga', \App\Support\MunicipiosAlegra::municipio('Valle del Cauca', 'Buga'));
+        $this->assertSame('N. de Santander', \App\Support\MunicipiosAlegra::departamento('Norte de Santander'));
+        $this->assertSame('Bogotá, D.C.', \App\Support\MunicipiosAlegra::municipio('Bogotá D.C.', 'Bogotá'));
+
+        // Algo que no está en la lista frena (Alegra lo rechazaría).
+        $otra = $this->ordenEntregada(cliente: ['ciudad' => 'Armenia Q.', 'departamento' => 'Quindío', 'cedula' => '555']);
+        $codigos = array_column($this->actingAs($this->como($this->facturador))
+            ->getJson("/api/facturacion-electronica/ordenes/{$otra}")->json('armado.alertas'), 'codigo');
+        $this->assertContains('municipio_no_oficial', $codigos);
+    }
+
+    public function test_la_tarea_pone_al_dia_lo_que_la_dian_estaba_validando(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta('STAMPED_AND_WAITING_RESPONSE');
+        $id = $this->ordenEntregada();
+        $this->facturar($id)->assertOk()->assertJsonPath('factura.estado', 'pendiente_dian');
+
+        FacturaElectronica::query()->update(['updated_at' => now()->subMinutes(20)]);
+        Http::fake(['api.alegra.com/api/v1/invoices/500*' => Http::response([
+            'id' => '500', 'status' => 'open', 'stamp' => ['legalStatus' => 'STAMPED_AND_ACCEPTED', 'cufe' => 'cufe-abc'],
+        ], 200)]);
+        Artisan::call('facturacion:actualizar-estados');
+
+        $this->assertSame('emitida', FacturaElectronica::first()->estado);
+    }
+
+    // ── Numeración (resolución DIAN) ────────────────────────────────────────
+
+    public function test_con_la_numeracion_vencida_no_se_emite(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // FEU de Decasa: venció el 7 de noviembre de 2026.
+        $this->numeracion = ['id' => '5', 'name' => 'FEU', 'prefix' => 'FEU', 'status' => 'active',
+            'nextInvoiceNumber' => 106, 'maxInvoiceNumber' => 10000, 'endDate' => now('America/Bogota')->subDays(4)->toDateString()];
+        $id = $this->ordenEntregada();
+
+        $r = $this->facturar($id)->assertStatus(422);
+        $this->assertStringContainsString('venció', $r->json('message'));
+        $this->assertSame(0, $this->postsAFacturas());
+    }
+
+    public function test_en_modo_borrador_la_numeracion_vencida_solo_se_avisa(): void
+    {
+        $this->prender(['modo' => 'borrador']);
+        $this->alegraQueAcepta();
+        $this->numeracion['endDate'] = now('America/Bogota')->subDay()->toDateString();
+        $id = $this->ordenEntregada();
+
+        $this->facturar($id)->assertOk()->assertJsonPath('factura.estado', 'borrador_alegra');
+    }
+
+    public function test_con_pocos_numeros_o_por_vencer_se_avisa_sin_frenar(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // FEN de Decasa: va en 1918 de 2000 (quedan 83) y el aviso es con 100.
+        $this->prender(['aviso_numeracion_numeros' => 100]);
+        $this->numeracion['nextInvoiceNumber'] = 1918;
+        $id = $this->ordenEntregada();
+
+        $armado = $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado');
+        $this->assertTrue($armado['se_puede']);
+        $this->assertSame(83, $armado['numeracion']['quedan']);
+        $this->assertContains('numeracion_pocos', array_column($armado['alertas'], 'codigo'));
+        $this->facturar($id)->assertOk();
+    }
+
+    public function test_el_estado_sale_tambien_del_texto_de_la_resolucion(): void
+    {
+        // Si Alegra no mandara endDate/maxInvoiceNumber, se leen del texto (tal cual lo muestra Alegra).
+        $e = \App\Services\Alegra\EstadoNumeracion::de([
+            'id' => '9', 'name' => 'FP PEREIRA', 'prefix' => 'FEP', 'nextInvoiceNumber' => 261,
+            'invoiceText' => 'Autorización de numeración de facturación N° 18764089064697 de 2025-02-18 Modalidad Factura Electrónica Desde N° FEP212 hasta FEP1000 con vigencia hasta 2026-02-18',
+        ]);
+        $this->assertSame('2026-02-18', $e['vence']);
+        $this->assertSame(1000, $e['maximo']);
+        $this->assertSame('vencida', $e['estado']);
+        $this->assertFalse($e['sirve']);
+    }
+
+    public function test_en_ajustes_solo_salen_las_tiendas_abiertas(): void
+    {
+        DB::table('tiendas')->insert([
+            ['id' => 2, 'nombre' => 'Circunvalar', 'ciudad' => 'Pereira', 'activa' => true, 'cerrada_en' => '2026-08-27'],
+            ['id' => 3, 'nombre' => 'Vieja', 'ciudad' => 'Armenia', 'activa' => false, 'cerrada_en' => null],
+            ['id' => 4, 'nombre' => 'Unicentro', 'ciudad' => 'Pereira', 'activa' => true, 'cerrada_en' => null],
+        ]);
+
+        $nombres = collect($this->actingAs($this->como($this->supervisor))->getJson('/api/facturacion-electronica/reglas')
+            ->assertOk()->json('tiendas'))->pluck('nombre')->all();
+
+        $this->assertSame(['Decasa Norte', 'Unicentro'], $nombres);
+    }
+
+    // ── Cómo entra a Alegra ─────────────────────────────────────────────────
+
+    public function test_con_el_jwt_nuevo_entra_como_bearer_y_no_necesita_correo(): void
+    {
+        $jwt = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzb2RlZ2UifQ.ZmlybWE';
+        config(['services.alegra.email' => null, 'services.alegra.token' => "  {$jwt}\n"]);
+        Http::fake(['api.alegra.com/*' => Http::response([], 200)]);
+
+        $this->assertTrue(\App\Services\Alegra\ClienteAlegra::configurado());
+        (new \App\Services\Alegra\ClienteAlegra())->get('number-templates');
+
+        Http::assertSent(fn ($r) => $r->header('Authorization') === ["Bearer {$jwt}"]);
+    }
+
+    public function test_con_el_token_clasico_entra_con_correo_y_token(): void
+    {
+        config(['services.alegra.email' => 'api@decasa.test ', 'services.alegra.token' => 'token-clasico']);
+        Http::fake(['api.alegra.com/*' => Http::response([], 200)]);
+
+        (new \App\Services\Alegra\ClienteAlegra())->get('number-templates');
+
+        Http::assertSent(fn ($r) => $r->header('Authorization') === ['Basic ' . base64_encode('api@decasa.test:token-clasico')]);
+
+        // El clásico sin correo no sirve: se dice que falta, no se intenta.
+        config(['services.alegra.email' => null]);
+        $this->assertFalse(\App\Services\Alegra\ClienteAlegra::configurado());
     }
 
     public function test_con_revision_prendida_la_tarea_no_hace_nada(): void

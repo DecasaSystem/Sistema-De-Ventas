@@ -877,12 +877,25 @@ escribiendo precios (Fase 1b).
   alguien que no es de la tienda destino, a esa tienda le llega "Llegó mercancía"; y la pantalla
   de Traslado le saltaba el paso del receptor a quien tiene `acceso_surtir` sin rol vendedor (422).
   Tests en `TrasladoLoRecibeUnSupervisorTest`.
-- **Facturación electrónica con Alegra** (2026-11-09, **implementada, sin subir**, rama
+- **Facturación electrónica con Alegra** (2026-11-09, **subida a `main`** ese día, commit 0760199, rama
   `claude/alegra-billing-integration-a51e78`, trae **migración** `2026_11_10_000001_facturacion_electronica`,
   solo agrega). Detalle en `docs/plan-facturacion-alegra.md`. Decisiones del dueño ese día: se
   factura **al entregar**, **las FV2 no se facturan**, el **facturador revisa** la orden y toca
   Facturar, y **todo personalizable** desde el programa (Ajustes del módulo, solo supervisor). Viene
-  apagado y en "solo borrador". Necesita `ALEGRA_EMAIL`/`ALEGRA_TOKEN` en Render. Por defecto mío
+  apagado y en "solo borrador". Necesita `ALEGRA_TOKEN` en Render: el usuario creó el 2026-11-11 un
+  **JWT** "Sodege" con permisos escogidos (vence **11 nov 2027**: renovarlo antes). El sistema lo
+  manda como `Bearer`; con el token clásico usa Basic + `ALEGRA_EMAIL` (2026-11-11, **sin subir**).
+  La documentación de Alegra solo describe el clásico: el JWT en `/api/v1` no está probado (subido
+  a `main`, a9a2295; Ajustes ya cargó los catálogos con él: funciona). **Numeraciones de Decasa
+  (2026-11-11):** FEN preferida, vigente hasta 20 feb 2027 con 83 números; FEF vigente hasta 30 ene
+  2027; **FEU vencida (7 nov 2026) y FP PEREIRA vencida (feb 2026)**: el contador tiene que pedir
+  resoluciones nuevas a la DIAN. El sistema ahora avisa/bloquea por numeración vencida o agotada
+  (`EstadoNumeracion`) y Ajustes solo muestra tiendas abiertas (subido, 7b07cd9). **Revisión a fondo
+  del 2026-11-11** (12 arreglos, tabla en §5c del plan; **sin subir**, trae migración
+  `2026_11_12_000001_pagos_alegra_en_facturas_electronicas`): pagos aparte después de la factura,
+  municipios con el nombre exacto de Alegra, contacto actualizado antes de facturar, nada inactivo
+  en Ajustes, sin dobles al cambiar el modo, garantías no reviven órdenes. "Registrar pagos" viene
+  **apagado** hasta que el contador diga si hoy registran los recibos a mano. Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la

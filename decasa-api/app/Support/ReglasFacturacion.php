@@ -82,7 +82,14 @@ class ReglasFacturacion
         // Decimales con que se manda el precio sin IVA a Alegra.
         'decimales'               => 2,
         // Registrar en Alegra los pagos del cliente (a qué caja/banco entró cada uno).
-        'registrar_pagos'         => true,
+        // Apagado de fábrica (2026-11-11): si hoy ya registran los recibos en
+        // Alegra a mano, prenderlo duplicaría la caja allá. Lo prende el
+        // supervisor cuando el contador confirme.
+        'registrar_pagos'         => false,
+        // Con qué fecha va cada pago a Alegra: 'factura' (el día de la factura,
+        // siempre lo acepta) o 'recibido' (el día que entró la plata; un
+        // anticipo de antes de la factura puede no aceptarse). Lo decide el contador.
+        'fecha_pagos'             => 'factura',
         // Si queda saldo, la factura sale a crédito con este plazo.
         'dias_credito'            => 30,
         // Avisa si un precio queda por debajo de este % del de lista (o por encima
@@ -90,6 +97,10 @@ class ReglasFacturacion
         'alerta_precio_pct'       => 50,
         // Horas después de un cambio de plata en las que se pide mirar otra vez.
         'horas_cambio_reciente'   => 24,
+        // Avisar cuando a la resolución DIAN le falten estos días o estos números
+        // (2026-11-11: FEN tenía 83 números y vencía en 3 meses).
+        'aviso_numeracion_dias'    => 30,
+        'aviso_numeracion_numeros' => 100,
 
         // ── Alegra ─────────────────────────────────────────────────────────────
         'impuesto_iva_id'         => null,
@@ -196,6 +207,11 @@ class ReglasFacturacion
                 ? $nuevo['momento'] = $valores['momento']
                 : $errores[] = 'Ese momento para facturar no existe.';
         }
+        if (array_key_exists('fecha_pagos', $valores)) {
+            in_array($valores['fecha_pagos'], ['factura', 'recibido'], true)
+                ? $nuevo['fecha_pagos'] = $valores['fecha_pagos']
+                : $errores[] = 'La fecha de los pagos es "factura" o "recibido".';
+        }
         if (array_key_exists('sin_documento', $valores)) {
             in_array($valores['sin_documento'], ['bloquear', 'consumidor_final'], true)
                 ? $nuevo['sin_documento'] = $valores['sin_documento']
@@ -215,6 +231,7 @@ class ReglasFacturacion
         $numeros = [
             'iva_pct' => [0, 100], 'decimales' => [0, 6], 'dias_credito' => [0, 365],
             'alerta_precio_pct' => [0, 100], 'horas_cambio_reciente' => [0, 720],
+            'aviso_numeracion_dias' => [0, 365], 'aviso_numeracion_numeros' => [0, 100000],
         ];
         foreach ($numeros as $n => [$min, $max]) {
             if (! array_key_exists($n, $valores)) continue;
