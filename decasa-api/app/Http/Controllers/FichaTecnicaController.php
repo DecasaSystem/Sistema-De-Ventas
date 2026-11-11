@@ -211,6 +211,8 @@ class FichaTecnicaController extends Controller
             // La mano de obra que sale de una tarifa queda vinculada a ella, para que al
             // cambiar el incentivo/hora en Tarifas la ficha se recalcule sola.
             'items.*.tarifa_proceso_id' => 'nullable|integer|exists:tarifas_proceso,id',
+            // Mano de obra sin costo fijo: el tipo (Esqueletería…) y el costo que se escribió
+            'items.*.tipo_mano_obra_id' => $this->reglaTipo(),
         ]);
 
         $productoId = $data['producto_id'] ?? null;
@@ -254,7 +256,7 @@ class FichaTecnicaController extends Controller
                     'material_id'       => $materialId,
                     'tarifa_proceso_id' => $tarifaId,
                     'orden'             => $orden,
-                ]);
+                ] + $this->tipoDe($item, $esManoObra, $tarifaId));
             }
 
             FichaTecnica::recalcularTotales($ficha->id);
@@ -307,6 +309,7 @@ class FichaTecnicaController extends Controller
             'items.*.es_mano_obra'    => 'sometimes|boolean',
             'items.*.material_id'     => 'nullable|integer|exists:materiales,id',
             'items.*.tarifa_proceso_id' => 'nullable|integer|exists:tarifas_proceso,id',
+            'items.*.tipo_mano_obra_id' => $this->reglaTipo(),
             'eliminar'                => 'sometimes|array',
             'eliminar.*'              => 'integer',
         ]);
@@ -370,7 +373,7 @@ class FichaTecnicaController extends Controller
                         'material_id'       => $materialId,
                         'tarifa_proceso_id' => $tarifaId,
                         'orden'             => $siguienteOrden++,
-                    ]);
+                    ] + $this->tipoDe($itemData, $esManoObra, $tarifaId));
                     continue;
                 }
 
@@ -437,11 +440,11 @@ class FichaTecnicaController extends Controller
               + (RecetasDeProductos::hayDescripcion() ? ['descripcion' => $fichaTecnica->descripcion] : []));
 
             $vigentes = new PreciosVigentes();
+            $columnas = ['seccion', 'descripcion', 'cantidad', 'unidad', 'precio_unitario',
+                'subtotal', 'es_mano_obra', 'material_id', 'tarifa_proceso_id', 'orden'];
+            if (self::hayTiposManoObra()) $columnas[] = 'tipo_mano_obra_id';
             foreach ($fichaTecnica->items as $item) {
-                $campos = $item->only([
-                    'seccion', 'descripcion', 'cantidad', 'unidad', 'precio_unitario',
-                    'subtotal', 'es_mano_obra', 'material_id', 'tarifa_proceso_id', 'orden',
-                ]);
+                $campos = $item->only($columnas);
                 FichaTecnicaItem::create(
                     $this->conPrecioVigente($campos, $vigentes, $item->material_id, $item->tarifa_proceso_id)
                     + ['ficha_tecnica_id' => $copia->id]
@@ -475,6 +478,38 @@ class FichaTecnicaController extends Controller
             'precio_unitario' => $precio,
             'subtotal'        => round((float) $campos['cantidad'] * $precio, 2),
         ]);
+    }
+
+    // ── Mano de obra sin costo fijo (usuario, 2026-11-11) ────────────────────
+
+    private static ?bool $hayTipos = null;
+
+    /** Los esquemas de las pruebas (o antes de migrar) no siempre tienen la columna. */
+    public static function hayTiposManoObra(): bool
+    {
+        return self::$hayTipos ??= \Illuminate\Support\Facades\Schema::hasColumn('ficha_tecnica_items', 'tipo_mano_obra_id');
+    }
+
+    /** Registrado en CachesDePeticion: las pruebas montan esquemas distintos en el mismo proceso. */
+    public static function olvidarEsquema(): void
+    {
+        self::$hayTipos = null;
+    }
+
+    private function reglaTipo(): string
+    {
+        return self::hayTiposManoObra() ? 'nullable|integer|exists:tipos_mano_obra,id' : 'nullable|integer';
+    }
+
+    /**
+     * El tipo de un renglón nuevo: solo en mano de obra y si no viene de Tarifas (esa ya tiene
+     * su costo calculado). Su precio es el que se escribió: PreciosVigentes no lo toca.
+     */
+    private function tipoDe(array $item, bool $esManoObra, ?int $tarifaId): array
+    {
+        if (! self::hayTiposManoObra()) return [];
+
+        return ['tipo_mano_obra_id' => $esManoObra && ! $tarifaId ? ($item['tipo_mano_obra_id'] ?? null) : null];
     }
 
     /** Materiales del catálogo cuyo nombre coincide con la descripción de algún ítem. */

@@ -74,6 +74,12 @@ function elegirTarifa(p) {
   pickerTarifa.value = false
 }
 
+// Mano de obra por trabajo (Esqueletería…): el costo es el que se escribió, nadie lo recalcula
+function elegirTipo({ tipo, costo }) {
+  agregar({ descripcion: tipo.nombre, unidad: 'trabajo', cantidad: 1, precio_unitario: costo, es_mano_obra: true, tipo_mano_obra_id: tipo.id })
+  pickerTarifa.value = false
+}
+
 function onFoto(e) {
   const file = e.target.files?.[0]
   if (!file) return
@@ -115,6 +121,7 @@ async function crear() {
         es_mano_obra:      i.es_mano_obra,
         material_id:       i.material_id,
         tarifa_proceso_id: i.tarifa_proceso_id,
+        tipo_mano_obra_id: i.tipo_mano_obra_id ?? null,
         orden,
       })),
     })
@@ -200,5 +207,5 @@ async function crear() {
 
   <PickerMaterial v-if="pickerMaterial" titulo="Agregar material" permite-libre
     @elegir="elegirMaterial" @cerrar="pickerMaterial = false" />
-  <PickerTarifa v-if="pickerTarifa" @elegir="elegirTarifa" @cerrar="pickerTarifa = false" />
+  <PickerTarifa v-if="pickerTarifa" @elegir="elegirTarifa" @elegir-tipo="elegirTipo" @cerrar="pickerTarifa = false" />
 </template>

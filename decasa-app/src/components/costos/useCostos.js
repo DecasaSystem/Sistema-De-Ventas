@@ -6,7 +6,7 @@
  * para colorear, Tarifas para editarlos—, así que viven aquí una sola vez.
  */
 import { ref, computed } from 'vue'
-import { getCostos } from '@/api/configuracion'
+import { getCostos, getTiposManoObra } from '@/api/configuracion'
 
 const salarios       = ref([])
 const procesos       = ref([])
@@ -34,6 +34,28 @@ async function cargarTarifas(forzar = false) {
     cargandoTarifas.value = false
   }
 }
+
+// ── Mano de obra sin costo fijo (Esqueletería, Tapicería…) ───────────────────
+// El tipo solo dice qué trabajo es; el costo se escribe en cada ficha (usuario, 2026-11-11).
+const tiposManoObra  = ref([])
+const cargandoTipos  = ref(false)
+let tiposCargados    = false
+
+async function cargarTiposManoObra(forzar = false) {
+  if (tiposCargados && !forzar) return
+  cargandoTipos.value = true
+  try {
+    const { data } = await getTiposManoObra()
+    tiposManoObra.value = data ?? []
+    tiposCargados = true
+  } catch {
+    // Antes de migrar no existe la ruta: el selector sale sin tipos
+  } finally {
+    cargandoTipos.value = false
+  }
+}
+
+const tiposActivos = computed(() => tiposManoObra.value.filter(t => t.activo))
 
 /** Incentivo por hora de un oficio: lo que cuesta cada hora de mano de obra. */
 function tarifaHoraDe(cargo) {
@@ -132,6 +154,7 @@ export function useCostos() {
   return {
     salarios, procesos, factorVenta, tarifasCargadas, cargandoTarifas, cargarTarifas,
     tarifaHoraDe, costoProceso, procesosPorCargo, nombreCargo, nombreProceso,
+    tiposManoObra, tiposActivos, cargandoTipos, cargarTiposManoObra,
     margenDe, COLOR_MARGEN, TEXTO_MARGEN,
     formatPeso, formatCantidad, formatFactor, formatFecha, porRevisar,
   }

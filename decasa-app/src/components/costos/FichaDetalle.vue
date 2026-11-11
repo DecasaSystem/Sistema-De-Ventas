@@ -185,6 +185,7 @@ async function guardar() {
         es_mano_obra:      !!i.es_mano_obra,
         material_id:       i.material_id ?? null,
         tarifa_proceso_id: i.tarifa_proceso_id ?? null,
+        tipo_mano_obra_id: i.tipo_mano_obra_id ?? null,
       })),
     })
     ficha.value    = normalizar(data)
@@ -255,6 +256,20 @@ function elegirTarifa(p) {
     precio_unitario:   Math.round(tarifaHoraDe(p.cargo)),
     es_mano_obra:      true,
     tarifa_proceso_id: p.id,
+  })
+  pickerTarifa.value = null
+}
+
+// Mano de obra por trabajo (Esqueletería…): el costo es el que se escribió, nadie lo recalcula
+function elegirTipo({ tipo, costo }) {
+  agregarItem({
+    seccion:           pickerTarifa.value.seccion,
+    descripcion:       tipo.nombre,
+    unidad:            'trabajo',
+    cantidad:          1,
+    precio_unitario:   costo,
+    es_mano_obra:      true,
+    tipo_mano_obra_id: tipo.id,
   })
   pickerTarifa.value = null
 }
@@ -521,7 +536,7 @@ const { abrirFoto } = useVisorFoto()
     @elegir="elegirMaterial" @cerrar="pickerMaterial = null" />
 
   <PickerTarifa v-if="pickerTarifa" :subtitulo="`En: ${(pickerTarifa.seccion || 'General').toLowerCase()}`"
-    @elegir="elegirTarifa" @cerrar="pickerTarifa = null" />
+    @elegir="elegirTarifa" @elegir-tipo="elegirTipo" @cerrar="pickerTarifa = null" />
 
   <PickerProducto v-if="pickerProducto && ficha" :ficha="ficha" :ocupado="vinculando"
     @elegir="vincular" @cerrar="pickerProducto = false" />

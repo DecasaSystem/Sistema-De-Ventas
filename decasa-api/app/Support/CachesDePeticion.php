@@ -23,6 +23,7 @@ class CachesDePeticion
     public static function olvidarTodo(): void
     {
         \App\Models\TiendaAsesor::olvidarCache();
+        \App\Http\Controllers\FichaTecnicaController::olvidarEsquema();
         \App\Models\TiendaReemplazo::olvidarCache();
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
         \App\Http\Controllers\ComisionController::olvidarPeriodicidades();

@@ -15,6 +15,7 @@ import AppSpinner from '@/components/common/AppSpinner.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import IconoS from '@/components/common/IconoS.vue'
 import { useCostos } from './useCostos'
+import TiposManoObra from './TiposManoObra.vue'
 
 const emit = defineEmits(['fichas-cambiaron'])
 
@@ -193,6 +194,9 @@ async function borrarTrabajo(p) {
         </button>
       </div>
     </section>
+
+    <!-- Mano de obra sin costo fijo: el costo se escribe en cada ficha -->
+    <TiposManoObra />
 
     <div class="flex items-center justify-between px-1">
       <h2 class="text-sm font-semibold text-gray-500">Oficios y sus trabajos</h2>

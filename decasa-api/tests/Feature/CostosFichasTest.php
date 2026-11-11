@@ -541,6 +541,70 @@ class CostosFichasTest extends TestCase
         $this->assertSame(3, DB::table('materiales')->count());
     }
 
+    /**
+     * Mano de obra sin costo fijo (usuario, 2026-11-11): se escoge el tipo y el costo es el que
+     * se escribe en la ficha. Tarifas no lo toca y renombrar el tipo solo cambia el nombre.
+     */
+    public function test_mano_de_obra_por_trabajo_guarda_el_costo_escrito_y_tarifas_no_lo_cambia(): void
+    {
+        Schema::create('tipos_mano_obra', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->boolean('activo')->default(true); $t->unsignedInteger('orden')->default(0); $t->timestamps();
+        });
+        Schema::table('ficha_tecnica_items', fn (Blueprint $t) => $t->unsignedBigInteger('tipo_mano_obra_id')->nullable());
+        \App\Http\Controllers\FichaTecnicaController::olvidarEsquema();
+
+        $esq = $this->actingAs($this->ebanista)->postJson('/api/costos/tipos-mano-obra', ['nombre' => '  esqueletería '])
+            ->assertCreated()->assertJsonPath('nombre', 'Esqueletería')->json('id');
+        $this->actingAs($this->ebanista)->postJson('/api/costos/tipos-mano-obra', ['nombre' => 'ESQUELETERÍA'])->assertStatus(422);
+
+        // Un oficio con incentivo, para ver que guardar Tarifas no toca el trabajo escrito a mano
+        DB::table('salarios_cargo')->insert(['cargo' => 'tapicero', 'tarifa_hora' => 10000]);
+
+        $ficha = $this->actingAs($this->ebanista)->postJson('/api/fichas-tecnicas', [
+            'nombre' => 'SOFA E', 'categoria' => 'SOFAS',
+            'items'  => [
+                ['descripcion' => 'Esqueletería', 'cantidad' => 1, 'unidad' => 'trabajo', 'precio_unitario' => 180000,
+                 'es_mano_obra' => true, 'tipo_mano_obra_id' => $esq],
+                ['descripcion' => 'TELA', 'cantidad' => 2, 'precio_unitario' => 20000],
+            ],
+        ])->assertCreated()->json('id');
+
+        $item = DB::table('ficha_tecnica_items')->where('ficha_tecnica_id', $ficha)->where('es_mano_obra', true)->first();
+        $this->assertEquals($esq, $item->tipo_mano_obra_id);
+        $this->assertEquals(180000, $item->precio_unitario);
+        $this->assertEquals(180000, DB::table('fichas_tecnicas')->where('id', $ficha)->value('costo_mano_obra'));
+        $this->assertEquals(220000, DB::table('fichas_tecnicas')->where('id', $ficha)->value('costo_total'));
+
+        // Editar el costo en la ficha se respeta (no hay precio "vigente" que lo pise)
+        $this->actingAs($this->ebanista)->patchJson("/api/fichas-tecnicas/{$ficha}/items", [
+            'items' => [['id' => $item->id, 'cantidad' => 1, 'precio_unitario' => 200000]],
+        ])->assertOk();
+        $this->assertEquals(200000, DB::table('ficha_tecnica_items')->where('id', $item->id)->value('precio_unitario'));
+
+        // Renombrar el tipo cambia el nombre del renglón, no su costo; la lista dice dónde se usa
+        $this->actingAs($this->ebanista)->patchJson("/api/costos/tipos-mano-obra/{$esq}", ['nombre' => 'Esqueleto'])
+            ->assertOk()->assertJsonPath('usos', 1);
+        $item = DB::table('ficha_tecnica_items')->where('id', $item->id)->first();
+        $this->assertSame('Esqueleto', $item->descripcion);
+        $this->assertEquals(200000, $item->precio_unitario);
+
+        // Usado no se borra: se archiva, y la ficha sigue igual
+        $this->actingAs($this->ebanista)->deleteJson("/api/costos/tipos-mano-obra/{$esq}")->assertStatus(422);
+        $this->actingAs($this->ebanista)->patchJson("/api/costos/tipos-mano-obra/{$esq}", ['activo' => false])->assertOk()->assertJsonPath('activo', false);
+        $this->assertEquals(220000 + 20000, DB::table('fichas_tecnicas')->where('id', $ficha)->value('costo_total'));
+
+        // Copiar la ficha se lleva el tipo y el costo escrito
+        $copia = $this->actingAs($this->ebanista)->postJson("/api/fichas-tecnicas/{$ficha}/duplicar")->assertCreated()->json('id');
+        $mo = DB::table('ficha_tecnica_items')->where('ficha_tecnica_id', $copia)->where('es_mano_obra', true)->first();
+        $this->assertEquals($esq, $mo->tipo_mano_obra_id);
+        $this->assertEquals(200000, $mo->precio_unitario);
+
+        // Uno sin usar sí se borra
+        $otro = $this->actingAs($this->ebanista)->postJson('/api/costos/tipos-mano-obra', ['nombre' => 'Pintura'])->json('id');
+        $this->actingAs($this->ebanista)->deleteJson("/api/costos/tipos-mano-obra/{$otro}")->assertOk();
+        $this->assertSame(1, DB::table('tipos_mano_obra')->count());
+    }
+
     public function test_el_color_del_material_se_guarda_y_sale_en_la_ficha_y_la_leyenda_se_edita(): void
     {
         Schema::table('materiales', fn (Blueprint $t) => $t->string('color', 20)->nullable());

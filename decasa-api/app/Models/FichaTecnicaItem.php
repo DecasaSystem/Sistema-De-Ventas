@@ -17,6 +17,8 @@ class FichaTecnicaItem extends Model
         'es_mano_obra',
         'material_id',
         'tarifa_proceso_id',
+        // Mano de obra sin costo fijo (Esqueletería…): el costo es el que se escribió en la ficha
+        'tipo_mano_obra_id',
         'orden',
     ];
 

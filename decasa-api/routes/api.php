@@ -922,6 +922,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/configuracion/costos/procesos/{id}',     [ConfiguracionCostosController::class, 'eliminarProceso']);
 
         
+        // Mano de obra sin costo fijo: el tipo se escoge en la ficha y el costo se escribe ahí
+        Route::get('/costos/tipos-mano-obra',                    [\App\Http\Controllers\TipoManoObraController::class, 'index']);
+        Route::post('/costos/tipos-mano-obra',                   [\App\Http\Controllers\TipoManoObraController::class, 'store']);
+        Route::patch('/costos/tipos-mano-obra/{id}',             [\App\Http\Controllers\TipoManoObraController::class, 'update'])->whereNumber('id');
+        Route::delete('/costos/tipos-mano-obra/{id}',            [\App\Http\Controllers\TipoManoObraController::class, 'destroy'])->whereNumber('id');
         Route::get('/cotizador/precision',                       [PrecisionCotizadorController::class, 'index']);
     });
 

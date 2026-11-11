@@ -776,6 +776,16 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   queda con la del producto. Mientras esté vinculada el nombre no se edita en Costos: renombrar
   el producto en Inventario renombra sus recetas (`Producto::booted`). El cotizador indexa
   también la descripción; el buscador de fichas busca en ella.
+- **Mano de obra por trabajo** (2026-11-11, pedido del usuario: "esqueletería… no tienen un costo
+  fijo ni calculable"): en Tarifas → "Mano de obra por trabajo" se crean los tipos (Esqueletería,
+  Carpintería, Tapicería, Corte y costura, Pintura y lacado vienen de arranque; tabla
+  `tipos_mano_obra`, migración `2026_11_11_000002_tipos_de_mano_de_obra`, `TipoManoObraController`,
+  `/costos/tipos-mano-obra`). Al agregar mano de obra a una ficha, el panel muestra arriba "Por
+  trabajo": se escoge uno y se escribe el costo en ese mueble (renglón `es_mano_obra`, `cantidad` 1,
+  unidad "trabajo", `ficha_tecnica_items.tipo_mano_obra_id`). Ese costo es el escrito: ni Tarifas ni
+  `PreciosVigentes` lo cambian (solo tocan lo enlazado a un trabajo de Tarifas o a un material).
+  Renombrar el tipo cambia el nombre de sus renglones, no el costo; uno usado no se borra, se
+  archiva (deja de ofrecerse). Abajo sigue "De Tarifas" (oficio × horas, se recalcula solo).
 - **Materiales** (~314) con unidad normalizada, historial de precios, duplicados marcados.
   **Reemplazar en fichas** (2026-11-10, pedido del usuario: "creo un material nuevo para
   reemplazar otro en algunos productos, sin ir producto por producto"): en Materiales, el botón

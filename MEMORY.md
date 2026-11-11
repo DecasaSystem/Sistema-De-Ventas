@@ -916,6 +916,16 @@ escribiendo precios (Fase 1b).
   mío (**falta confirmar**): 6 colores fijos con significado editable (no colores libres); un color
   por material; cambiar el precio NO le quita el color solo; lo marca y edita la leyenda quien
   edita materiales (`acceso_costos` o ebanista).
+- **Mano de obra por trabajo, con el costo escrito en la ficha** (2026-11-11, **subido a `main`** ese día, trae
+  **migración** `2026_11_11_000002_tipos_de_mano_de_obra`: crea `tipos_mano_obra` con 5 de arranque
+  y agrega `ficha_tecnica_items.tipo_mano_obra_id`). Pedido del usuario: un apartado para crear las
+  opciones de mano de obra y, al agregarla, escoger una y poner el costo, porque no tienen un costo
+  fijo ni calculable. Detalle en `docs/PROYECTO.md` §6.11. Por defecto mío (**falta confirmar**):
+  vive en Tarifas; los 5 tipos de arranque (las secciones del Excel); se agrega con cantidad 1
+  "trabajo" (se puede cambiar); "De Tarifas" sigue existiendo debajo; lo maneja quien tiene
+  `acceso_costos` o el ebanista. El cotizador de IA sigue usando solo los oficios por hora
+  (`salarios_cargo`): no conoce estos tipos. Test en `CostosFichasTest`.
+  `FichaTecnicaController::$hayTipos` está registrado en `CachesDePeticion`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
