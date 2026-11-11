@@ -37,11 +37,14 @@ class ArmarFactura
 {
     private array $alertas = [];
 
-    public function __construct(private Orden $orden, private ?Pago $pago = null) {}
+    /**
+     * @param float $retencion la que le hizo el cliente empresa (se cruza en Alegra al pagar)
+     */
+    public function __construct(private Orden $orden, private ?Pago $pago = null, private float $retencion = 0) {}
 
-    public static function de(Orden $orden, ?Pago $pago = null): array
+    public static function de(Orden $orden, ?Pago $pago = null, float $retencion = 0): array
     {
-        return (new self($orden, $pago))->armar();
+        return (new self($orden, $pago, $retencion))->armar();
     }
 
     public function armar(): array
@@ -77,15 +80,25 @@ class ArmarFactura
 
         $pagado = $this->pago ? (float) $this->pago->monto : (float) $o->pagos->sum('monto');
         $saldo  = round($valorSistema - $pagado, 2);
-        $formaPago = $saldo > 0.01 ? 'CREDIT' : 'CASH';
+
+        // La retención del cliente empresa (contador, 2026-11-11): compró $1.000.000,
+        // le retuvo $25.000 y pagó $975.000. Esos $25.000 no son deuda: se cruzan
+        // en Alegra al pagar la factura. Con eso, la factura es de contado.
+        $retencion = round(max(0, $this->retencion), 2);
+        if ($retencion > 0 && $retencion > max(0, $saldo) + 0.01) {
+            $this->bloqueo('retencion_mayor', 'La retención (' . self::pesos($retencion) . ') es más de lo que falta por pagar ('
+                . self::pesos(max(0, $saldo)) . '). Revísala.');
+        }
+        $saldoReal = round($saldo - $retencion, 2);
+        $formaPago = $saldoReal > 0.01 ? 'CREDIT' : 'CASH';
         if ($formaPago === 'CREDIT') {
-            $this->advertencia('saldo', 'El cliente todavía debe ' . self::pesos($saldo) . ': la factura sale a crédito ('
-                . $r['dias_credito'] . ' días).');
+            $this->advertencia('saldo', 'El cliente todavía debe ' . self::pesos($saldoReal) . ': la factura sale a crédito ('
+                . $r['dias_credito'] . ' días). Si es la retención que le hizo una empresa, anótala abajo.');
         }
 
         $this->revisarConfiguracion($lineas, $pagos);
         $this->revisarCambiosDePlata();
-        $this->revisarFacturadoAMano();
+        $this->revisarRecibos($pagos);
 
         $hoy = now('America/Bogota')->toDateString();
         $metodoPrincipal = $this->metodoPrincipal($pagos);
@@ -127,6 +140,14 @@ class ArmarFactura
             'totales'       => compact('base', 'iva', 'total') + [
                 'valor_sistema' => $valorSistema, 'diferencia' => $diferencia,
                 'pagado' => $pagado, 'saldo' => $saldo,
+                'retencion' => $retencion, 'saldo_sin_retencion' => $saldoReal,
+            ],
+            // Lo que el facturador cruza en Alegra después de facturar (los anticipos
+            // ya digitados como recibos y la retención): hoy se hace a mano allá.
+            'por_cruzar'    => [
+                'anticipos' => array_values(array_map(fn ($p) => array_intersect_key($p,
+                    array_flip(['id', 'tipo', 'metodo', 'monto', 'fecha', 'referencia', 'recibo_en_alegra'])), $pagos)),
+                'retencion' => $retencion,
             ],
             'forma_pago'    => $formaPago,
             'medio_pago'    => $factura['paymentMethod'],
@@ -336,7 +357,9 @@ class ArmarFactura
                 'referencia'   => $p->referencia,
                 'cuenta'       => $cuenta,
                 'comprobantes' => array_values(array_unique($fotos)),
-                'facturado_a_mano' => (bool) ($p->facturacion_hecha_at ?? false),
+                // "Marcar facturado" del detalle de la orden = el facturador ya lo
+                // digitó en Alegra como recibo (anticipo de clientes).
+                'recibo_en_alegra' => (bool) ($p->facturacion_hecha_at ?? false),
                 'va_a_alegra'  => $registrar,
                 // Lo que se manda a POST /payments (la factura y el cliente se
                 // ponen al registrarlo, cuando ya existen en Alegra).
@@ -618,13 +641,25 @@ class ArmarFactura
         }
     }
 
-    private function revisarFacturadoAMano(): void
+    /**
+     * Cómo lleva Decasa los pagos (contador, 2026-11-11): cada pago que entra lo
+     * digita el facturador en Alegra como recibo, como **anticipo de clientes**
+     * (en el detalle de la orden: Tomar → Marcar facturado), y al hacer la
+     * factura se cruzan esos anticipos. Si un pago todavía no está digitado,
+     * no hay anticipo que cruzar: se avisa antes de facturar.
+     *
+     * Antes este aviso decía "revisa que no exista ya la factura": leía la marca
+     * como si fuera una factura, y casi toda orden la tiene.
+     */
+    private function revisarRecibos(array $pagos): void
     {
-        if ($this->pago || ! Esquema::columna('pagos', 'facturacion_hecha_at')) return;
-        $aMano = $this->orden->pagos->filter(fn ($p) => $p->facturacion_hecha_at)->count();
-        if ($aMano > 0) {
-            $this->advertencia('facturado_a_mano', "{$aMano} pago(s) de esta orden ya se marcaron como facturados a mano. "
-                . 'Revisa en Alegra que no exista ya la factura antes de hacer otra.');
+        if (! Esquema::columna('pagos', 'facturacion_hecha_at') || ReglasFacturacion::get('registrar_pagos')) return;
+
+        $sinRecibo = array_values(array_filter($pagos, fn ($p) => ! $p['recibo_en_alegra']));
+        if ($sinRecibo) {
+            $detalle = implode(', ', array_map(fn ($p) => self::pesos($p['monto']) . ' del ' . ($p['fecha'] ?? '?'), $sinRecibo));
+            $this->advertencia('recibo_sin_registrar', count($sinRecibo) . " pago(s) todavía no están digitados en Alegra como recibo ({$detalle}). "
+                . 'Digítalos como anticipo y márcalos en el detalle de la orden, o el cruce no va a cuadrar.');
         }
     }
 

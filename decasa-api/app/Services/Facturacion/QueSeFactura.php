@@ -221,7 +221,9 @@ class QueSeFactura
 
             if ($porPago) {
                 $pagos = $orden->pagos
-                    ->filter(fn ($p) => (float) $p->monto > 0 && $p->tipo !== 'reembolso' && empty($p->facturacion_hecha_at))
+                    // "Marcar facturado" (facturacion_hecha_at) es que el recibo ya se
+                    // digitó en Alegra, no que tenga factura: no saca el pago de aquí.
+                    ->filter(fn ($p) => (float) $p->monto > 0 && $p->tipo !== 'reembolso')
                     ->sortBy('created_at');
                 foreach ($pagos as $pago) {
                     $clave = FacturaElectronica::claveDe($orden, $pago);

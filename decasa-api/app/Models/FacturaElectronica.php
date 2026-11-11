@@ -25,7 +25,7 @@ class FacturaElectronica extends Model
         'clave', 'orden_id', 'pago_id', 'tipo', 'estado', 'modo', 'alegra_id', 'alegra_contacto_id',
         'numero', 'cufe', 'estado_dian', 'pdf_url', 'base', 'iva', 'total', 'valor_sistema',
         'envio', 'respuesta', 'error', 'advertencias_aceptadas', 'nota', 'usuario_id', 'emitida_at',
-        'diferencia_resuelta_at', 'diferencia_resuelta_por', 'diferencia_nota', 'pagos_alegra',
+        'diferencia_resuelta_at', 'diferencia_resuelta_por', 'diferencia_nota', 'pagos_alegra', 'retencion_cliente',
     ];
 
     protected function casts(): array
@@ -39,6 +39,7 @@ class FacturaElectronica extends Model
             'iva'                    => 'decimal:2',
             'total'                  => 'decimal:2',
             'valor_sistema'          => 'decimal:2',
+            'retencion_cliente'      => 'decimal:2',
             'emitida_at'             => 'datetime',
             'diferencia_resuelta_at' => 'datetime',
         ];

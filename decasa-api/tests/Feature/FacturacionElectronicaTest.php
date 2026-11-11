@@ -106,6 +106,7 @@ class FacturacionElectronicaTest extends TestCase
         // La migración de verdad: tabla nueva + columnas de clientes.
         (require base_path('database/migrations/2026_11_10_000001_facturacion_electronica.php'))->up();
         (require base_path('database/migrations/2026_11_12_000001_pagos_alegra_en_facturas_electronicas.php'))->up();
+        (require base_path('database/migrations/2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas.php'))->up();
         Schema::create('garantias', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('despacho_item_id')->nullable();
         });
@@ -201,7 +202,9 @@ class FacturacionElectronicaTest extends TestCase
             ['tipo' => 'anticipo', 'monto' => 1725500, 'metodo' => 'transferencia', 'created_at' => '2026-11-02 15:00:00'],
             ['tipo' => 'saldo_final', 'monto' => 1725500, 'metodo' => 'efectivo', 'created_at' => '2026-11-05 15:00:00'],
         ] as $p) {
-            DB::table('pagos')->insert(['orden_id' => $id, 'tienda_id' => self::NORTE] + $p);
+            // Lo normal en Decasa: cada pago ya lo digitó el facturador en Alegra como
+            // recibo (anticipo) al entrar. Una prueba puede mandar facturacion_hecha_at => null.
+            DB::table('pagos')->insert($p + ['orden_id' => $id, 'tienda_id' => self::NORTE, 'facturacion_hecha_at' => $p['created_at'] ?? now()]);
         }
         DB::table('despacho_items')->insert(['orden_id' => $id, 'estado' => 'entregado', 'entregado_at' => '2026-11-05 15:00:00']);
 
@@ -422,9 +425,8 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame(now('America/Bogota')->toDateString(), $pagos[0]['date'], 'De fábrica, con la fecha de la factura.');
         $this->assertStringContainsString('Recibido el 02/11/2026', $pagos[0]['observations']);
 
-        // El cliente de Alegra se recuerda y la marca vieja de "facturado" queda puesta.
+        // El cliente de Alegra se recuerda.
         $this->assertSame('77', DB::table('clientes')->value('alegra_contacto_id'));
-        $this->assertSame(0, DB::table('pagos')->where('orden_id', $id)->whereNull('facturacion_hecha_at')->count());
 
         // Sale de la lista y un segundo clic no crea otra.
         $this->actingAs($this->como($this->facturador))->getJson('/api/facturacion-electronica/pendientes')->assertJsonCount(0, 'data');
@@ -544,8 +546,70 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertArrayNotHasKey('stamp', $envio->data());
         $this->assertArrayNotHasKey('payments', $envio->data());
         $this->assertSame('draft', $envio['status']);
-        $this->assertSame(1, DB::table('pagos')->whereNull('facturacion_hecha_at')->count() > 0 ? 1 : 0,
-            'Un borrador no marca los pagos como facturados.');
+    }
+
+    // ── Cómo lleva Decasa los pagos (contador, 2026-11-11) ───────────────────
+
+    public function test_facturar_no_toca_la_marca_de_recibo_digitado(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // El segundo pago todavía no lo ha digitado el facturador en Alegra.
+        $id = $this->ordenEntregada(pagos: [
+            ['tipo' => 'anticipo', 'monto' => 1725500, 'metodo' => 'transferencia', 'created_at' => '2026-11-02 15:00:00'],
+            ['tipo' => 'saldo_final', 'monto' => 1725500, 'metodo' => 'efectivo', 'created_at' => '2026-11-05 15:00:00', 'facturacion_hecha_at' => null],
+        ]);
+
+        $r = $this->facturar($id)->assertStatus(422);
+        $this->assertContains('recibo_sin_registrar', $r->json('sin_aceptar'), 'Se avisa que falta digitar ese recibo.');
+
+        $this->facturar($id, ['aceptadas' => ['recibo_sin_registrar']])->assertOk();
+        // Antes se marcaban todos como hechos y ese recibo desaparecía de la lista del facturador.
+        $this->assertSame(1, DB::table('pagos')->where('orden_id', $id)->whereNull('facturacion_hecha_at')->count());
+    }
+
+    public function test_la_retencion_del_cliente_empresa_no_es_deuda(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // Compró $3.451.000, le retuvo $86.275 (2,5 % de la base) y pagó el resto.
+        $id = $this->ordenEntregada(pagos: [
+            ['tipo' => 'anticipo', 'monto' => 3364725, 'metodo' => 'transferencia', 'created_at' => '2026-11-02 15:00:00'],
+        ]);
+
+        $sin = $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado');
+        $this->assertSame('CREDIT', $sin['forma_pago']);
+
+        $con = $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}?retencion=86275")->json('armado');
+        $this->assertSame('CASH', $con['forma_pago'], 'Con la retención anotada es de contado.');
+        $this->assertNotContains('saldo', $con['advertencias']);
+        $this->assertEquals(86275, $con['por_cruzar']['retencion']);
+
+        $f = $this->facturar($id, ['retencion' => 86275])->assertOk()->json('factura');
+        $this->assertEquals(86275, $f['retencion_cliente']);
+        $envio = collect(Http::recorded())->map(fn ($p) => $p[0])
+            ->first(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/invoices'));
+        $this->assertSame('CASH', $envio['paymentForm']);
+    }
+
+    public function test_una_retencion_mayor_que_el_saldo_no_se_deja(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada(pagos: [
+            ['tipo' => 'anticipo', 'monto' => 3400000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00'],
+        ]);
+        $codigos = array_column($this->actingAs($this->como($this->facturador))
+            ->getJson("/api/facturacion-electronica/ordenes/{$id}?retencion=200000")->json('armado.alertas'), 'codigo');
+        $this->assertContains('retencion_mayor', $codigos);
+    }
+
+    public function test_por_pago_sigue_mostrando_los_pagos_con_recibo_digitado(): void
+    {
+        $this->prender(['momento' => 'por_pago']);
+        $id = $this->ordenEntregada(['estado' => 'en_produccion']);
+        // Los dos pagos ya están digitados como recibo: eso no es tener factura.
+        $this->assertCount(2, $this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/pendientes')->json('data'));
     }
 
     public function test_si_la_dian_esta_validando_queda_pendiente_y_luego_se_actualiza(): void

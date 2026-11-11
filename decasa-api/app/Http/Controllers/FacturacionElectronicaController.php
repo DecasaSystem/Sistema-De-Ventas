@@ -121,7 +121,8 @@ class FacturacionElectronicaController extends Controller
         $this->exigir($request);
         [$orden, $pago] = $this->ordenYPago($request, $id);
 
-        $armado = ArmarFactura::de($orden, $pago);
+        // ?retencion= : la que anotó el facturador, para ver cómo queda (contado o crédito).
+        $armado = ArmarFactura::de($orden, $pago, max(0, (float) $request->query('retencion', 0)));
         $factura = FacturaElectronica::with('usuario:id,nombre')
             ->where('clave', FacturaElectronica::claveDe($orden, $pago))->first();
 
@@ -189,6 +190,7 @@ class FacturacionElectronicaController extends Controller
             'revisado'    => 'accepted',
             'aceptadas'   => 'array',
             'aceptadas.*' => 'string|max:40',
+            'retencion'   => 'nullable|numeric|min:0',
         ], ['revisado.accepted' => 'Marca que revisaste la orden antes de facturar.']);
 
         if (! ReglasFacturacion::activo()) {
@@ -197,7 +199,8 @@ class FacturacionElectronicaController extends Controller
         [$orden, $pago] = $this->ordenYPago($request, $id);
 
         try {
-            $f = $emitir->facturar($orden, $pago, $u, (array) $request->input('aceptadas', []));
+            $f = $emitir->facturar($orden, $pago, $u, (array) $request->input('aceptadas', []), false,
+                max(0, (float) $request->input('retencion', 0)));
         } catch (NoSePuedeFacturar $e) {
             return response()->json([
                 'message'     => $e->getMessage(),
@@ -493,6 +496,7 @@ class FacturacionElectronicaController extends Controller
             'orden_cancelada' => $cancelada,
             'diferencia_nota' => $f->diferencia_nota,
             // Pagos que debían quedar en Alegra y no quedaron (botón "Registrar pagos").
+            'retencion_cliente' => $f->retencion_cliente !== null ? (float) $f->retencion_cliente : null,
             'pagos_sin_registrar' => array_map(fn ($p) => [
                 'pago_id' => $p['pago_id'] ?? null, 'monto' => (float) ($p['monto'] ?? 0),
                 'estado' => $p['estado'] ?? 'pendiente', 'error' => $p['error'] ?? null,

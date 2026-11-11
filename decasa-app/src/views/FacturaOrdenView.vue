@@ -5,11 +5,12 @@
  * la orden (comprobantes, fotos de entrega, cambios de plata). Lo que se ve
  * aquí es exactamente lo que se manda: lo arma el servidor (ArmarFactura).
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
+import InputPesos from '@/components/common/InputPesos.vue'
 import { useToast } from '@/composables/useToast'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 import { esUrlDePdf, cloudinaryOpt } from '@/utils/cloudinary'
@@ -62,7 +63,7 @@ async function cargar() {
   cargando.value = true
   error.value = ''
   try {
-    const { data } = await detalleFE(ordenId.value, pagoId.value)
+    const { data } = await detalleFE(ordenId.value, pagoId.value, Number(retencion.value) || 0)
     datos.value = data
     const c = data.armado.cliente
     cliente.value = {
@@ -101,7 +102,7 @@ async function facturar() {
   enviando.value = true
   try {
     const { data } = await facturarFE(ordenId.value, {
-      pago_id: pagoId.value, revisado: true, aceptadas: aceptadas.value,
+      pago_id: pagoId.value, revisado: true, aceptadas: aceptadas.value, retencion: Number(retencion.value) || 0,
     })
     toast.success(data.message)
   } catch (e) {
@@ -126,6 +127,15 @@ async function preguntarAlegra() {
     await cargar()
   }
 }
+
+// Retención que le hizo el cliente empresa: al cambiarla se vuelve a armar la
+// factura (contado o crédito) en el servidor.
+const retencion = ref(0)
+let tRetencion
+watch(retencion, () => {
+  clearTimeout(tRetencion)
+  tRetencion = setTimeout(() => { revisado.value = false; cargar() }, 600)
+})
 
 const confirmoPagos = ref(false)
 async function reintentarPagos() {
@@ -227,6 +237,22 @@ onMounted(cargar)
             Revisar en Alegra
           </button>
         </div>
+        <!-- Lo que el facturador cruza en Alegra (hoy se hace a mano allá: la API
+             de Alegra no deja cruzar anticipos en Colombia). -->
+        <div v-if="['emitida', 'pendiente_dian', 'borrador_alegra'].includes(factura.estado) && armado.por_cruzar"
+          class="border border-blue-100 rounded-lg p-3 space-y-1.5">
+          <p class="text-sm font-semibold text-gray-800">Para terminar en Alegra</p>
+          <p class="text-xs text-gray-500">Cruza con la factura {{ factura.numero || '' }} los anticipos de este cliente:</p>
+          <p v-for="a in armado.por_cruzar.anticipos" :key="a.id" class="text-xs text-gray-700">
+            • {{ pesos(a.monto) }} · {{ METODOS[a.metodo] ?? a.metodo }} · {{ a.fecha }}<span v-if="a.referencia"> · ref. {{ a.referencia }}</span>
+            <span v-if="!a.recibo_en_alegra" class="text-amber-700"> (falta digitar el recibo)</span>
+          </p>
+          <p v-if="!armado.por_cruzar.anticipos.length" class="text-xs text-gray-500">No hay anticipos.</p>
+          <p v-if="factura.retencion_cliente" class="text-xs text-gray-700">
+            • Retención del cliente: {{ pesos(factura.retencion_cliente) }} (crúzala al registrar el pago).
+          </p>
+        </div>
+
         <!-- Pagos que no quedaron en Alegra -->
         <div v-if="factura.pagos_sin_registrar?.length" class="border border-amber-200 rounded-lg p-3 space-y-2">
           <p class="text-sm text-amber-800">
@@ -377,7 +403,15 @@ onMounted(cargar)
           <div class="flex justify-between text-xs text-gray-500"><span>Valor en el sistema</span><span>{{ pesos(armado.totales.valor_sistema) }}</span></div>
           <div class="flex justify-between text-xs text-gray-500">
             <span>Forma de pago</span>
-            <span>{{ armado.forma_pago === 'CASH' ? 'Contado' : `Crédito (debe ${pesos(armado.totales.saldo)})` }}</span>
+            <span>{{ armado.forma_pago === 'CASH' ? 'Contado' : `Crédito (debe ${pesos(armado.totales.saldo_sin_retencion)})` }}</span>
+          </div>
+        </div>
+        <!-- Retención del cliente empresa: no es deuda, se cruza en Alegra al pagar. -->
+        <div v-if="!hecha && (armado.totales.saldo > 0.01 || retencion > 0)" class="border-t border-gray-100 pt-2 space-y-1">
+          <label class="text-xs text-gray-500">¿El cliente (empresa) le hizo retención? Anótala: no es deuda, se cruza en Alegra.</label>
+          <div class="flex items-center gap-2">
+            <div class="flex-1"><InputPesos v-model="retencion" placeholder="0" /></div>
+            <span v-if="armado.totales.saldo > 0" class="text-xs text-gray-400 shrink-0">2,5 % de la base: {{ pesos(armado.totales.base * 0.025) }}</span>
           </div>
         </div>
       </div>
@@ -394,7 +428,8 @@ onMounted(cargar)
           <div class="flex flex-wrap gap-1.5">
             <span v-if="p.referencia" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Ref. {{ p.referencia }}</span>
             <span v-if="p.va_a_alegra" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Cuenta Alegra {{ p.cuenta || '—' }}</span>
-            <span v-if="p.facturado_a_mano" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Marcado facturado a mano</span>
+            <span v-if="p.recibo_en_alegra" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Recibo digitado en Alegra</span>
+            <span v-else class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Falta digitar el recibo</span>
           </div>
           <div v-if="p.comprobantes.length" class="flex flex-wrap gap-2">
             <template v-for="(u, i) in p.comprobantes" :key="u">

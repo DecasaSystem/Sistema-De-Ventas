@@ -894,8 +894,16 @@ escribiendo precios (Fase 1b).
   del 2026-11-11** (12 arreglos, tabla en §5c del plan; **sin subir**, trae migración
   `2026_11_12_000001_pagos_alegra_en_facturas_electronicas`): pagos aparte después de la factura,
   municipios con el nombre exacto de Alegra, contacto actualizado antes de facturar, nada inactivo
-  en Ajustes, sin dobles al cambiar el modo, garantías no reviven órdenes. "Registrar pagos" viene
-  **apagado** hasta que el contador diga si hoy registran los recibos a mano. Por defecto mío
+  en Ajustes, sin dobles al cambiar el modo, garantías no reviven órdenes (subido, 4851747).
+  **Proceso real del contador (2026-11-11):** cada pago se digita a mano en Alegra → Pagos
+  recibidos como **anticipo de clientes** (eso es "Tomar → Marcar facturado" del detalle de la
+  orden: `pagos.facturacion_hecha_at` = recibo digitado, NO factura) y al facturar se cruzan;
+  la retención del cliente empresa (2,5 %) se descuenta del pago y se cruza al pagar la factura;
+  datáfono va por Bold a la Davivienda de Decasa (llega después), Addi parecido. Por eso
+  "Registrar pagos" queda **apagado**, el módulo ya no toca esa marca, avisa los recibos sin
+  digitar, anota la retención (factura de contado) y muestra "Para terminar en Alegra" con qué
+  cruzar (**sin subir**, migración `2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas`).
+  La API de Alegra no documenta cruzar anticipos en Colombia: el cruce sigue a mano. Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la

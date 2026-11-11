@@ -204,7 +204,7 @@ onMounted(cargar)
         <label class="flex items-center justify-between gap-3"><span>Las restauraciones llevan IVA</span><input v-model="r.iva_en_restauraciones" type="checkbox" class="w-5 h-5" /></label>
         <label class="flex items-center justify-between gap-3">
           <span>Registrar en Alegra los pagos del cliente
-            <span class="block text-xs text-amber-700">Préndanlo solo si hoy NO registran los recibos en Alegra a mano: si no, la caja de Alegra queda doble. Que lo confirme el contador.</span></span>
+            <span class="block text-xs text-amber-700">Déjelo apagado: en Decasa cada pago se digita en Alegra como recibo (anticipo de clientes) al entrar y se cruza al facturar. Prenderlo registraría cada pago otra vez y la caja de Alegra quedaría doble.</span></span>
           <input v-model="r.registrar_pagos" type="checkbox" class="w-5 h-5" />
         </label>
         <div v-if="r.registrar_pagos">

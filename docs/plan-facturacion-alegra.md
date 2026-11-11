@@ -133,6 +133,20 @@ llevan los anticipos (anticipo de clientes o pago con su fecha)? ¿las ventas de
 ingresos de Decasa o ingresos para terceros? ¿retenciones de clientes empresa? ¿cuenta puente para
 datáfono y Addi?
 
+## 5d. Cómo lleva Decasa los pagos (contador, 2026-11-11)
+
+Respuestas del contador y lo que cambió (trae **migración**
+`2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas`, solo agrega una columna):
+
+| Respuesta | Qué hace el sistema |
+|---|---|
+| Cada pago se digita a mano en Alegra → Pagos recibidos, con su aclaración. Esa es la marca **Tomar → Marcar facturado** del detalle de la orden | La marca quiere decir "recibo digitado en Alegra", no "tiene factura". **Arreglado:** al emitir ya no se marcan los pagos (antes los marcaba todos y un recibo sin digitar desaparecía de la lista del facturador); "por cada pago" ya no esconde los pagos marcados; la revisión avisa qué pagos faltan por digitar como recibo |
+| Los pagos se llevan como **anticipo de clientes** y al facturar se cruzan | La API de Alegra no documenta cruzar anticipos en Colombia (solo México), así que el cruce sigue a mano. Después de facturar, la orden muestra **"Para terminar en Alegra"**: cada anticipo a cruzar (monto, medio, fecha, referencia) y la retención. "Registrar pagos en Alegra" queda **apagado** (prenderlo duplicaría la caja) |
+| **Retención:** compró $1.000.000, retención $25.000, paga $975.000; se cruza al pagar la factura | En la revisión se anota la retención del cliente: deja de contar como deuda (la factura sale de **contado**), se guarda en la factura (`retencion_cliente`) y sale en "Para terminar en Alegra". Sugiere el 2,5 % de la base; no deja anotar más de lo que falta |
+| Datáfono → Bold → Davivienda de Decasa (llega después); Addi parecido | No cambia nada mientras los pagos no se registren desde el sistema. Si algún día se prende, tarjeta y Addi deberían ir a una cuenta puente ("Bold por cobrar", "Addi por cobrar"), no directo a Davivienda |
+
+Sin respuesta todavía: si las ventas de **independientes** son ingresos de Decasa o para terceros.
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:

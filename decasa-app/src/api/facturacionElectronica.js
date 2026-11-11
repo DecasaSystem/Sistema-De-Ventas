@@ -6,8 +6,10 @@ const base = '/facturacion-electronica'
 export const estadoFE      = () => api.get(`${base}/estado`)
 export const pendientesFE  = (params = {}) => api.get(`${base}/pendientes`, { params })
 export const facturasFE    = (params = {}) => api.get(`${base}/facturas`, { params })
-export const detalleFE     = (ordenId, pagoId = null) =>
-  api.get(`${base}/ordenes/${ordenId}`, { params: pagoId ? { pago_id: pagoId } : {} })
+export const detalleFE     = (ordenId, pagoId = null, retencion = 0) =>
+  api.get(`${base}/ordenes/${ordenId}`, {
+    params: { ...(pagoId ? { pago_id: pagoId } : {}), ...(retencion > 0 ? { retencion } : {}) },
+  })
 export const guardarClienteFE = (clienteId, datos) => api.put(`${base}/clientes/${clienteId}`, datos)
 export const facturarFE    = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/facturar`, datos)
 export const externaFE     = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/externa`, datos)

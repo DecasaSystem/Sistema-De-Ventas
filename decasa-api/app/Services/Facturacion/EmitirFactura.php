@@ -44,7 +44,7 @@ class EmitirFactura
      * @param string[] $aceptadas códigos de las advertencias que la persona revisó
      * @throws NoSePuedeFacturar
      */
-    public function facturar(Orden $orden, ?Pago $pago, ?Usuario $usuario, array $aceptadas = [], bool $automatico = false): FacturaElectronica
+    public function facturar(Orden $orden, ?Pago $pago, ?Usuario $usuario, array $aceptadas = [], bool $automatico = false, float $retencion = 0): FacturaElectronica
     {
         // Lo ya facturado se dice primero: después de emitir, los pagos quedan
         // marcados y la revisión hablaría de "facturado a mano" en vez de eso.
@@ -53,7 +53,7 @@ class EmitirFactura
             throw new NoSePuedeFacturar('Esta ya está facturada' . ($existente->numero ? " ({$existente->numero})" : '') . '.', 409);
         }
 
-        $armado = ArmarFactura::de($orden, $pago);
+        $armado = ArmarFactura::de($orden, $pago, $retencion);
 
         if (! $armado['se_puede']) {
             $bloqueos = array_values(array_filter($armado['alertas'], fn ($a) => $a['tipo'] === 'bloqueo'));
@@ -129,6 +129,7 @@ class EmitirFactura
                 'valor_sistema' => $armado['totales']['valor_sistema'],
                 'usuario_id'    => $usuario?->id,
                 'advertencias_aceptadas' => $armado['advertencias'],
+                'retencion_cliente' => $armado['totales']['retencion'] > 0 ? $armado['totales']['retencion'] : null,
                 'error'         => null,
             ];
 
@@ -330,15 +331,11 @@ class EmitirFactura
             }
         }
 
-        // El flujo viejo de Facturación (tomar / marcar facturada) sigue vivo:
-        // que no le quede ese pago como pendiente de facturar a mano.
-        if (Esquema::columna('pagos', 'facturacion_hecha_at')) {
-            Pago::where('orden_id', $f->orden_id)
-                ->when($f->pago_id, fn ($q) => $q->where('id', $f->pago_id))
-                ->whereNull('facturacion_hecha_at')
-                ->where('monto', '>', 0)
-                ->update(['facturacion_hecha_at' => now(), 'facturacion_tomada_por' => $f->usuario_id]);
-        }
+        // OJO: ya NO se marcan los pagos como "facturados". Esa marca (Tomar →
+        // Marcar facturado, en el detalle de la orden) quiere decir que el
+        // facturador ya digitó el pago en Alegra como recibo (anticipo de
+        // clientes). Marcarlos al emitir escondía de su lista un recibo que
+        // todavía no había digitado (contador, 2026-11-11).
     }
 
     /**
