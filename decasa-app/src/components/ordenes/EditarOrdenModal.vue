@@ -1658,15 +1658,17 @@ function solicitudEnviada() {
                 Venta compartida
               </label>
 
-              <!-- Media venta abonada a una tienda: solo si el vendedor es
-                   independiente, que es quien cierra con contactos de almacen -->
-              <div v-if="vendedorEsIndependiente">
+              <!-- Media venta para otra tienda (50/50). Desde el 2026-11-12 la
+                   comparte cualquiera, no solo un independiente. Con otro
+                   asesor o con una tienda, no las dos. -->
+              <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">
-                  Venta compartida con un almacén
+                  Venta compartida con otra tienda
                 </label>
                 <select
                   v-model.number="tiendaAbonadaId"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  :disabled="esCompartida"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100 disabled:text-gray-400"
                 >
                   <option :value="null">Sin compartir — la venta entera es del vendedor</option>
                   <option v-for="t in tiendasAbonables" :key="t.id" :value="t.id">{{ t.nombre }}</option>

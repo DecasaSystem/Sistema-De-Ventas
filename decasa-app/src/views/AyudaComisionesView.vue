@@ -94,6 +94,8 @@ const ej = computed(() => {
   const bolson    = 6_000_000 * R.indep_pct_bolson
   const bolsonCU  = R.bolson_modo === 'se_reparte' ? bolson / 2 : bolson
   const almacen   = sinIva(10_000_000) * R.almacen_pct
+  // Desde el 50/50 (2026-11-12): cada lado cobra sobre su mitad.
+  const indepMitad = sinIva(10_000_000 * (1 - R.almacen_fraccion_meta)) * R.indep_pct_venta
   const franquicia = 6_000_000 * R.franquicia_pct
   const baseTarjeta = 10_000_000 - franquicia
   return {
@@ -106,7 +108,7 @@ const ej = computed(() => {
     rest2M,
     restAutor: rest2M * R.parte_autor_restauracion, restOtro: rest2M * (1 - R.parte_autor_restauracion),
     indep10M, bolson, bolsonCU, totalHenry: indep10M + bolsonCU,
-    almacen, almacenCU: almacen / 3, almacenMeta: 10_000_000 * R.almacen_fraccion_meta,
+    almacen, almacenCU: almacen / 3, indepMitad, almacenMeta: 10_000_000 * R.almacen_fraccion_meta,
     franquicia, baseTarjeta, tarjetaCom: sinIva(baseTarjeta) * R.pct_individual,
     fv2: 10_000_000 * R.pct_individual,
     tri10M: sinIva(10_000_000) * R.pct_pool,
@@ -124,7 +126,7 @@ const SECCIONES = [
   { id: 'compartida',    titulo: 'Venta compartida entre dos',         icono: UsersIcon },
   { id: 'restauracion',  titulo: 'Restauraciones',                     icono: WrenchScrewdriverIcon },
   { id: 'independiente', titulo: 'Independientes',                     icono: UserIcon },
-  { id: 'almacen',       titulo: 'Independiente que comparte con un almacén', icono: ArrowsRightLeftIcon },
+  { id: 'almacen',       titulo: 'Venta compartida con otra tienda', icono: ArrowsRightLeftIcon },
   { id: 'tarjeta',       titulo: 'Pagos con tarjeta o Addi',           icono: CreditCardIcon },
   { id: 'fv2',           titulo: 'FV2 y "sin restar IVA"',             icono: DocumentTextIcon },
   { id: 'trimestral',    titulo: 'Tiendas trimestrales',               icono: ChartBarIcon },
@@ -278,7 +280,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
                 { caso: 'Vendí con un compañero', como: ej.parteVend === 0.5 ? 'Cada uno sobre la mitad' : 'Cada uno sobre su parte', ir: 'compartida' },
                 { caso: 'Hice una restauración', como: `${pct('pct_restauracion')} del valor${r.iva_en_restauracion ? ', sin IVA' : ', sin quitar IVA'}`, ir: 'restauracion' },
                 { caso: 'Soy independiente', como: `${pct('indep_pct_venta')} de mis ventas + el bolsón de restauraciones`, ir: 'independiente' },
-                { caso: 'Un independiente me pasó un cliente', como: `La tienda cobra su ${pct('almacen_pct')}`, ir: 'almacen' },
+                { caso: 'Compartí una venta con otra tienda', como: 'La mitad para cada una, en meta y bonificación', ir: 'almacen' },
                 { caso: 'El cliente pagó con tarjeta o Addi', como: `Se descuenta la franquicia (${pct('franquicia_pct')})`, ir: 'tarjeta' },
                 { caso: 'Mi tienda es trimestral', como: 'Se mide y se paga cada 3 meses', ir: 'trimestral' },
               ]" :key="c.ir + c.caso" type="button" @click="ir(c.ir)"
@@ -396,23 +398,24 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>Total de Henry: {{ cop(ej.totalHenry) }}.</p>
           </div>
           <p>Se pagan <b>el mes completo desde su tarjeta</b>, no orden por orden. Las ventas y las restauraciones esperan {{ pagadaCobro }} y el día {{ dia }}. Al bolsón solo entran las restauraciones con {{ pagadaCobro }}.</p>
-          <p class="nota">Si comparte la venta con un almacén, el independiente sigue cobrando el {{ pct('indep_pct_venta') }} sobre la venta <b>entera</b>; lo del almacén va aparte (siguiente tema).</p>
+          <p class="nota">Si comparte la venta con una tienda, desde el 12 de noviembre de 2026 el independiente cobra el {{ pct('indep_pct_venta') }} sobre <b>su mitad</b> y la tienda sobre la otra (siguiente tema). Lo vendido antes de esa fecha sigue como se vendió: el {{ pct('indep_pct_venta') }} sobre la venta entera.</p>
           <p class="nota">A un independiente se le puede sacar del bolsón, o darle otro porcentaje, en Bonificaciones → Reglas.</p>
         </template>
 
         <!-- ── Independiente + almacén ──────────────────────────────────── -->
         <template v-else-if="s.id === 'almacen'">
-          <p>Cuando un independiente comparte una orden con un almacén (la tienda le pasó el cliente o lo atendió), pasan dos cosas:</p>
+          <p>Cualquiera puede compartir una venta con otra tienda (la tienda le pasó el cliente o lo atendió): un independiente, un vendedor de tienda o un supervisor. Desde el 12 de noviembre de 2026 es <b>{{ laParte(r.almacen_fraccion_meta) }} para cada lado</b>, en la meta y en la bonificación; nada se paga dos veces:</p>
           <ul>
-            <li><b>El almacén cobra su propio {{ pct('almacen_pct') }}</b> sobre el valor completo<template v-if="conIva"> (a la venta se le quita el IVA; a la restauración {{ r.iva_en_restauracion ? 'también' : 'no' }})</template>. Eso se reparte entre el equipo de la tienda ese día. Nunca va por el pool.</li>
-            <li>A la <b>meta del almacén le suma {{ laParte(r.almacen_fraccion_meta, { espacio: true }) }}</b> de la venta. Una restauración compartida no le suma a la meta.</li>
+            <li>A la <b>meta y a las ventas de la otra tienda le suma {{ laParte(r.almacen_fraccion_meta, { espacio: true }) }}</b> de la venta. Si la tienda tiene meta, esa mitad la paga su pool, como cualquier venta suya.</li>
+            <li>Si la tienda no tiene meta, o es una <b>restauración</b> (que no suma a la meta), la tienda cobra el {{ pct('almacen_pct') }} sobre su mitad<template v-if="conIva"> (a la venta se le quita el IVA; a la restauración {{ r.iva_en_restauracion ? 'también' : 'no' }})</template>, repartido entre el equipo de ese día.</li>
+            <li>Quien vendió cobra sobre <b>la otra mitad</b>: el independiente con su {{ pct('indep_pct_venta') }}; el de tienda, en su tienda como cualquier venta suya.</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
-            <p>Henry vende $10.000.000 compartido con Norte (equipo de 3).</p>
-            <p>Henry: <b>{{ cop(ej.indep10M) }}</b>. Norte: {{ pct('almacen_pct') }} de $10.000.000<template v-if="conIva"> ÷ {{ div }}</template> = {{ cop(ej.almacen) }}, o sea <b>{{ cop(ej.almacenCU) }}</b> para cada uno de los 3.</p>
-            <p>A la meta de Norte le suman {{ cop(ej.almacenMeta) }}.</p>
+            <p>Henry vende 0.000.000 compartido con Norte.</p>
+            <p>A la meta y a las ventas de Norte le suman {{ cop(ej.almacenMeta) }}: los paga su pool si pasa la meta. Henry: {{ pct('indep_pct_venta') }} de su mitad<template v-if="conIva"> ÷ {{ div }}</template> = <b>{{ cop(ej.indepMitad) }}</b>.</p>
           </div>
+          <p class="nota">Lo que un independiente compartió antes del 12 de noviembre de 2026 sigue con la regla de entonces: el almacén cobraba su {{ pct('almacen_pct') }} sobre la venta entera (en el ejemplo, {{ cop(ej.almacen) }}) además de la mitad en la meta, y el independiente su {{ pct('indep_pct_venta') }} sobre la venta entera.</p>
         </template>
 
         <!-- ── Tarjeta ──────────────────────────────────────────────────── -->

@@ -84,6 +84,43 @@ async function cambiarDiaAviso(dia) {
   }
 }
 
+// Trabajos de restauración: la lista entera se guarda de una vez.
+const trabajoNuevo = ref('')
+
+async function guardarTrabajos(lista, aviso) {
+  if (guardando.value) return false
+  guardando.value = 'trabajos_restauracion'
+  try {
+    const { data } = await guardarAjustesSistema({ trabajos_restauracion: lista })
+    ajustes.value = data
+    useAjustesSistema().value = { ...useAjustesSistema().value, trabajos_restauracion: data.trabajos_restauracion }
+    toast.success(aviso)
+    return true
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
+    return false
+  } finally {
+    guardando.value = ''
+  }
+}
+
+async function agregarTrabajo() {
+  const t = trabajoNuevo.value.trim()
+  if (!t) return
+  const actuales = ajustes.value.trabajos_restauracion ?? []
+  if (actuales.some(x => x.toLowerCase() === t.toLowerCase())) {
+    toast.error('Ese trabajo ya está en la lista.')
+    return
+  }
+  if (await guardarTrabajos([...actuales, t], 'Trabajo agregado.')) trabajoNuevo.value = ''
+}
+
+function quitarTrabajo(i) {
+  const actuales = [...(ajustes.value.trabajos_restauracion ?? [])]
+  actuales.splice(i, 1)
+  guardarTrabajos(actuales, 'Trabajo quitado.')
+}
+
 onMounted(cargar)
 </script>
 
@@ -157,6 +194,50 @@ onMounted(cargar)
             </span>
           </span>
         </label>
+      </div>
+
+      <!-- Los trabajos que se marcan al agregar una restauración en Nueva
+           orden (dueño, 2026-11-12). Cambiar la lista no toca órdenes ya hechas. -->
+      <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div>
+          <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+            <WrenchScrewdriverIcon class="w-4 h-4 text-blue-600" />
+            Trabajos de restauración
+          </h3>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Los que se marcan al agregar un mueble a restaurar en Nueva orden, cada uno con su cantidad.
+            Cambiar la lista no cambia las órdenes que ya están hechas.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5">
+          <span
+            v-for="(t, i) in ajustes.trabajos_restauracion ?? []" :key="t"
+            class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
+          >
+            {{ t }}
+            <button
+              type="button" :disabled="guardando === 'trabajos_restauracion'"
+              @click="quitarTrabajo(i)"
+              class="w-4 h-4 rounded-full text-gray-400 hover:text-red-500 disabled:opacity-50"
+              :aria-label="`Quitar ${t}`"
+            >×</button>
+          </span>
+          <p v-if="!(ajustes.trabajos_restauracion ?? []).length" class="text-xs text-gray-400">
+            Sin trabajos: en la orden solo queda el espacio de notas.
+          </p>
+        </div>
+
+        <form class="flex gap-2" @submit.prevent="agregarTrabajo">
+          <input
+            v-model="trabajoNuevo" maxlength="60" placeholder="Nuevo trabajo (ej: Cambio de cojinería)"
+            class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit" :disabled="!trabajoNuevo.trim() || guardando === 'trabajos_restauracion'"
+            class="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
+          >Agregar</button>
+        </form>
       </div>
 
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">

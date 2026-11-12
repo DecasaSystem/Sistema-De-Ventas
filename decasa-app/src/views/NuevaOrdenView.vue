@@ -37,6 +37,7 @@ import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, envia
 import FichaEspecialEditor from '@/components/anexo/FichaEspecialEditor.vue'
 import { useAjustesDeclaracion, aplicaDeclaracion, limpiarFicha, faltaEnFicha } from '@/utils/declaracionEspeciales'
 import { useAjustesSistema } from '@/utils/ajustesSistema'
+import { describirTrabajo, trabajosParaFormulario } from '@/utils/trabajosRestauracion'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -412,9 +413,66 @@ watch(tiendasConStock, (lista) => {
   }
 }, { immediate: true })
 
-// Formulario para restauraciones
-const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} })
+// Formulario para restauraciones. Los trabajos se marcan de la lista de
+// Gestión → Ajustes, cada uno con su cantidad, y `descripcion_trabajo` queda
+// como el espacio de notas; al agregar el mueble se juntan en un solo texto
+// (utils/trabajosRestauracion.js).
+const ajustesRest = useAjustesSistema()
+const nuevoRestauracionItem = () => ({
+  nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null,
+  _retapizar: false, _telaSelections: {},
+  trabajos: trabajosParaFormulario(ajustesRest.value.trabajos_restauracion),
+})
+const restauracionItem = ref(nuevoRestauracionItem())
 const restauracionCalc = ref({ calculando: false, resultado: null, mostrar: false })
+const trabajoPropio = ref('')
+
+// La lista llega después de abrir la pantalla (o la cambió un supervisor):
+// se agregan los que falten sin tocar lo que ya se marcó.
+watch(() => ajustesRest.value.trabajos_restauracion, (nombres) => {
+  const f = restauracionItem.value
+  f.trabajos ??= []
+  for (const n of nombres ?? []) {
+    if (!f.trabajos.some(t => t.nombre.toLowerCase() === n.toLowerCase())) {
+      f.trabajos.push({ nombre: n, marcado: false, cantidad: f.cantidad || 1, propio: false })
+    }
+  }
+}, { immediate: true })
+
+// Ningún trabajo puede ser para más unidades de las que trae el cliente; si
+// sube la cantidad, los marcados con el total suben con ella.
+watch(() => restauracionItem.value.cantidad, (nueva, vieja) => {
+  const n = Math.max(1, Math.floor(Number(nueva) || 1))
+  for (const t of restauracionItem.value.trabajos ?? []) {
+    if (t.cantidad > n || t.cantidad === vieja) t.cantidad = n
+  }
+})
+
+function marcarTrabajo(t) {
+  t.marcado = !t.marcado
+  if (t.marcado) t.cantidad = Math.max(1, Math.floor(Number(restauracionItem.value.cantidad) || 1))
+}
+
+function agregarTrabajoPropio() {
+  const nombre = trabajoPropio.value.trim()
+  if (!nombre) return
+  const f = restauracionItem.value
+  f.trabajos ??= []
+  const ya = f.trabajos.find(t => t.nombre.toLowerCase() === nombre.toLowerCase())
+  if (ya) { if (!ya.marcado) marcarTrabajo(ya) }
+  else f.trabajos.push({ nombre, marcado: true, cantidad: Math.max(1, Math.floor(Number(f.cantidad) || 1)), propio: true })
+  trabajoPropio.value = ''
+}
+
+function quitarTrabajoPropio(i) {
+  restauracionItem.value.trabajos.splice(i, 1)
+}
+
+/** Lo que hay que hacerle, ya junto: trabajos con su cantidad + notas. */
+const trabajoRestauracionTexto = computed(() => {
+  const f = restauracionItem.value
+  return describirTrabajo(f.trabajos, f.descripcion_trabajo, f.cantidad)
+})
 
 async function onFotoRestauracionForm(event) {
   const original = event.target.files[0]
@@ -453,7 +511,7 @@ async function calcularRestauracionForm() {
     const { data } = await api.post('/calcular-precio-item', {
       es_restauracion: true,
       nombre:     f.nombre_mueble.trim(),
-      trabajo:    f.descripcion_trabajo.trim() || undefined,
+      trabajo:    trabajoRestauracionTexto.value || undefined,
       cantidad:   f.cantidad,
       boceto_url: boceto_url || undefined,
     })
@@ -475,7 +533,8 @@ function agregarItemRestauracion() {
   const f = restauracionItem.value
   if (!f.nombre_mueble.trim()) return
   restauracionCalc.value = { calculando: false, resultado: null, mostrar: false }
-  const specsBase = f.descripcion_trabajo.trim() ? { descripcion_trabajo: f.descripcion_trabajo.trim() } : {}
+  const trabajo   = trabajoRestauracionTexto.value
+  const specsBase = trabajo ? { descripcion_trabajo: trabajo } : {}
   if (f._retapizar) specsBase.retapizar = true
   items.value.push({
     producto_id: null,
@@ -506,7 +565,8 @@ function agregarItemRestauracion() {
     _precioReferencia:   null,
     _telaSelections:     f._retapizar ? { ...f._telaSelections } : {},
   })
-  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} }
+  restauracionItem.value = nuevoRestauracionItem()
+  trabajoPropio.value = ''
 }
 
 // Producto no catalogado
@@ -1835,12 +1895,21 @@ const fechaSugeridaVendedor = ref('')
 const esCompartida         = ref(false)
 const covendedorId         = ref(null)
 
-// Un independiente que cierra una venta con el contacto de un almacen: la
-// mitad se le abona a esa tienda para su meta y la otra mitad queda para el.
+// Compartir la venta con otra tienda, 50/50: la mitad le suma a la meta (y a
+// la bonificación) de esa tienda y la otra mitad queda para quien vendió.
+// Nació para los independientes; desde el 2026-11-12 lo hace cualquiera
+// (dueño: vendedores de tienda y supervisores también). No se comparte con la
+// tienda de la orden ni con la propia.
 const tiendaAbonadaId = ref(null)
 const tiendasAbonables = computed(() =>
-  tiendas.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value)
+  tiendas.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value
+    && t.id !== auth.usuario?.tienda_default_id)
 )
+// Con otro asesor o con una tienda, no las dos (el servidor lo frena igual).
+watch(tiendaAbonadaId, (id) => { if (id) esCompartida.value = false })
+watch(tiendasAbonables, (lista) => {
+  if (tiendaAbonadaId.value && !lista.some(t => t.id === tiendaAbonadaId.value)) tiendaAbonadaId.value = null
+})
 const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
@@ -2627,6 +2696,7 @@ watch(() => items.value.map(i => sePuedeLlevar(i) && i._llevar_ahora), () => {
 }, { deep: true })
 
 watch(esCompartida, async (val) => {
+  if (val) tiendaAbonadaId.value = null
   if (val && !vendedoresLista.value.length) {
     cargandoVendedores.value = true
     try {
@@ -3132,7 +3202,7 @@ function armarPayload() {
       notas:                notas.value || undefined,
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
       es_compartida:        esCompartida.value || undefined,
-      tienda_abonada_id:    (auth.isIndependiente && tiendaAbonadaId.value) ? tiendaAbonadaId.value : undefined,
+      tienda_abonada_id:    (tiendaAbonadaId.value && !esCompartida.value) ? tiendaAbonadaId.value : undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
       factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
@@ -3499,6 +3569,10 @@ async function restaurarBorrador(d) {
   if (d.restauracionItem) {
     d.restauracionItem.foto_preview = d.restauracionItem.foto_blob
       ? URL.createObjectURL(d.restauracionItem.foto_blob) : null
+    // Respaldo de antes de separar los trabajos: arranca con la lista de hoy.
+    if (!Array.isArray(d.restauracionItem.trabajos)) {
+      d.restauracionItem.trabajos = trabajosParaFormulario(ajustesRest.value.trabajos_restauracion)
+    }
   }
   if (d.productoCustomForm) {
     d.productoCustomForm.fotos = (d.productoCustomForm.fotos ?? [])
@@ -4695,11 +4769,56 @@ onBeforeUnmount(() => {
             class="input text-sm"
             placeholder="Mueble (ej: Sofá 3 puestos, Silla comedor...)"
           />
-          <input
-            v-model="restauracionItem.descripcion_trabajo"
-            class="input text-sm"
-            placeholder="Trabajo a realizar (ej: Tapizado + laca)"
-          />
+          <!-- Cantidad arriba: los trabajos dicen a cuántas unidades se les hace -->
+          <div>
+            <label class="text-xs text-gray-500">¿Cuántas unidades trae el cliente?</label>
+            <input v-model.number="restauracionItem.cantidad" type="number" min="1" class="input text-sm" />
+          </div>
+
+          <!-- Trabajos a realizar, separados (lista de Gestión → Ajustes) -->
+          <div class="space-y-1.5">
+            <p class="text-xs font-semibold text-gray-600">Trabajos a realizar</p>
+            <div
+              v-for="(t, i) in restauracionItem.trabajos ?? []" :key="t.nombre"
+              :class="['flex items-center gap-2 rounded-lg border px-2.5 py-1.5 bg-white',
+                t.marcado ? 'border-indigo-400' : 'border-gray-200']"
+            >
+              <label class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
+                <input type="checkbox" :checked="t.marcado" @change="marcarTrabajo(t)" class="w-4 h-4 rounded accent-indigo-600 flex-shrink-0" />
+                <span :class="['text-sm truncate', t.marcado ? 'text-gray-800 font-medium' : 'text-gray-600']">{{ t.nombre }}</span>
+              </label>
+              <template v-if="t.marcado && restauracionItem.cantidad > 1">
+                <input
+                  v-model.number="t.cantidad" type="number" min="1" :max="restauracionItem.cantidad"
+                  class="w-14 rounded-md border border-gray-300 px-1.5 py-1 text-sm text-center"
+                  :aria-label="`Cuántas unidades llevan ${t.nombre}`"
+                />
+                <span class="text-xs text-gray-400 whitespace-nowrap">de {{ restauracionItem.cantidad }}</span>
+              </template>
+              <button
+                v-if="t.propio" type="button" @click="quitarTrabajoPropio(i)"
+                class="text-gray-400 hover:text-red-500 flex-shrink-0" :aria-label="`Quitar ${t.nombre}`"
+              ><XMarkIcon class="w-4 h-4" /></button>
+            </div>
+            <form class="flex gap-2" @submit.prevent="agregarTrabajoPropio">
+              <input v-model="trabajoPropio" maxlength="60" class="input text-sm flex-1 min-w-0" placeholder="Otro trabajo (solo para este mueble)" />
+              <button type="submit" :disabled="!trabajoPropio.trim()" class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Agregar</button>
+            </form>
+          </div>
+
+          <!-- Notas: salen junto a los trabajos en lo que hay que hacerle -->
+          <div>
+            <label class="text-xs text-gray-500">Notas de lo que hay que hacerle <span class="text-gray-400">(opcional)</span></label>
+            <textarea
+              v-model="restauracionItem.descripcion_trabajo"
+              rows="2"
+              class="input text-sm"
+              placeholder="Ej: la pata trasera está suelta, conservar el color original"
+            />
+          </div>
+          <p v-if="trabajoRestauracionTexto" class="text-xs text-indigo-800 bg-white border border-indigo-100 rounded-lg px-3 py-2">
+            <span class="font-semibold">Quedará así:</span> {{ trabajoRestauracionTexto }}
+          </p>
 
           <!-- Foto del mueble -->
           <div>
@@ -4728,16 +4847,10 @@ onBeforeUnmount(() => {
             </label>
           </div>
 
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="text-xs text-gray-500">Cantidad</label>
-              <input v-model.number="restauracionItem.cantidad" type="number" min="1" class="input text-sm" />
-            </div>
-            <div>
-              <label class="text-xs text-gray-500">Precio</label>
-              <InputPesos v-model="restauracionItem.precio_unitario" permite-vacio placeholder="0" class="input text-sm"
-              />
-            </div>
+          <div>
+            <label class="text-xs text-gray-500">Precio{{ restauracionItem.cantidad > 1 ? ' por unidad' : '' }}</label>
+            <InputPesos v-model="restauracionItem.precio_unitario" permite-vacio placeholder="0" class="input text-sm"
+            />
           </div>
 
           <!-- Retapizar -->
@@ -6140,15 +6253,15 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Media venta abonada a una tienda (solo independientes) -->
-      <div v-if="auth.isIndependiente" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <!-- Media venta para otra tienda (50/50). Antes solo independientes. -->
+      <div v-if="tiendasAbonables.length" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <div class="flex items-center gap-2">
           <BuildingStorefrontIcon class="w-5 h-5 text-emerald-500" />
-          <span class="text-sm font-semibold text-gray-700">Compartir la venta con un almacén</span>
+          <span class="text-sm font-semibold text-gray-700">Compartir la venta con otra tienda</span>
         </div>
         <p class="text-xs text-gray-500 -mt-1">
-          Si el almacén te pasó el contacto, la venta se reparte: la mitad
-          cuenta para ellos y la otra mitad para ti.
+          Si otra tienda ayudó o pasó el contacto, la venta se reparte 50/50:
+          la mitad cuenta para su meta y su bonificación, y la otra mitad para ti.
         </p>
 
         <div class="grid grid-cols-2 gap-2">

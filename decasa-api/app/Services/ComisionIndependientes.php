@@ -93,9 +93,22 @@ class ComisionIndependientes
             (float) $o->con_tarjeta * ReglasComision::numero('franquicia_pct', $mes)
         );
 
+        // La base entera (sin franquicia): sobre ella se mide lo del almacén.
+        $o->base_entera = $base;
+
         $o->valor_total = $o->es_compartida
             ? round($base * ReglasComision::numero('compartida_parte_vendedor', $mes, null, (int) $o->vendedor_id))
             : $base;
+
+        // 3. Compartida con una tienda, desde el 50/50 (dueño, 2026-11-12):
+        //    el independiente cobra sobre su mitad, no sobre la venta entera.
+        //    Antes del corte cobraba el 5% entero y el almacén otro 5% entero
+        //    (se pagaba dos veces); lo vendido antes sigue con esa regla.
+        if (! empty($o->tienda_abonada_id)
+            && Carbon::parse($o->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->toDateString()
+                >= ComisionController::CORTE_ALMACEN_50_50) {
+            $o->valor_total = round($base * (1 - ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id)));
+        }
 
         return $o;
     }
@@ -189,10 +202,19 @@ class ComisionIndependientes
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
         $pagaPor = function ($grupo, int $tiendaId) use ($idsRestauracion, $mes) {
+            // Lo que se le paga APARTE al almacén, con la misma regla que arma
+            // sus filas (ComisionController::fraccionAparteDelAlmacen): desde
+            // el 50/50, una venta en una tienda con meta la paga su pool.
+            $parte = fn ($o) => (float) ($o->base_entera ?? $o->valor_total) * ComisionController::fraccionAparteDelAlmacen(
+                $tiendaId,
+                Carbon::parse($o->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->toDateString(),
+                in_array($o->id, $idsRestauracion, true),
+                true,
+            );
             $venta = (float) $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-                ->sum('valor_total');
+                ->sum($parte);
             $rest  = (float) $grupo->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
-                ->sum('valor_total');
+                ->sum($parte);
             return (ReglasComision::sinIva($venta, false, $mes, $tiendaId) + ReglasComision::sinIva($rest, true, $mes, $tiendaId))
                 * ReglasComision::numero('almacen_pct', $mes, $tiendaId);
         };
@@ -316,11 +338,11 @@ class ComisionIndependientes
             ->map(function ($grupo) use ($idsRestauracion, $listas, $pagaPor, $mes) {
                 $idsListas = $listas->pluck('id')->all();
                 $tiendaId  = (int) $grupo->first()->tienda_abonada_id;
-                $compartido = (float) $grupo->sum('valor_total');
+                $compartido = (float) $grupo->sum(fn ($o) => (float) $o->base_entera);
                 // A la meta solo le suma la mitad de lo que NO es restauración.
                 $paraMeta = (float) $grupo
                     ->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-                    ->sum('valor_total') * ReglasComision::numero('almacen_fraccion_meta', $mes, $tiendaId);
+                    ->sum(fn ($o) => (float) $o->base_entera) * ReglasComision::numero('almacen_fraccion_meta', $mes, $tiendaId);
 
                 return [
                     'tienda_id'   => $tiendaId,
@@ -367,7 +389,7 @@ class ComisionIndependientes
                 'almacen'        => $o->almacen,
                 'es_restauracion'=> in_array($o->id, $idsRestauracion, true),
                 'suma_a_meta'    => ($o->tienda_abonada_id && ! in_array($o->id, $idsRestauracion, true))
-                                    ? (float) $o->valor_total * ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id) : 0.0,
+                                    ? (float) $o->base_entera * ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id) : 0.0,
                 'pagado'         => (float) $o->pagado,
                 'pago_completo'  => (float) $o->pagado >= (float) $o->valor_orden * $pctCobrar,
                 'lista'          => $listas->contains('id', $o->id),

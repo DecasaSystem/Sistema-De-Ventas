@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ComisionController;
 use App\Models\Comision;
 use App\Models\Orden;
+use App\Services\ComisionIndependientes;
+use App\Support\Esquema;
 use App\Models\OrdenItem;
 use App\Models\Usuario;
 use Illuminate\Database\Schema\Blueprint;
@@ -282,19 +285,33 @@ class ReasignarVendedorTest extends TestCase
         $this->assertSame(self::INDEP, (int) $orden->fresh()->tienda_id, 'se va con él a Independientes');
     }
 
-    public function test_de_un_independiente_que_compartia_con_un_almacen_a_uno_de_tienda_quita_el_reparto(): void
+    public function test_de_un_independiente_que_compartia_con_un_almacen_a_uno_de_tienda_sigue_compartida(): void
     {
-        // Henry compartió la venta con Unicentro: la gente de Unicentro tiene su
-        // pedazo del 5% (abono_almacen). Si la venta en realidad era de Martha,
-        // ese reparto ya no aplica: solo un independiente comparte con un almacén.
+        // Henry compartió la venta con Unicentro (aquí sin meta): la gente de
+        // Unicentro cobra sobre su mitad (abono_almacen). Desde el 2026-11-12
+        // también un vendedor de tienda comparte 50/50 con otra tienda, así que
+        // si la venta en realidad era de Martha el reparto se queda.
         $orden = $this->orden(self::HENRY, ['tienda_abonada_id' => self::UNICENTRO]);
         $this->assertSame([self::JUAN => [self::UNICENTRO, 'abono_almacen'], self::HENRY => [self::NORTE, 'venta']],
             $this->comisiones($orden));
 
         $this->reasignar($orden, ['vendedor_id' => self::MARTHA])->assertOk();
 
+        $this->assertSame(self::UNICENTRO, (int) $orden->fresh()->tienda_abonada_id);
+        $this->assertEquals([self::JUAN => [self::UNICENTRO, 'abono_almacen'], self::MARTHA => [self::NORTE, 'venta']],
+            $this->comisiones($orden));
+    }
+
+    public function test_si_la_orden_se_va_para_la_tienda_con_la_que_se_compartia_se_quita_el_reparto(): void
+    {
+        // Juan es de Unicentro: reasignarle la venta la lleva a Unicentro, y una
+        // tienda no se comparte consigo misma.
+        $orden = $this->orden(self::HENRY, ['tienda_abonada_id' => self::UNICENTRO]);
+
+        $this->reasignar($orden, ['vendedor_id' => self::JUAN])->assertOk();
+
         $this->assertNull($orden->fresh()->tienda_abonada_id);
-        $this->assertSame([self::MARTHA => [self::NORTE, 'venta']], $this->comisiones($orden));
+        $this->assertSame([self::JUAN => [self::UNICENTRO, 'venta']], $this->comisiones($orden));
     }
 
     public function test_venta_compartida_cada_uno_queda_con_su_fila(): void
@@ -325,5 +342,63 @@ class ReasignarVendedorTest extends TestCase
         $this->reasignar($orden, ['vendedor_id' => self::MARTHA])->assertStatus(422);
 
         $this->assertSame([self::PAOLA => [self::NORTE, 'venta']], $this->comisiones($orden));
+    }
+
+    // ── Compartir con otra tienda, 50/50 (dueño, 2026-11-12) ────────────────
+
+    private function conMetaEnUnicentro(): void
+    {
+        Schema::create('metas_tienda', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('mes', 7); $t->decimal('meta', 15, 2); $t->timestamps();
+        });
+        DB::table('metas_tienda')->insert(['tienda_id' => self::UNICENTRO, 'mes' => '2026-01', 'meta' => 40000000]);
+        Esquema::olvidar();
+    }
+
+    public function test_vendedor_de_tienda_comparte_con_tienda_con_meta_su_mitad_va_por_el_pool(): void
+    {
+        // Paola (Norte) comparte con Unicentro: la mitad es suya y la otra mitad
+        // le suma a las ventas de Unicentro, que la paga con su pool. Ninguna
+        // fila aparte para la gente de Unicentro: nada se paga dos veces.
+        $this->conMetaEnUnicentro();
+        $orden = $this->orden(self::PAOLA, ['tienda_abonada_id' => self::UNICENTRO]);
+
+        $this->assertSame([self::PAOLA => [self::NORTE, 'venta']], $this->comisiones($orden));
+        $this->assertEquals(670000, (float) Comision::where('orden_id', $orden->id)->value('valor_orden'));
+        // La mitad de Unicentro la suma ComisionIndependientes::abonadoParaMeta
+        // (SQL de MySQL: no corre en SQLite; la cuenta no cambió).
+    }
+
+    public function test_restauracion_compartida_la_otra_tienda_cobra_sobre_su_mitad(): void
+    {
+        // Una restauración no suma a la meta: la mitad de Unicentro se paga
+        // aparte, partida entre su gente (aquí solo Juan).
+        $this->conMetaEnUnicentro();
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => self::NORTE, 'vendedor_id' => self::PAOLA,
+            'valor_total' => 1000000, 'canal' => 'fisica', 'tienda_abonada_id' => self::UNICENTRO]);
+        OrdenItem::create(['orden_id' => $orden->id, 'es_restauracion' => true, 'cantidad' => 1, 'precio_unitario' => 1000000]);
+        ComisionController::crearParaOrden($orden->fresh());
+
+        $juan = Comision::where('orden_id', $orden->id)->where('vendedor_id', self::JUAN)->first();
+        $this->assertSame('abono_almacen', $juan->origen);
+        $this->assertEquals(500000, (float) $juan->valor_orden);
+        // La mitad de Norte se reparte en su equipo, como toda restauración.
+        $this->assertEquals(250000, (float) Comision::where('orden_id', $orden->id)->where('vendedor_id', self::PAOLA)->value('valor_orden'));
+        $this->assertEquals(250000, (float) Comision::where('orden_id', $orden->id)->where('vendedor_id', self::MARTHA)->value('valor_orden'));
+    }
+
+    public function test_independiente_desde_el_corte_es_50_50_y_antes_sigue_como_se_vendio(): void
+    {
+        $this->conMetaEnUnicentro();
+        $cc = ComisionController::class;
+
+        // Antes del corte: el almacén cobraba sobre la venta entera.
+        $this->assertSame(1.0, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-11', false, true));
+        // Desde el corte, venta en tienda con meta: la paga el pool.
+        $this->assertSame(0.0, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', false, true));
+        // Restauración: la mitad aparte.
+        $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', true, true));
+        // Tienda sin meta (Norte aquí): la mitad aparte.
+        $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::NORTE, '2026-11-12', false, false));
     }
 }

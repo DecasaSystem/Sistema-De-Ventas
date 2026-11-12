@@ -127,9 +127,13 @@ function otrosCaminos(b, r, ordenes) {
       // Cuánto es por cada una: la R-1103 de Henry ($1.000.000) con Norte daba
       // $16.667 a cada uno y nadie entendía de dónde (2026-11-04).
       const delInd = ordenes.filter(o => o.forma_pago === 'abono_almacen')
-      lineas.push(`Lo que compartieron independientes con la tienda: ${pesos(ab)}. Por cada una, la tienda cobra un solo ${num(r.almacen_pct)}% `
-        + `y se parte entre los que estaban ese día (aquí ${delInd.length} ${delInd.length !== 1 ? 'órdenes' : 'orden'}); `
-        + `el independiente cobra su ${num(r.indep_pct_bolson)}% aparte, en su bolsón.`)
+      // Desde el 2026-11-12 es 50/50: la tienda cobra sobre su mitad (lo de
+      // antes de esa fecha de un independiente, sobre la venta entera), y una
+      // venta en una tienda con meta ya no sale aquí: la paga el pool.
+      lineas.push(`Lo que otros compartieron con la tienda: ${pesos(ab)}. Por cada una, la tienda cobra un solo ${num(r.almacen_pct)}% `
+        + `sobre su parte (la mitad; lo de un independiente de antes del 12 nov. 2026, sobre la venta entera) `
+        + `y se parte entre los que estaban ese día (aquí ${delInd.length} ${delInd.length !== 1 ? 'órdenes' : 'orden'}). `
+        + `Quien la vendió cobra sobre su mitad, aparte.`)
     }
   }
   return lineas
@@ -167,7 +171,7 @@ export function desgloseDelBloque(b) {
     partes = [
       { nombre: 'Pool', monto: suma(['pool', 'parte_pool']) },
       { nombre: 'Restauraciones', monto: suma(['restauracion_5', 'restauracion_equipo']) },
-      { nombre: 'De independientes', monto: suma(['abono_almacen']) },
+      { nombre: 'Ventas compartidas con la tienda', monto: suma(['abono_almacen']) },
       { nombre: 'Individual', monto: suma(['sin_meta_5']) },
       { nombre: 'Cubriendo a alguien', monto: suma(['reemplazo_ventas']) },
       { nombre: 'Otros', monto: ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0) },
