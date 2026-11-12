@@ -126,7 +126,9 @@ class EmitirFactura
                 'base'          => $armado['totales']['base'],
                 'iva'           => $armado['totales']['iva'],
                 'total'         => $armado['totales']['total'],
-                'valor_sistema' => $armado['totales']['valor_sistema'],
+                // Lo que valía la orden entera: "Diferencias" compara contra eso
+                // (la factura puede ser menos si la restauración no se factura).
+                'valor_sistema' => $armado['totales']['valor_orden'] ?? $armado['totales']['valor_sistema'],
                 'usuario_id'    => $usuario?->id,
                 'advertencias_aceptadas' => $armado['advertencias'],
                 'retencion_cliente' => $armado['totales']['retencion'] > 0 ? $armado['totales']['retencion'] : null,

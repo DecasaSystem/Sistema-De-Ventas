@@ -58,7 +58,7 @@ class FacturacionElectronicaTest extends TestCase
             $t->string('email')->nullable(); $t->string('direccion')->nullable(); $t->timestamp('created_at')->nullable();
         });
         Schema::create('productos', function (Blueprint $t) {
-            $t->id(); $t->string('nombre'); $t->decimal('precio_base', 14, 2)->default(0); $t->decimal('precio_pieza', 14, 2)->nullable();
+            $t->id(); $t->string('nombre'); $t->decimal('precio_base', 14, 2)->default(0); $t->decimal('precio_pieza', 14, 2)->nullable(); $t->string('medidas')->nullable();
             $t->timestamps();
         });
         Schema::create('ordenes', function (Blueprint $t) {
@@ -80,7 +80,7 @@ class FacturacionElectronicaTest extends TestCase
             $t->integer('piezas_juego')->nullable(); $t->boolean('es_pieza_suelta')->default(false);
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 14, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('es_restauracion')->default(false);
-            $t->timestamp('devuelto_en')->nullable(); $t->timestamps();
+            $t->timestamp('devuelto_en')->nullable(); $t->json('specs_personalizacion')->nullable(); $t->json('ficha_especial')->nullable(); $t->timestamps();
         });
         Schema::create('pagos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('vendedor_id')->nullable();
@@ -180,7 +180,7 @@ class FacturacionElectronicaTest extends TestCase
     {
         $clienteId = DB::table('clientes')->insertGetId(array_merge([
             'nombre' => 'Ana María Gómez Ruiz', 'cedula' => '1094888777', 'email' => 'ana@correo.test',
-            'telefono' => '3001234567', 'direccion' => 'Cra 14 # 20-30', 'ciudad' => 'Armenia', 'departamento' => 'Quindío',
+            'telefono' => '3001234567', 'direccion' => 'Cra 14 # 20-30', 'ciudad' => 'Armenia', 'departamento' => 'Quindío', 'regimen' => 'no_responsable',
         ], $cliente));
         $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
         $mesa = DB::table('productos')->insertGetId(['nombre' => 'Mesa Roma', 'precio_base' => 595000]);
@@ -307,7 +307,7 @@ class FacturacionElectronicaTest extends TestCase
 
     public function test_restauraciones_e_independientes_se_pueden_sacar_desde_ajustes(): void
     {
-        $this->prender();
+        $this->prender(['facturar_restauraciones' => true]);
         $resta = $this->ordenEntregada(['serie' => 'R', 'serie_numero' => 1100, 'numero_orden' => null],
             items: [['nombre_custom' => 'Restauración sofá', 'cantidad' => 1, 'precio_unitario' => 3451000, 'es_restauracion' => true]]);
         $indep = DB::table('usuarios')->insertGetId(['nombre' => 'Henry', 'rol' => 'vendedor', 'independiente' => true]);
@@ -610,6 +610,91 @@ class FacturacionElectronicaTest extends TestCase
         // Los dos pagos ya están digitados como recibo: eso no es tener factura.
         $this->assertCount(2, $this->actingAs($this->como($this->facturador))
             ->getJson('/api/facturacion-electronica/pendientes')->json('data'));
+    }
+
+    // ── Respuestas del contador (2026-11-12) ────────────────────────────────
+
+    public function test_la_linea_dice_nombre_version_medidas_y_tela(): void
+    {
+        $this->prender();
+        $cama = DB::table('productos')->insertGetId(['nombre' => 'Cama Bali', 'precio_base' => 2380000, 'medidas' => '140 x 190 cm']);
+        $id = $this->ordenEntregada(['valor_total' => 3570000, 'descuento_total' => 0], items: [
+            ['producto_id' => $cama, 'cantidad' => 1, 'precio_unitario' => 2380000, 'variante_detalle' => '1.40',
+                'specs_personalizacion' => json_encode(['tela' => 'Lino gris'])],
+            ['nombre_custom' => 'Sofá en L especial', 'cantidad' => 1, 'precio_unitario' => 1190000, 'es_personalizado' => true,
+                'ficha_especial' => json_encode(['tipo_mueble' => 'Sofá', 'ancho' => '280 cm', 'fondo' => '160 cm', 'alto' => '90 cm'])],
+        ], pagos: [['tipo' => 'anticipo', 'monto' => 3570000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $lineas = ArmarFactura::de(\App\Models\Orden::find($id))['factura']['items'];
+        $this->assertSame('Cama Bali · 1.40 · Medidas: 140 x 190 cm · Tela: Lino gris', $lineas[0]['description']);
+        $this->assertSame('Sofá en L especial · Medidas: 280 cm x 160 cm x 90 cm', $lineas[1]['description']);
+        $this->assertEquals(1, $lineas[0]['quantity'], 'Las unidades van aparte.');
+    }
+
+    public function test_la_variante_de_inventario_sale_como_en_la_orden(): void
+    {
+        $this->prender();
+        // Una venta vieja sin variante_detalle: la tela/color/medida sale de Inventario.
+        Schema::create('producto_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->string('marca')->nullable(); $t->string('marca_tela')->nullable();
+            $t->string('nombre_color')->nullable(); $t->string('medida')->nullable(); $t->timestamps();
+        });
+        $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
+        $var = DB::table('producto_variantes')->insertGetId(['producto_id' => $sofa, 'marca_tela' => 'Lino', 'nombre_color' => 'Gris perla']);
+        $id = $this->ordenEntregada(['valor_total' => 2380000, 'descuento_total' => 0],
+            items: [['producto_id' => $sofa, 'variante_id' => $var, 'cantidad' => 1, 'precio_unitario' => 2380000]],
+            pagos: [['tipo' => 'anticipo', 'monto' => 2380000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $orden = \App\Models\Orden::find($id);
+        $linea = ArmarFactura::de($orden)['factura']['items'][0];
+        $this->assertSame('Sofá Bali · ' . $orden->items->first()->variante_texto, $linea['description'], 'El mismo texto de la orden.');
+        $this->assertStringContainsString('Gris perla', $linea['description']);
+    }
+
+    public function test_en_una_orden_mixta_la_restauracion_no_va_en_la_factura(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // Sofá $2.380.000 + restauración de un comedor $1.190.000, todo pagado.
+        $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
+        $id = $this->ordenEntregada(['valor_total' => 3570000, 'descuento_total' => 0], items: [
+            ['producto_id' => $sofa, 'cantidad' => 1, 'precio_unitario' => 2380000],
+            ['nombre_custom' => 'Restauración comedor', 'cantidad' => 1, 'precio_unitario' => 1190000, 'es_restauracion' => true],
+        ], pagos: [['tipo' => 'anticipo', 'monto' => 3570000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $armado = ArmarFactura::de(\App\Models\Orden::find($id));
+        $this->assertCount(1, $armado['lineas'], 'Solo el sofá.');
+        $this->assertEqualsWithDelta(2380000, $armado['totales']['total'], 1);
+        $this->assertSame('CASH', $armado['forma_pago'], 'Pagó toda la orden: contado.');
+        $this->assertContains('restauracion_fuera', array_column($armado['alertas'], 'codigo'));
+        $this->assertNotContains('redondeo', $armado['advertencias'], 'La parte facturada cuadra.');
+
+        $this->facturar($id)->assertOk();
+        // "Diferencias" compara contra la orden entera: sin cambios, no sale nada.
+        $this->assertCount(0, $this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/facturas?grupo=diferencias')->json('data'));
+    }
+
+    public function test_sin_regimen_correo_o_nombre_completo_no_se_factura(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada(cliente: ['regimen' => null, 'email' => null, 'nombre' => 'Carlos']);
+
+        $faltan = $this->actingAs($this->como($this->facturador))
+            ->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado.cliente.faltan');
+        $this->assertContains('régimen de IVA', $faltan, 'Una persona natural puede ser responsable de IVA: no se supone.');
+        $this->assertContains('correo', $faltan);
+        $this->assertContains('nombre completo (nombres y apellidos)', $faltan);
+        $this->facturar($id)->assertStatus(422);
+    }
+
+    public function test_de_fabrica_un_dia_de_plazo_y_la_factura_al_correo(): void
+    {
+        $r = ReglasFacturacion::todo();
+        $this->assertSame(1, $r['dias_credito']);
+        $this->assertTrue($r['enviar_correo']);
+        $this->assertTrue($r['exigir_correo']);
+        $this->assertFalse($r['facturar_restauraciones']);
     }
 
     public function test_si_la_dian_esta_validando_queda_pendiente_y_luego_se_actualiza(): void

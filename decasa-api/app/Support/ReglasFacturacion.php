@@ -64,7 +64,9 @@ class ReglasFacturacion
         // ── Qué y cuándo ───────────────────────────────────────────────────────
         'momento'                 => 'al_entregar',
         'facturar_fv2'            => false,
-        'facturar_restauraciones' => true,
+        // Contador, 2026-11-12: "las restauraciones no se facturan". En una orden
+        // con muebles y restauración, la factura lleva solo los muebles.
+        'facturar_restauraciones' => false,
         'facturar_independientes' => true,
         // El facturador revisa y toca "Facturar". Apagado, una tarea cada 5
         // minutos factura sola lo que no tenga ninguna advertencia.
@@ -74,6 +76,8 @@ class ReglasFacturacion
         // Sin cédula: 'bloquear' (el facturador la completa) o 'consumidor_final'.
         'sin_documento'           => 'bloquear',
         'consumidor_final_id'     => null,
+        // Contador, 2026-11-12: lo mínimo es nombre completo, cédula y correo.
+        'exigir_correo'           => true,
 
         // ── Plata ──────────────────────────────────────────────────────────────
         // Los precios del sistema traen IVA; la factura los manda sin IVA.
@@ -90,8 +94,10 @@ class ReglasFacturacion
         // siempre lo acepta) o 'recibido' (el día que entró la plata; un
         // anticipo de antes de la factura puede no aceptarse). Lo decide el contador.
         'fecha_pagos'             => 'factura',
-        // Si queda saldo, la factura sale a crédito con este plazo.
-        'dias_credito'            => 30,
+        // Si queda saldo, la factura sale a crédito con este plazo. Contador,
+        // 2026-11-12: "normalmente no se vende a crédito; que sea a un día, o 15
+        // o 30, personalizable".
+        'dias_credito'            => 1,
         // Avisa si un precio queda por debajo de este % del de lista (o por encima
         // de 100 + este %): el caso "se les fue un cero".
         'alerta_precio_pct'       => 50,
@@ -124,7 +130,8 @@ class ReglasFacturacion
             'addi'          => 'transfer',
             'otro'          => 'cash',
         ],
-        'enviar_correo'           => false,
+        // Contador, 2026-11-12: que la factura le llegue al cliente sola.
+        'enviar_correo'           => true,
         // Texto que se ve en el PDF ("Notas"). {orden} se cambia por la referencia.
         'nota_factura'            => 'Orden de venta {orden}',
     ];
@@ -193,7 +200,7 @@ class ReglasFacturacion
         $errores = [];
 
         foreach (['activo', 'facturar_fv2', 'facturar_restauraciones', 'facturar_independientes',
-                  'requiere_revision', 'iva_en_restauraciones', 'registrar_pagos', 'enviar_correo'] as $b) {
+                  'requiere_revision', 'iva_en_restauraciones', 'registrar_pagos', 'enviar_correo', 'exigir_correo'] as $b) {
             if (array_key_exists($b, $valores)) $nuevo[$b] = (bool) $valores[$b];
         }
 

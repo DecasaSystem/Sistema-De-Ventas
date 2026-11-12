@@ -37,6 +37,9 @@ class ArmarFactura
 {
     private array $alertas = [];
 
+    /** Lo de la orden que no va en la factura (restauraciones, si no se facturan). */
+    private float $valorSinFacturar = 0;
+
     /**
      * @param float $retencion la que le hizo el cliente empresa (se cruza en Alegra al pagar)
      */
@@ -52,6 +55,9 @@ class ArmarFactura
         $r = ReglasFacturacion::todo();
         $o = $this->orden;
         $o->loadMissing(['cliente', 'tienda', 'vendedor', 'items.producto', 'pagos']);
+        // Las variantes (tela, color, medida, opción) como las muestra la orden,
+        // cargadas de una vez: cada línea de la factura las lleva en su texto.
+        \App\Models\OrdenItem::precargarVariantes($o->items);
 
         if ($motivo = QueSeFactura::motivoParaNo($o, $this->pago)) {
             $this->bloqueo('no_se_factura', $motivo);
@@ -64,7 +70,10 @@ class ArmarFactura
         $base = round(array_sum(array_column($lineas, 'base_total')), 2);
         $iva  = round(array_sum(array_column($lineas, 'iva_total')), 2);
         $total = round($base + $iva, 2);
-        $valorSistema = $this->pago ? (float) $this->pago->monto : (float) $o->valor_total;
+        // Lo que vale la orden (o el pago) y la parte que se factura (sin la
+        // restauración, si no se facturan). "Diferencias" compara contra lo primero.
+        $valorOrden   = $this->pago ? (float) $this->pago->monto : (float) $o->valor_total;
+        $valorSistema = round($valorOrden - $this->valorSinFacturar, 2);
         $diferencia   = round($total - $valorSistema, 2);
 
         if (! $lineas) {
@@ -79,7 +88,8 @@ class ArmarFactura
         }
 
         $pagado = $this->pago ? (float) $this->pago->monto : (float) $o->pagos->sum('monto');
-        $saldo  = round($valorSistema - $pagado, 2);
+        // El saldo es el de la orden completa: si pagó todo, es de contado.
+        $saldo  = round($valorOrden - $pagado, 2);
 
         // La retención del cliente empresa (contador, 2026-11-11): compró $1.000.000,
         // le retuvo $25.000 y pagó $975.000. Esos $25.000 no son deuda: se cruzan
@@ -138,7 +148,8 @@ class ArmarFactura
             'lineas'        => array_map(fn ($l) => array_diff_key($l, ['alegra' => 1]), $lineas),
             'pagos'         => array_map(fn ($p) => array_diff_key($p, ['alegra' => 1]), $pagos),
             'totales'       => compact('base', 'iva', 'total') + [
-                'valor_sistema' => $valorSistema, 'diferencia' => $diferencia,
+                'valor_sistema' => $valorSistema, 'valor_orden' => $valorOrden,
+                'sin_facturar' => round($this->valorSinFacturar, 2), 'diferencia' => $diferencia,
                 'pagado' => $pagado, 'saldo' => $saldo,
                 'retencion' => $retencion, 'saldo_sin_retencion' => $saldoReal,
             ],
@@ -189,12 +200,21 @@ class ArmarFactura
 
         $lineas  = [];
         $regalos = [];
+        $sinFacturar = [];
         foreach ($vivos as $item) {
             $cantidad = (float) $item->cantidad;
             $bruto    = $cantidad * (float) $item->precio_unitario;
             $nombre   = $this->nombreDe($item);
             if ($bruto <= 0 || $cantidad <= 0) {
                 $regalos[] = $nombre;
+                continue;
+            }
+            // "Las restauraciones no se facturan" (contador, 2026-11-12). En una
+            // orden que mezcla muebles y restauración, la factura lleva solo los
+            // muebles; lo que pagó por la restauración no entra.
+            if ($item->es_restauracion && ! $r['facturar_restauraciones']) {
+                $sinFacturar[] = $nombre . ' (' . self::pesos($bruto * $factor) . ')';
+                $this->valorSinFacturar += $bruto * $factor;
                 continue;
             }
 
@@ -210,6 +230,10 @@ class ArmarFactura
 
         if ($regalos) {
             $this->advertencia('regalos', 'No van en la factura por no tener valor: ' . implode(', ', $regalos) . '.');
+        }
+        if ($sinFacturar) {
+            $this->advertencia('restauracion_fuera', 'No van en la factura (las restauraciones no se facturan, Ajustes): '
+                . implode(', ', $sinFacturar) . '.', false);
         }
         if ((float) $o->descuento_total + (float) $o->descuento_condicionado > 0.01) {
             $this->advertencia('descuento', 'La orden tiene ' . self::pesos((float) $o->descuento_total + (float) $o->descuento_condicionado)
@@ -242,7 +266,7 @@ class ArmarFactura
 
         $alegra = [
             'id'          => $itemAlegra,
-            'description' => mb_substr($nombre, 0, 250),
+            'description' => mb_substr($nombre, 0, 300),
             'price'       => $baseUnit,
             'quantity'    => $cantidad,
         ];
@@ -275,12 +299,44 @@ class ArmarFactura
         return (float) $r['iva_pct'];
     }
 
+    /**
+     * Lo que dice cada línea de la factura. El contador (2026-11-12): "debe ir
+     * detallado todo: unidades, nombre y si se puede medidas". La cantidad va
+     * aparte (Alegra la muestra como unidades); aquí van el nombre, la versión
+     * (medida/tela escogida), las medidas del producto y la tela pedida.
+     */
     private function nombreDe($item): string
     {
         $nombre = $item->producto?->nombre ?: ($item->nombre_custom ?: 'Producto');
-        $extra  = trim((string) ($item->variante_texto ?? ''));
+        $partes = [];
 
-        return trim($nombre . ($extra !== '' ? " ({$extra})" : ''));
+        $variante = trim((string) ($item->variante_texto ?? ''));
+        if ($variante !== '') $partes[] = $variante;
+
+        $medidas = $this->medidasDe($item);
+        if ($medidas !== '' && ! str_contains(mb_strtolower($variante), mb_strtolower($medidas))) {
+            $partes[] = 'Medidas: ' . $medidas;
+        }
+
+        $tela = is_array($item->specs_personalizacion ?? null) ? trim((string) ($item->specs_personalizacion['tela'] ?? '')) : '';
+        if ($tela !== '' && ! str_contains(mb_strtolower($variante), mb_strtolower($tela))) {
+            $partes[] = 'Tela: ' . $tela;
+        }
+
+        return trim($nombre . ($partes ? ' · ' . implode(' · ', $partes) : ''));
+    }
+
+    /** Las medidas: las de la ficha del diseño especial o, si no, las del producto del catálogo. */
+    private function medidasDe($item): string
+    {
+        $ficha = is_array($item->ficha_especial ?? null) ? $item->ficha_especial : [];
+        $dims = array_values(array_filter(array_map(
+            fn ($k) => trim((string) ($ficha[$k] ?? '')),
+            ['ancho', 'largo', 'fondo', 'profundidad', 'alto'],
+        ), fn ($v) => $v !== ''));
+        if ($dims) return implode(' x ', $dims);
+
+        return trim((string) ($item->producto?->medidas ?? ''));
     }
 
     /**
@@ -407,7 +463,10 @@ class ArmarFactura
         $documento = preg_replace('/[^0-9A-Za-z]/', '', (string) ($c?->cedula ?? ''));
         $tipoDoc   = $c?->tipo_documento ?: ($documento !== '' ? 'CC' : null);
         $persona   = $c?->tipo_persona ?: ($tipoDoc === 'NIT' ? 'juridica' : 'natural');
-        $regimen   = $c?->regimen ?: ($persona === 'juridica' ? 'responsable' : 'no_responsable');
+        // El régimen de IVA no se supone (contador, 2026-11-12: "hay personas
+        // naturales que a su vez también son responsables de IVA"): el
+        // facturador lo escoge la primera vez y queda guardado en el cliente.
+        $regimen   = $c?->regimen ?: null;
         $dv        = $c?->dv ?: ($tipoDoc === 'NIT' && ctype_digit($documento) ? (string) self::digitoVerificacion($documento) : null);
         $direccion = trim((string) ($c?->direccion ?: $o->direccion_envio));
         $ciudad    = trim((string) ($c?->ciudad ?: ($o->ciudad_envio ?: $o->tienda?->ciudad)));
@@ -424,7 +483,14 @@ class ArmarFactura
             }
         }
         if (! $consumidorFinal) {
-            if (trim((string) $c?->nombre) === '') $faltan[] = 'nombre';
+            // Lo mínimo para la DIAN (contador, 2026-11-12): nombre completo,
+            // cédula y correo. Una persona natural con una sola palabra no es
+            // un nombre completo.
+            $nombre = trim((string) $c?->nombre);
+            if ($nombre === '') $faltan[] = 'nombre';
+            elseif ($persona === 'natural' && count(preg_split('/\s+/', $nombre)) < 2) $faltan[] = 'nombre completo (nombres y apellidos)';
+            if (! $regimen)        $faltan[] = 'régimen de IVA';
+            if ($r['exigir_correo'] && ! trim((string) $c?->email)) $faltan[] = 'correo';
             if ($direccion === '') $faltan[] = 'direccion';
             if ($ciudad === '')    $faltan[] = 'ciudad';
             if ($depto === '')     $faltan[] = 'departamento';
@@ -447,7 +513,7 @@ class ArmarFactura
         if ($faltan) {
             $this->bloqueo('datos_cliente', 'Faltan datos del cliente para la DIAN: ' . implode(', ', $faltan) . '. Complétalos arriba.');
         }
-        if (! $consumidorFinal && ! $c?->email) {
+        if (! $consumidorFinal && ! $r['exigir_correo'] && ! $c?->email) {
             $this->advertencia('sin_correo', 'El cliente no tiene correo: la DIAN no le podrá mandar la factura.', false);
         }
 
@@ -457,6 +523,7 @@ class ArmarFactura
                 'type' => $tipoDoc, 'number' => $documento, 'dv' => $tipoDoc === 'NIT' ? $dv : null,
             ], fn ($v) => $v !== null && $v !== ''),
             'kindOfPerson' => $persona === 'juridica' ? 'LEGAL_ENTITY' : 'PERSON_ENTITY',
+            // Sin régimen no se llega aquí a facturar (es un bloqueo); el valor es solo para la vista previa.
             'regime'       => $regimen === 'responsable' ? 'COMMON_REGIME' : 'SIMPLIFIED_REGIME',
             'address'      => ['address' => $direccion, 'city' => $ciudad, 'department' => $depto, 'country' => 'Colombia'],
             'email'        => $c?->email ?: null,

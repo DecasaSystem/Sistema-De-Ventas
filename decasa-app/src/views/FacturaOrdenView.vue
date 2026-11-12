@@ -68,7 +68,7 @@ async function cargar() {
     const c = data.armado.cliente
     cliente.value = {
       nombre: c.nombre ?? '', cedula: c.documento ?? '', tipo_documento: c.tipo_documento ?? 'CC', dv: c.dv ?? '',
-      tipo_persona: c.tipo_persona ?? 'natural', regimen: c.regimen ?? 'no_responsable', email: c.email ?? '',
+      tipo_persona: c.tipo_persona ?? 'natural', regimen: c.regimen ?? '', email: c.email ?? '',
       telefono: c.telefono ?? '', direccion: c.direccion ?? '', ciudad: c.ciudad ?? '', departamento: c.departamento ?? '',
     }
     if (c.faltan?.length) editandoCliente.value = true
@@ -322,7 +322,7 @@ onMounted(cargar)
             <p class="text-xs text-gray-500">
               {{ armado.cliente.tipo_documento }} {{ armado.cliente.documento || '—' }}<span v-if="armado.cliente.dv">-{{ armado.cliente.dv }}</span>
               · {{ armado.cliente.tipo_persona === 'juridica' ? 'Empresa' : 'Persona natural' }}
-              · {{ armado.cliente.regimen === 'responsable' ? 'Responsable de IVA' : 'No responsable de IVA' }}
+              · {{ armado.cliente.regimen === 'responsable' ? 'Responsable de IVA' : armado.cliente.regimen === 'no_responsable' ? 'No responsable de IVA' : 'Régimen de IVA sin escoger' }}
             </p>
             <p v-if="armado.cliente.tipo_persona !== 'juridica'" class="text-xs text-gray-500">
               Nombres: {{ armado.cliente.nombres }} · Apellidos: {{ armado.cliente.apellidos }}
@@ -354,6 +354,7 @@ onMounted(cargar)
           </label>
           <label class="text-xs text-gray-500">Régimen de IVA
             <select v-model="cliente.regimen" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+              <option value="" disabled>Escoger (pregúntale al cliente)</option>
               <option value="no_responsable">No responsable</option>
               <option value="responsable">Responsable</option>
             </select>
@@ -411,7 +412,10 @@ onMounted(cargar)
           <label class="text-xs text-gray-500">¿El cliente (empresa) le hizo retención? Anótala: no es deuda, se cruza en Alegra.</label>
           <div class="flex items-center gap-2">
             <div class="flex-1"><InputPesos v-model="retencion" placeholder="0" /></div>
-            <span v-if="armado.totales.saldo > 0" class="text-xs text-gray-400 shrink-0">2,5 % de la base: {{ pesos(armado.totales.base * 0.025) }}</span>
+            <button v-if="armado.totales.base > 0" type="button" @click="retencion = Math.round(armado.totales.base * 0.025)"
+              class="text-xs font-semibold text-blue-600 shrink-0">
+              Usar 2,5 %: {{ pesos(armado.totales.base * 0.025) }}
+            </button>
           </div>
         </div>
       </div>

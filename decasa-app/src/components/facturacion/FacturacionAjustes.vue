@@ -190,7 +190,13 @@ onMounted(cargar)
         <label class="text-xs text-gray-500">Decimales del precio sin IVA
           <input v-model.number="r.decimales" type="number" min="0" max="6" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500">Días de plazo si queda saldo
-          <input v-model.number="r.dias_credito" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+          <input v-model.number="r.dias_credito" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <span class="flex gap-1 mt-1">
+            <button v-for="d in [1, 15, 30]" :key="d" type="button" @click="r.dias_credito = d"
+              :class="['px-2 py-0.5 rounded-full text-xs font-semibold', r.dias_credito === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600']">
+              {{ d }} {{ d === 1 ? 'día' : 'días' }}
+            </button>
+          </span></label>
         <label class="text-xs text-gray-500">Avisar si el precio se aleja de la lista más de (%)
           <input v-model.number="r.alerta_precio_pct" type="number" min="0" max="100" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500 col-span-2">Pedir mirar otra vez si la plata cambió hace menos de (horas)
@@ -216,6 +222,7 @@ onMounted(cargar)
           <p class="text-xs text-gray-400 mt-1">En las notas del pago siempre queda el día real en que se recibió. Lo decide el contador.</p>
         </div>
         <label class="flex items-center justify-between gap-3"><span>Mandarle la factura al correo del cliente desde Alegra</span><input v-model="r.enviar_correo" type="checkbox" class="w-5 h-5" /></label>
+        <label class="flex items-center justify-between gap-3"><span>Exigir el correo del cliente para facturar</span><input v-model="r.exigir_correo" type="checkbox" class="w-5 h-5" /></label>
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-1">Cliente sin cédula</p>
