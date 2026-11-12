@@ -149,6 +149,42 @@ Respuestas del contador y lo que cambió (trae **migración**
 normales pero sin tienda fija"). Se facturan como cualquier venta: "Facturar las ventas de
 independientes" queda prendido (así venía) y no se usa "ingresos para terceros".
 
+## 5e. Segunda ronda del contador (2026-11-12)
+
+| Respuesta | Qué hace el sistema |
+|---|---|
+| Se factura con **FEN** | Se escoge en Ajustes (numeración general, sin numeración por tienda). A FEN le quedan ~83 números: el aviso de "quedan pocos" sale desde ya |
+| La factura **detallada**: unidades, nombre y, si se puede, medidas | Cada línea dice nombre · **la variante con el mismo texto de la orden** (`OrdenItem::variante_texto`: lo escogido al vender o la tela/color/medida de Inventario, la opción y el juego; precargado de una vez) · "Medidas: …" (de la ficha del diseño especial o de `productos.medidas`) · "Tela: …" (la pedida); la cantidad va aparte |
+| **Las restauraciones no se facturan** | De fábrica apagado. En una orden con muebles y restauración, la factura lleva solo los muebles; la restauración sale como aviso. "Diferencias" sigue comparando contra la orden entera |
+| IVA 19 % | Igual |
+| Se emite al tocar el botón después de verificar | Igual (revisión del facturador + botón). Para que vaya a la DIAN: Ajustes → "Mandar a la DIAN" |
+| **Sin consumidor final**: mínimo nombre completo, cédula y correo | Nombre de una sola palabra, sin cédula o sin correo = no se puede facturar (el correo se puede volver opcional en Ajustes) |
+| Una persona natural **puede ser responsable de IVA** | El régimen ya no se supone: hasta que el facturador lo escoja (queda guardado en el cliente) no se factura |
+| No venden a crédito; plazo de 1, 15 o 30 días personalizable | De fábrica 1 día, con botones 1/15/30 en Ajustes |
+| Que la factura le llegue al cliente | De fábrica prendido ("Mandarle la factura al correo del cliente") |
+| Retención del 2,5 % de la base (esporádica) | Botón "Usar 2,5 %" junto al campo de la retención |
+| Notas crédito, a mano por ahora | Igual: salen en "Diferencias" y se hacen en Alegra |
+
+Si los Ajustes ya se habían guardado antes, lo guardado manda sobre estos valores de fábrica: revisar
+en Ajustes "Facturar las restauraciones" (apagado), "Días de plazo" (1) y "Mandarle la factura al
+correo" (prendido).
+
+## 5f. Como la factura real FEN1917 (2026-11-12)
+
+Una factura hecha a mano en Alegra mostró cómo factura Decasa. Trae **migración**
+`2026_11_14_000001_productos_en_alegra` (solo crea `alegra_productos`).
+
+| En FEN1917 | Qué hace el sistema |
+|---|---|
+| Ítem **"SOFA TELAVID"**, descripción **"TAUPE"**: cada mueble es su propio producto en Alegra, con inventario | Ajustes → "Cada mueble con su producto" (de fábrica). `Services/Alegra/ProductosEnAlegra`: lo emparejado manda; si no, busca en Alegra por el nombre (sin tildes ni mayúsculas) y si hay uno exacto lo usa y lo recuerda; si no, **bloquea** y el facturador lo escoge en la línea (`PUT /productos/{id}/alegra`), queda guardado. La descripción es la variante (texto de la orden) + medidas + tela. Lo que no es del catálogo va con el "producto para diseños especiales" (`item_producto_id`). El modo "Un producto general" sigue disponible |
+| **Bodega "3 - EDEN"**, **centro de costo "EDEN"** | Ajustes: bodega y centro de costo general y por tienda (`GET /warehouses`, `GET /cost-centers`, activos); van en la factura (`warehouse`, `costCenter`). Sin bodega: advertencia (Alegra descontaría de la principal) |
+| **Notas** con el régimen ZESE; **Términos** de la letra de cambio | De fábrica, ese mismo texto (`nota_factura` + "Orden de venta {orden}", `terminos_factura` → `termsConditions`), editable. Si quedó guardada la nota vieja "Orden de venta {orden}", se usa la nueva |
+| Medio de pago **"Transferencia débito"** | Transferencia → `DEBIT_TRANSFER` de fábrica |
+| "Envío de factura al cliente: **Entregada**" (Alegra ya la manda) | "Mandarle la factura al correo" de fábrica **apagado**, para que no le lleguen dos |
+
+**Permisos del token:** para ver bodegas y centros de costo, el JWT necesita "Almacenes" y
+"Centros de costos" (ver). Sin ellos, Ajustes avisa y las listas salen vacías.
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:

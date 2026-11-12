@@ -17,6 +17,7 @@ import { esUrlDePdf, cloudinaryOpt } from '@/utils/cloudinary'
 import { pesos } from '@/utils/pesos'
 import {
   detalleFE, guardarClienteFE, facturarFE, externaFE, actualizarFE, diferenciaResueltaFE, registrarPagosFE, ESTADOS_FE,
+  emparejarProductoFE, itemsAlegra,
 } from '@/api/facturacionElectronica'
 import { ArrowLeftIcon, ExclamationTriangleIcon, InformationCircleIcon, CheckCircleIcon, NoSymbolIcon } from '@heroicons/vue/24/outline'
 
@@ -68,7 +69,7 @@ async function cargar() {
     const c = data.armado.cliente
     cliente.value = {
       nombre: c.nombre ?? '', cedula: c.documento ?? '', tipo_documento: c.tipo_documento ?? 'CC', dv: c.dv ?? '',
-      tipo_persona: c.tipo_persona ?? 'natural', regimen: c.regimen ?? 'no_responsable', email: c.email ?? '',
+      tipo_persona: c.tipo_persona ?? 'natural', regimen: c.regimen ?? '', email: c.email ?? '',
       telefono: c.telefono ?? '', direccion: c.direccion ?? '', ciudad: c.ciudad ?? '', departamento: c.departamento ?? '',
     }
     if (c.faltan?.length) editandoCliente.value = true
@@ -136,6 +137,35 @@ watch(retencion, () => {
   clearTimeout(tRetencion)
   tRetencion = setTimeout(() => { revisado.value = false; cargar() }, 600)
 })
+
+// Escoger el producto de Alegra de un mueble que no se encontró por el nombre.
+const emparejando = ref(null)        // producto_id abierto
+const buscarAlegra = ref('')
+const resultadosAlegra = ref(null)
+function abrirEmparejar(l) {
+  const abierto = emparejando.value === l.alegra_item.producto_id
+  emparejando.value = abierto ? null : l.alegra_item.producto_id
+  buscarAlegra.value = l.alegra_item.producto ?? ''
+  resultadosAlegra.value = null
+}
+async function buscarEnAlegra() {
+  try {
+    resultadosAlegra.value = (await itemsAlegra(buscarAlegra.value)).data.data
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Alegra no respondió')
+  }
+}
+async function emparejar(l, c) {
+  try {
+    await emparejarProductoFE(l.alegra_item.producto_id, c.id, c.nombre)
+    toast.success(`${l.alegra_item.producto} = ${c.nombre} en Alegra`)
+    emparejando.value = null
+    revisado.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar')
+  }
+}
 
 const confirmoPagos = ref(false)
 async function reintentarPagos() {
@@ -322,7 +352,7 @@ onMounted(cargar)
             <p class="text-xs text-gray-500">
               {{ armado.cliente.tipo_documento }} {{ armado.cliente.documento || '—' }}<span v-if="armado.cliente.dv">-{{ armado.cliente.dv }}</span>
               · {{ armado.cliente.tipo_persona === 'juridica' ? 'Empresa' : 'Persona natural' }}
-              · {{ armado.cliente.regimen === 'responsable' ? 'Responsable de IVA' : 'No responsable de IVA' }}
+              · {{ armado.cliente.regimen === 'responsable' ? 'Responsable de IVA' : armado.cliente.regimen === 'no_responsable' ? 'No responsable de IVA' : 'Régimen de IVA sin escoger' }}
             </p>
             <p v-if="armado.cliente.tipo_persona !== 'juridica'" class="text-xs text-gray-500">
               Nombres: {{ armado.cliente.nombres }} · Apellidos: {{ armado.cliente.apellidos }}
@@ -354,6 +384,7 @@ onMounted(cargar)
           </label>
           <label class="text-xs text-gray-500">Régimen de IVA
             <select v-model="cliente.regimen" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+              <option value="" disabled>Escoger (pregúntale al cliente)</option>
               <option value="no_responsable">No responsable</option>
               <option value="responsable">Responsable</option>
             </select>
@@ -395,6 +426,30 @@ onMounted(cargar)
             Vendido a {{ pesos(l.precio_con_iva) }} c/u<span v-if="Math.abs(l.neto_con_iva - l.precio_con_iva * l.cantidad) >= 1">, con descuento {{ pesos(l.neto_con_iva) }}</span>
             · sin IVA {{ pesos(l.base_unitaria) }} c/u · IVA {{ l.iva_pct }} % {{ pesos(l.iva_total) }}
           </p>
+          <!-- El producto de Alegra de este mueble (como FEN1917: el ítem es el mueble). -->
+          <div v-if="l.alegra_item" class="mt-1">
+            <p v-if="l.alegra_item.id" class="text-xs text-gray-500">
+              En Alegra: <b class="text-gray-700">{{ l.alegra_item.nombre || ('id ' + l.alegra_item.id) }}</b>
+              <button v-if="!hecha" @click="abrirEmparejar(l)" class="ml-1 text-blue-600 font-semibold">cambiar</button>
+            </p>
+            <p v-else class="text-xs text-amber-700">
+              {{ l.alegra_item.origen === 'varios' ? 'En Alegra hay varios con ese nombre.' : 'No se encontró en Alegra.' }}
+              <button @click="abrirEmparejar(l)" class="ml-1 text-blue-600 font-semibold">Escoger producto de Alegra</button>
+            </p>
+            <!-- Escoger: lo que se parece y un buscador. Queda guardado para las siguientes facturas. -->
+            <div v-if="emparejando === l.alegra_item.producto_id" class="mt-1.5 border border-gray-200 rounded-lg p-2 space-y-1.5">
+              <div class="flex gap-2">
+                <input v-model="buscarAlegra" @keyup.enter="buscarEnAlegra" placeholder="Buscar en Alegra"
+                  class="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs" />
+                <button @click="buscarEnAlegra" class="px-2 bg-gray-100 rounded-lg text-xs font-semibold">Buscar</button>
+              </div>
+              <button v-for="c in (resultadosAlegra ?? l.alegra_item.candidatos)" :key="c.id" @click="emparejar(l, c)"
+                class="block w-full text-left text-xs px-2 py-1 rounded-lg hover:bg-gray-50 text-gray-700">
+                {{ c.nombre }} <span class="text-gray-400">(id {{ c.id }})</span>
+              </button>
+              <p v-if="!(resultadosAlegra ?? l.alegra_item.candidatos)?.length" class="text-xs text-gray-400">Busca el nombre como está en Alegra.</p>
+            </div>
+          </div>
         </div>
         <div class="text-sm space-y-0.5 pt-1">
           <div class="flex justify-between text-gray-600"><span>Subtotal sin IVA</span><span>{{ pesos(armado.totales.base) }}</span></div>
@@ -411,7 +466,10 @@ onMounted(cargar)
           <label class="text-xs text-gray-500">¿El cliente (empresa) le hizo retención? Anótala: no es deuda, se cruza en Alegra.</label>
           <div class="flex items-center gap-2">
             <div class="flex-1"><InputPesos v-model="retencion" placeholder="0" /></div>
-            <span v-if="armado.totales.saldo > 0" class="text-xs text-gray-400 shrink-0">2,5 % de la base: {{ pesos(armado.totales.base * 0.025) }}</span>
+            <button v-if="armado.totales.base > 0" type="button" @click="retencion = Math.round(armado.totales.base * 0.025)"
+              class="text-xs font-semibold text-blue-600 shrink-0">
+              Usar 2,5 %: {{ pesos(armado.totales.base * 0.025) }}
+            </button>
           </div>
         </div>
       </div>

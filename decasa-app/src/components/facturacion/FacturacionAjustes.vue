@@ -96,6 +96,8 @@ function normalizar(reglas) {
   const x = JSON.parse(JSON.stringify(reglas))
   if (!x.numeraciones || Array.isArray(x.numeraciones)) x.numeraciones = {}
   if (!x.cuentas || Array.isArray(x.cuentas)) x.cuentas = {}
+  if (!x.bodegas || Array.isArray(x.bodegas)) x.bodegas = {}
+  if (!x.centros_costo || Array.isArray(x.centros_costo)) x.centros_costo = {}
   for (const t of ['*', ...meta.value.tiendas.map(t => String(t.id))]) x.cuentas[t] ??= {}
   return x
 }
@@ -108,6 +110,8 @@ async function guardar() {
     // Lo vacío no se manda: una tienda sin numeración propia usa la general.
     const limpio = JSON.parse(JSON.stringify(r.value))
     limpio.numeraciones = Object.fromEntries(Object.entries(limpio.numeraciones).filter(([, v]) => v))
+    limpio.bodegas = Object.fromEntries(Object.entries(limpio.bodegas).filter(([, v]) => v))
+    limpio.centros_costo = Object.fromEntries(Object.entries(limpio.centros_costo).filter(([, v]) => v))
     limpio.cuentas = Object.fromEntries(Object.entries(limpio.cuentas)
       .map(([t, m]) => [t, Object.fromEntries(Object.entries(m).filter(([, v]) => v))])
       .filter(([, m]) => Object.keys(m).length))
@@ -190,7 +194,13 @@ onMounted(cargar)
         <label class="text-xs text-gray-500">Decimales del precio sin IVA
           <input v-model.number="r.decimales" type="number" min="0" max="6" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500">Días de plazo si queda saldo
-          <input v-model.number="r.dias_credito" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+          <input v-model.number="r.dias_credito" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <span class="flex gap-1 mt-1">
+            <button v-for="d in [1, 15, 30]" :key="d" type="button" @click="r.dias_credito = d"
+              :class="['px-2 py-0.5 rounded-full text-xs font-semibold', r.dias_credito === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600']">
+              {{ d }} {{ d === 1 ? 'día' : 'días' }}
+            </button>
+          </span></label>
         <label class="text-xs text-gray-500">Avisar si el precio se aleja de la lista más de (%)
           <input v-model.number="r.alerta_precio_pct" type="number" min="0" max="100" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500 col-span-2">Pedir mirar otra vez si la plata cambió hace menos de (horas)
@@ -216,6 +226,7 @@ onMounted(cargar)
           <p class="text-xs text-gray-400 mt-1">En las notas del pago siempre queda el día real en que se recibió. Lo decide el contador.</p>
         </div>
         <label class="flex items-center justify-between gap-3"><span>Mandarle la factura al correo del cliente desde Alegra</span><input v-model="r.enviar_correo" type="checkbox" class="w-5 h-5" /></label>
+        <label class="flex items-center justify-between gap-3"><span>Exigir el correo del cliente para facturar</span><input v-model="r.exigir_correo" type="checkbox" class="w-5 h-5" /></label>
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-1">Cliente sin cédula</p>
@@ -235,8 +246,10 @@ onMounted(cargar)
           </button>
         </div>
       </div>
-      <label class="block text-xs text-gray-500">Nota que sale en el PDF ({orden} = número de la orden)
-        <input v-model="r.nota_factura" maxlength="400" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+      <label class="block text-xs text-gray-500">Notas del PDF ({orden} = número de la orden). Va la nota del régimen ZESE que llevan hoy.
+        <textarea v-model="r.nota_factura" maxlength="480" rows="5" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"></textarea></label>
+      <label class="block text-xs text-gray-500">Términos y condiciones del PDF
+        <textarea v-model="r.terminos_factura" maxlength="500" rows="3" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"></textarea></label>
     </div>
 
     <!-- Alegra -->
@@ -272,21 +285,51 @@ onMounted(cargar)
           Ese impuesto es de {{ ivaNoCuadra }} % y los precios se calculan con {{ r.iva_pct }} %: la factura no cuadraría. Escoge el IVA de {{ r.iva_pct }} % (no "ARRENDAMIENTO").
         </p>
 
+        <div>
+          <p class="text-xs text-gray-500 mb-1">Cómo va cada mueble en la factura</p>
+          <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+            <button @click="r.items_alegra = 'por_producto'" :class="['flex-1 py-2 text-xs font-semibold rounded-lg', r.items_alegra === 'por_producto' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">Cada mueble con su producto</button>
+            <button @click="r.items_alegra = 'generico'" :class="['flex-1 py-2 text-xs font-semibold rounded-lg', r.items_alegra === 'generico' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">Un producto general</button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">
+            {{ r.items_alegra === 'por_producto'
+              ? 'Como hoy (FEN1917): el ítem es el mueble ("SOFA TELAVID") y la descripción la variante, medidas y tela. Se busca en Alegra por el nombre; si no está, el facturador lo escoge una vez.'
+              : 'Todo con el producto de abajo y el detalle del mueble en la descripción.' }}
+          </p>
+        </div>
+
         <div class="space-y-1">
-          <p class="text-xs text-gray-500">Producto de Alegra para las ventas: <b>{{ r.item_producto_id || 'sin escoger' }}</b> · para restauraciones: <b>{{ r.item_servicio_id || 'el mismo' }}</b></p>
-          <p class="text-xs text-gray-400">Cada línea de la factura lleva el nombre del producto de la orden; en Alegra se usa este producto genérico (ej. "Venta de muebles").</p>
+          <p class="text-xs text-gray-500">
+            {{ r.items_alegra === 'por_producto' ? 'Producto de Alegra para diseños especiales (lo que no es del catálogo)' : 'Producto de Alegra para las ventas' }}:
+            <b>{{ r.item_producto_id || 'sin escoger' }}</b>
+          </p>
           <div class="flex gap-2">
             <input v-model="buscarItem" placeholder="Buscar producto en Alegra" class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
             <button @click="buscarItems" class="px-3 bg-gray-100 rounded-lg text-xs font-semibold">Buscar</button>
           </div>
           <div v-for="i in items" :key="i.id" class="flex items-center justify-between text-xs text-gray-600 px-1">
             <span>{{ i.nombre }} (id {{ i.id }})
-              <span v-if="i.inventario" class="block text-amber-700">Lleva inventario en Alegra: mejor uno sin inventario.</span></span>
-            <span class="flex gap-2">
-              <button @click="r.item_producto_id = i.id" class="text-blue-600 font-semibold">Ventas</button>
-              <button @click="r.item_servicio_id = i.id" class="text-blue-600 font-semibold">Restauraciones</button>
-            </span>
+              <span v-if="i.inventario && r.items_alegra === 'generico'" class="block text-amber-700">Lleva inventario en Alegra: mejor uno sin inventario.</span></span>
+            <button @click="r.item_producto_id = i.id" class="text-blue-600 font-semibold">Escoger</button>
           </div>
+        </div>
+
+        <!-- Bodega y centro de costo (FEN1917: bodega "3 - EDEN", centro de costo "EDEN"). -->
+        <div class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-3">
+          <label class="text-xs text-gray-500">Bodega general
+            <select v-model="r.bodegas['*']" class="mt-0.5 w-full border border-gray-200 rounded-lg px-1 py-1.5 text-xs bg-white">
+              <option :value="undefined">La principal de Alegra</option>
+              <option v-for="b in cat?.bodegas ?? []" :key="b.id" :value="b.id">{{ b.nombre }}</option>
+            </select></label>
+          <label class="text-xs text-gray-500">Centro de costo general
+            <select v-model="r.centros_costo['*']" class="mt-0.5 w-full border border-gray-200 rounded-lg px-1 py-1.5 text-xs bg-white">
+              <option :value="undefined">Ninguno</option>
+              <option v-for="c in cat?.centros_costo ?? []" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+            </select></label>
+          <p v-if="cat && !(cat.bodegas?.length || cat.centros_costo?.length)" class="col-span-2 text-xs text-amber-700">
+            Alegra no mostró bodegas ni centros de costo: al token le falta el permiso de ver "Almacenes" y "Centros de costos" (Alegra → API → editar el token).
+          </p>
+          <p class="col-span-2 text-xs text-gray-400">Cada tienda tiene su bodega y su centro de costo: escógelos en "por tienda", abajo.</p>
         </div>
 
         <div class="space-y-2 border-t border-gray-100 pt-3">
@@ -308,11 +351,21 @@ onMounted(cargar)
         </div>
 
         <button @click="verPorTienda = !verPorTienda" class="text-xs font-semibold text-blue-600">
-          {{ verPorTienda ? 'Ocultar' : 'Numeración y cajas distintas por tienda' }}
+          {{ verPorTienda ? 'Ocultar' : 'Bodega, centro de costo y numeración por tienda' }}
         </button>
         <div v-if="verPorTienda" class="space-y-3">
           <div v-for="t in meta.tiendas" :key="t.id" class="border border-gray-100 rounded-lg p-2 space-y-1.5">
             <p class="text-xs font-semibold text-gray-700">{{ t.nombre }}</p>
+            <div class="grid grid-cols-2 gap-1.5">
+              <select v-model="r.bodegas[String(t.id)]" class="border border-gray-200 rounded-lg px-1 py-1 text-xs bg-white">
+                <option :value="undefined">Bodega: la general</option>
+                <option v-for="b in cat?.bodegas ?? []" :key="b.id" :value="b.id">Bodega: {{ b.nombre }}</option>
+              </select>
+              <select v-model="r.centros_costo[String(t.id)]" class="border border-gray-200 rounded-lg px-1 py-1 text-xs bg-white">
+                <option :value="undefined">Centro: el general</option>
+                <option v-for="c in cat?.centros_costo ?? []" :key="c.id" :value="c.id">Centro: {{ c.nombre }}</option>
+              </select>
+            </div>
             <select v-model="r.numeraciones[String(t.id)]" class="w-full border border-gray-200 rounded-lg px-1 py-1 text-xs bg-white">
               <option :value="undefined">Numeración: la general</option>
               <option v-for="n in numeraciones" :key="n.id" :value="n.id" :disabled="!n.sirve && r.numeraciones[String(t.id)] !== n.id">{{ textoNum(n) }}</option>

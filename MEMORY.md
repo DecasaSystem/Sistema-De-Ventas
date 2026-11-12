@@ -933,7 +933,21 @@ escribiendo precios (Fase 1b).
   cruzar (**sin subir**, migración `2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas`).
   La API de Alegra no documenta cruzar anticipos en Colombia: el cruce sigue a mano.
   **Independientes = ingresos de Decasa** (usuario, 2026-11-11: "vendedores normales pero sin
-  tienda fija"): se facturan como cualquier venta, nada de "ingresos para terceros". Por defecto mío
+  tienda fija"): se facturan como cualquier venta, nada de "ingresos para terceros".
+  **Segunda ronda del contador (2026-11-12, §5e del plan; sin subir, sin migración):** se factura
+  con **FEN**; factura detallada (nombre, versión, medidas, tela); **las restauraciones no se
+  facturan** (en orden mixta va solo el mueble); sin consumidor final: nombre completo + cédula +
+  correo obligatorios; **el régimen de IVA no se supone** (naturales pueden ser responsables);
+  plazo 1 día (1/15/30); factura al correo del cliente; botón "Usar 2,5 %" de retención; notas
+  crédito a mano (subido, 928e9f2). Usuario, 2026-11-12: **las FV2 nunca se facturan**; ventas y
+  restauraciones **van en órdenes separadas** (el sistema no deja juntarlas: lo de la orden mixta
+  en ArmarFactura queda solo de seguro); se factura **al entregar el mueble**. **Factura real
+  FEN1917 (2026-11-12, §5f del plan; sin subir, migración `2026_11_14_000001_productos_en_alegra`):**
+  cada mueble es su propio producto en Alegra ("SOFA TELAVID", descripción "TAUPE") con inventario
+  por bodega; cada tienda tiene bodega y centro de costo; notas = régimen ZESE; términos = letra
+  de cambio; transferencia = "Transferencia débito"; Alegra ya le manda el correo al cliente. El
+  sistema empareja mueble ↔ producto de Alegra por nombre o lo escoge el facturador una vez
+  (`alegra_productos`). El JWT necesita además ver "Almacenes" y "Centros de costos". Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la

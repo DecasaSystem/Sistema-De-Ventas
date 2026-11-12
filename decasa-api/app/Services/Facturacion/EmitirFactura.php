@@ -68,6 +68,15 @@ class EmitirFactura
         }
 
         $factura = $this->tomar($armado, $usuario);
+
+        // Los muebles que se encontraron en Alegra por el nombre quedan
+        // emparejados: la próxima factura no tiene que volver a buscarlos.
+        foreach ($armado['lineas'] as $l) {
+            $m = $l['alegra_item'] ?? null;
+            if ($m && $m['origen'] === 'automatico' && $m['id']) {
+                \App\Services\Alegra\ProductosEnAlegra::guardar($m['producto_id'], $m['id'], $m['nombre'], 'automatico', $usuario?->id);
+            }
+        }
         // Los pagos que se registrarán en Alegra cuando la factura exista (los
         // que ya quedaron registrados en un intento anterior se conservan).
         $yaRegistrados = collect((array) $factura->pagos_alegra)->where('estado', 'registrado')->keyBy('pago_id');
@@ -126,7 +135,9 @@ class EmitirFactura
                 'base'          => $armado['totales']['base'],
                 'iva'           => $armado['totales']['iva'],
                 'total'         => $armado['totales']['total'],
-                'valor_sistema' => $armado['totales']['valor_sistema'],
+                // Lo que valía la orden entera: "Diferencias" compara contra eso
+                // (la factura puede ser menos si la restauración no se factura).
+                'valor_sistema' => $armado['totales']['valor_orden'] ?? $armado['totales']['valor_sistema'],
                 'usuario_id'    => $usuario?->id,
                 'advertencias_aceptadas' => $armado['advertencias'],
                 'retencion_cliente' => $armado['totales']['retencion'] > 0 ? $armado['totales']['retencion'] : null,

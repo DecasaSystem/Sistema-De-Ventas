@@ -58,7 +58,7 @@ class FacturacionElectronicaTest extends TestCase
             $t->string('email')->nullable(); $t->string('direccion')->nullable(); $t->timestamp('created_at')->nullable();
         });
         Schema::create('productos', function (Blueprint $t) {
-            $t->id(); $t->string('nombre'); $t->decimal('precio_base', 14, 2)->default(0); $t->decimal('precio_pieza', 14, 2)->nullable();
+            $t->id(); $t->string('nombre'); $t->decimal('precio_base', 14, 2)->default(0); $t->decimal('precio_pieza', 14, 2)->nullable(); $t->string('medidas')->nullable();
             $t->timestamps();
         });
         Schema::create('ordenes', function (Blueprint $t) {
@@ -80,7 +80,7 @@ class FacturacionElectronicaTest extends TestCase
             $t->integer('piezas_juego')->nullable(); $t->boolean('es_pieza_suelta')->default(false);
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 14, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('es_restauracion')->default(false);
-            $t->timestamp('devuelto_en')->nullable(); $t->timestamps();
+            $t->timestamp('devuelto_en')->nullable(); $t->json('specs_personalizacion')->nullable(); $t->json('ficha_especial')->nullable(); $t->timestamps();
         });
         Schema::create('pagos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('vendedor_id')->nullable();
@@ -107,6 +107,7 @@ class FacturacionElectronicaTest extends TestCase
         (require base_path('database/migrations/2026_11_10_000001_facturacion_electronica.php'))->up();
         (require base_path('database/migrations/2026_11_12_000001_pagos_alegra_en_facturas_electronicas.php'))->up();
         (require base_path('database/migrations/2026_11_13_000001_retencion_del_cliente_en_facturas_electronicas.php'))->up();
+        (require base_path('database/migrations/2026_11_14_000001_productos_en_alegra.php'))->up();
         Schema::create('garantias', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('despacho_item_id')->nullable();
         });
@@ -130,6 +131,14 @@ class FacturacionElectronicaTest extends TestCase
             'api.alegra.com/api/v1/taxes'              => fn () => Http::response($this->impuestos, 200),
             'api.alegra.com/api/v1/bank-accounts'      => fn () => Http::response($this->cuentas, 200),
             'api.alegra.com/api/v1/items/*'            => fn () => Http::response($this->item, 200),
+            // Buscar por nombre: en Alegra cada mueble existe en mayúsculas ("SOFA BALI").
+            'api.alegra.com/api/v1/items?*'            => function (PeticionHttp $r) {
+                parse_str(parse_url($r->url(), PHP_URL_QUERY) ?? '', $q);
+                $nombre = mb_strtoupper(strtr((string) ($q['query'] ?? ''), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']));
+                if (in_array($nombre, $this->noEstanEnAlegra, true)) return Http::response([], 200);
+
+                return Http::response([['id' => 'A' . abs(crc32($nombre)) % 1000, 'name' => $nombre, 'status' => 'active']], 200);
+            },
             'api.alegra.com/api/v1/contacts/*'         => fn (PeticionHttp $r) => Http::response(['id' => '77'], 200),
             'api.alegra.com/api/v1/payments'           => fn (PeticionHttp $r) => $this->respuestaPago
                 ? ($this->respuestaPago)($r)
@@ -142,6 +151,17 @@ class FacturacionElectronicaTest extends TestCase
     private array $cuentas = [['id' => '1', 'name' => 'Caja', 'status' => 'active'], ['id' => '2', 'name' => 'Bancolombia', 'status' => 'active'],
         ['id' => '3', 'name' => 'Datáfono', 'status' => 'active'], ['id' => '9', 'name' => 'Cuenta vieja', 'status' => 'inactive']];
     private array $item = ['id' => '10', 'name' => 'Venta de muebles', 'status' => 'active', 'type' => 'service'];
+    /** Nombres (en mayúsculas) que la búsqueda de Alegra no encuentra. */
+    private array $noEstanEnAlegra = [];
+
+    /** El id que la búsqueda simulada le da a un mueble. */
+    private function idEnAlegra(string $nombre): string
+    {
+        $n = mb_strtoupper(strtr($nombre, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']));
+
+        return 'A' . abs(crc32($n)) % 1000;
+    }
+
     /** Si una prueba quiere que Alegra conteste otra cosa a POST /payments. */
     private ?\Closure $respuestaPago = null;
 
@@ -166,7 +186,7 @@ class FacturacionElectronicaTest extends TestCase
         [, $errores] = ReglasFacturacion::guardar(array_merge([
             'activo' => true, 'modo' => 'emitir', 'desde' => '2026-11-01',
             'impuesto_iva_id' => '3', 'item_producto_id' => '10', 'item_servicio_id' => '11',
-            'numeraciones' => ['*' => '5'],
+            'numeraciones' => ['*' => '5'], 'bodegas' => ['*' => '3'], 'centros_costo' => ['*' => '7'],
             'cuentas' => ['*' => ['efectivo' => '1', 'transferencia' => '2', 'tarjeta' => '3', 'addi' => '2', 'otro' => '1']],
         ], $extra));
         $this->assertSame([], $errores);
@@ -180,7 +200,7 @@ class FacturacionElectronicaTest extends TestCase
     {
         $clienteId = DB::table('clientes')->insertGetId(array_merge([
             'nombre' => 'Ana María Gómez Ruiz', 'cedula' => '1094888777', 'email' => 'ana@correo.test',
-            'telefono' => '3001234567', 'direccion' => 'Cra 14 # 20-30', 'ciudad' => 'Armenia', 'departamento' => 'Quindío',
+            'telefono' => '3001234567', 'direccion' => 'Cra 14 # 20-30', 'ciudad' => 'Armenia', 'departamento' => 'Quindío', 'regimen' => 'no_responsable',
         ], $cliente));
         $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
         $mesa = DB::table('productos')->insertGetId(['nombre' => 'Mesa Roma', 'precio_base' => 595000]);
@@ -307,7 +327,7 @@ class FacturacionElectronicaTest extends TestCase
 
     public function test_restauraciones_e_independientes_se_pueden_sacar_desde_ajustes(): void
     {
-        $this->prender();
+        $this->prender(['facturar_restauraciones' => true]);
         $resta = $this->ordenEntregada(['serie' => 'R', 'serie_numero' => 1100, 'numero_orden' => null],
             items: [['nombre_custom' => 'Restauración sofá', 'cantidad' => 1, 'precio_unitario' => 3451000, 'es_restauracion' => true]]);
         $indep = DB::table('usuarios')->insertGetId(['nombre' => 'Henry', 'rol' => 'vendedor', 'independiente' => true]);
@@ -345,7 +365,7 @@ class FacturacionElectronicaTest extends TestCase
 
         // Va al ítem, con el impuesto de IVA escogido y el precio SIN IVA.
         $item = $armado['factura']['items'][0];
-        $this->assertSame('10', $item['id']);
+        $this->assertSame($this->idEnAlegra('Sofá Bali'), $item['id'], 'Cada mueble con su producto de Alegra.');
         $this->assertSame([['id' => '3']], $item['tax']);
         $this->assertSame($sofa['base_unitaria'], $item['price']);
     }
@@ -612,6 +632,151 @@ class FacturacionElectronicaTest extends TestCase
             ->getJson('/api/facturacion-electronica/pendientes')->json('data'));
     }
 
+    // ── Respuestas del contador (2026-11-12) ────────────────────────────────
+
+    public function test_la_linea_dice_nombre_version_medidas_y_tela(): void
+    {
+        $this->prender();
+        $cama = DB::table('productos')->insertGetId(['nombre' => 'Cama Bali', 'precio_base' => 2380000, 'medidas' => '140 x 190 cm']);
+        $id = $this->ordenEntregada(['valor_total' => 3570000, 'descuento_total' => 0], items: [
+            ['producto_id' => $cama, 'cantidad' => 1, 'precio_unitario' => 2380000, 'variante_detalle' => '1.40',
+                'specs_personalizacion' => json_encode(['tela' => 'Lino gris'])],
+            ['nombre_custom' => 'Sofá en L especial', 'cantidad' => 1, 'precio_unitario' => 1190000, 'es_personalizado' => true,
+                'ficha_especial' => json_encode(['tipo_mueble' => 'Sofá', 'ancho' => '280 cm', 'fondo' => '160 cm', 'alto' => '90 cm'])],
+        ], pagos: [['tipo' => 'anticipo', 'monto' => 3570000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $lineas = ArmarFactura::de(\App\Models\Orden::find($id))['factura']['items'];
+        $this->assertSame($this->idEnAlegra('Cama Bali'), $lineas[0]['id'], 'El ítem es el mueble (como FEN1917).');
+        $this->assertSame('1.40 · Medidas: 140 x 190 cm · Tela: Lino gris', $lineas[0]['description']);
+        $this->assertSame('10', $lineas[1]['id'], 'El diseño especial va con el producto para diseños especiales.');
+        $this->assertSame('Sofá en L especial · Medidas: 280 cm x 160 cm x 90 cm', $lineas[1]['description']);
+        $this->assertEquals(1, $lineas[0]['quantity'], 'Las unidades van aparte.');
+    }
+
+    public function test_la_variante_de_inventario_sale_como_en_la_orden(): void
+    {
+        $this->prender();
+        // Una venta vieja sin variante_detalle: la tela/color/medida sale de Inventario.
+        Schema::create('producto_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->string('marca')->nullable(); $t->string('marca_tela')->nullable();
+            $t->string('nombre_color')->nullable(); $t->string('medida')->nullable(); $t->timestamps();
+        });
+        $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
+        $var = DB::table('producto_variantes')->insertGetId(['producto_id' => $sofa, 'marca_tela' => 'Lino', 'nombre_color' => 'Gris perla']);
+        $id = $this->ordenEntregada(['valor_total' => 2380000, 'descuento_total' => 0],
+            items: [['producto_id' => $sofa, 'variante_id' => $var, 'cantidad' => 1, 'precio_unitario' => 2380000]],
+            pagos: [['tipo' => 'anticipo', 'monto' => 2380000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $orden = \App\Models\Orden::find($id);
+        $linea = ArmarFactura::de($orden)['factura']['items'][0];
+        $this->assertSame($orden->items->first()->variante_texto, $linea['description'], 'El mismo texto de la orden.');
+        $this->assertStringContainsString('Gris perla', $linea['description']);
+    }
+
+    public function test_en_una_orden_mixta_la_restauracion_no_va_en_la_factura(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        // Sofá $2.380.000 + restauración de un comedor $1.190.000, todo pagado.
+        $sofa = DB::table('productos')->insertGetId(['nombre' => 'Sofá Bali', 'precio_base' => 2380000]);
+        $id = $this->ordenEntregada(['valor_total' => 3570000, 'descuento_total' => 0], items: [
+            ['producto_id' => $sofa, 'cantidad' => 1, 'precio_unitario' => 2380000],
+            ['nombre_custom' => 'Restauración comedor', 'cantidad' => 1, 'precio_unitario' => 1190000, 'es_restauracion' => true],
+        ], pagos: [['tipo' => 'anticipo', 'monto' => 3570000, 'metodo' => 'efectivo', 'created_at' => '2026-11-02 15:00:00']]);
+
+        $armado = ArmarFactura::de(\App\Models\Orden::find($id));
+        $this->assertCount(1, $armado['lineas'], 'Solo el sofá.');
+        $this->assertEqualsWithDelta(2380000, $armado['totales']['total'], 1);
+        $this->assertSame('CASH', $armado['forma_pago'], 'Pagó toda la orden: contado.');
+        $this->assertContains('restauracion_fuera', array_column($armado['alertas'], 'codigo'));
+        $this->assertNotContains('redondeo', $armado['advertencias'], 'La parte facturada cuadra.');
+
+        $this->facturar($id)->assertOk();
+        // "Diferencias" compara contra la orden entera: sin cambios, no sale nada.
+        $this->assertCount(0, $this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/facturas?grupo=diferencias')->json('data'));
+    }
+
+    public function test_sin_regimen_correo_o_nombre_completo_no_se_factura(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada(cliente: ['regimen' => null, 'email' => null, 'nombre' => 'Carlos']);
+
+        $faltan = $this->actingAs($this->como($this->facturador))
+            ->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado.cliente.faltan');
+        $this->assertContains('régimen de IVA', $faltan, 'Una persona natural puede ser responsable de IVA: no se supone.');
+        $this->assertContains('correo', $faltan);
+        $this->assertContains('nombre completo (nombres y apellidos)', $faltan);
+        $this->facturar($id)->assertStatus(422);
+    }
+
+    // ── Como FEN1917 (2026-11-12) ───────────────────────────────────────────
+
+    public function test_la_factura_lleva_bodega_centro_de_costo_y_terminos(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        $id = $this->ordenEntregada();
+        $this->facturar($id)->assertOk();
+
+        $envio = collect(Http::recorded())->map(fn ($p) => $p[0])
+            ->first(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/invoices'));
+        $this->assertSame(['id' => '3'], $envio['warehouse']);
+        $this->assertSame(['id' => '7'], $envio['costCenter']);
+        $this->assertStringContainsString('letra de cambio', $envio['termsConditions']);
+        $this->assertStringContainsString('ZESE', $envio['anotation']);
+        $this->assertSame('DEBIT_TRANSFER', $envio['paymentMethod'], 'El pago más grande fue transferencia.');
+        // El mueble encontrado por el nombre queda emparejado para la próxima.
+        $this->assertSame($this->idEnAlegra('Sofá Bali'),
+            DB::table('alegra_productos')->where('producto_id', DB::table('productos')->where('nombre', 'Sofá Bali')->value('id'))->value('alegra_item_id'));
+    }
+
+    public function test_un_mueble_que_no_esta_en_alegra_lo_escoge_el_facturador_una_vez(): void
+    {
+        $this->prender();
+        $this->alegraQueAcepta();
+        $this->noEstanEnAlegra = ['SOFA BALI'];
+        $id = $this->ordenEntregada();
+
+        $armado = $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado');
+        $this->assertFalse($armado['se_puede']);
+        $this->assertSame('no_esta', $armado['lineas'][0]['alegra_item']['origen']);
+        $this->facturar($id)->assertStatus(422);
+
+        // El facturador lo busca en Alegra y lo escoge (allá se llama distinto).
+        $productoId = $armado['lineas'][0]['alegra_item']['producto_id'];
+        $this->actingAs($this->como($this->facturador))
+            ->putJson("/api/facturacion-electronica/productos/{$productoId}/alegra", ['alegra_item_id' => '555', 'alegra_nombre' => 'SOFA BALI 3P'])
+            ->assertOk();
+
+        $this->facturar($id)->assertOk();
+        $envio = collect(Http::recorded())->map(fn ($p) => $p[0])
+            ->first(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/invoices'));
+        $this->assertSame('555', $envio['items'][0]['id']);
+    }
+
+    public function test_en_modo_generico_todo_va_con_un_solo_producto(): void
+    {
+        $this->prender(['items_alegra' => 'generico']);
+        $id = $this->ordenEntregada();
+        $items = ArmarFactura::de(\App\Models\Orden::find($id))['factura']['items'];
+        $this->assertSame(['10', '10'], array_column($items, 'id'));
+        $this->assertStringStartsWith('Sofá Bali', $items[0]['description']);
+    }
+
+    public function test_valores_de_fabrica_como_factura_decasa(): void
+    {
+        $r = ReglasFacturacion::todo();
+        $this->assertSame(1, $r['dias_credito']);
+        $this->assertFalse($r['enviar_correo'], 'Alegra ya le manda la factura al cliente (FEN1917: Entregada).');
+        $this->assertSame('por_producto', $r['items_alegra']);
+        $this->assertSame('DEBIT_TRANSFER', $r['medios_dian']['transferencia'], 'Transferencia débito, como FEN1917.');
+        $this->assertStringContainsString('ZESE', $r['nota_factura']);
+        $this->assertStringContainsString('letra de cambio', $r['terminos_factura']);
+        $this->assertTrue($r['exigir_correo']);
+        $this->assertFalse($r['facturar_restauraciones']);
+    }
+
     public function test_si_la_dian_esta_validando_queda_pendiente_y_luego_se_actualiza(): void
     {
         $this->prender();
@@ -793,7 +958,11 @@ class FacturacionElectronicaTest extends TestCase
 
     public function test_en_ajustes_no_salen_bancos_ni_impuestos_inactivos(): void
     {
-        Http::fake(['api.alegra.com/api/v1/number-templates?*' => Http::response([$this->numeracion], 200)]);
+        Http::fake([
+            'api.alegra.com/api/v1/number-templates?*' => Http::response([$this->numeracion], 200),
+            'api.alegra.com/api/v1/warehouses?*' => Http::response([['id' => '3', 'name' => '3 - EDEN', 'status' => 'active'], ['id' => '9', 'name' => 'Vieja', 'status' => 'inactive']], 200),
+            'api.alegra.com/api/v1/cost-centers?*' => Http::response(['data' => [['id' => '7', 'code' => 'CC3', 'name' => 'EDEN', 'status' => 'active']]], 200),
+        ]);
         $this->impuestos[] = ['id' => '8', 'name' => 'IVA viejo', 'percentage' => 16, 'status' => 'inactive'];
 
         $cat = $this->actingAs($this->como($this->supervisor))->getJson('/api/facturacion-electronica/alegra/catalogos')->assertOk();
@@ -801,6 +970,8 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame(['1', '2', '3'], array_column($cat->json('cuentas'), 'id'), 'La "Cuenta vieja" inactiva no sale.');
         $this->assertSame(['3', '4'], array_column($cat->json('impuestos'), 'id'));
         $this->assertSame('vigente', $cat->json('numeraciones.0.estado'));
+        $this->assertSame(['3'], array_column($cat->json('bodegas'), 'id'), 'La bodega inactiva no sale.');
+        $this->assertSame('CC3 EDEN', $cat->json('centros_costo.0.nombre'));
     }
 
     public function test_los_pagos_nunca_pasan_el_total_que_dice_alegra(): void

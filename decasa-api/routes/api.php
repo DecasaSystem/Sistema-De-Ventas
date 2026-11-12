@@ -886,6 +886,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/alegra/items',        'itemsAlegra');
         Route::get('/alegra/contactos',    'contactosAlegra');
         Route::put('/clientes/{id}',       'guardarCliente')->whereNumber('id');
+        Route::put('/productos/{id}/alegra', 'emparejarProducto')->whereNumber('id');
         Route::get('/ordenes/{id}',        'detalle')->whereNumber('id');
         Route::post('/ordenes/{id}/facturar', 'facturar')->whereNumber('id')->middleware('throttle:20,1');
         Route::post('/ordenes/{id}/externa',  'registrarExterna')->whereNumber('id');
