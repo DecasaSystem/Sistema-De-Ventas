@@ -367,6 +367,8 @@ class FacturacionElectronicaController extends Controller
             }
             $cuentas = $alegra->get('bank-accounts');
             $impuestos = $alegra->get('taxes');
+            $bodegas   = $alegra->get('warehouses', ['status' => 'active']);
+            $centros   = $alegra->get('cost-centers', ['status' => 'active']);
         } catch (SinRespuestaDeAlegra $e) {
             return response()->json(['message' => $e->getMessage()], 502);
         }
@@ -385,6 +387,13 @@ class FacturacionElectronicaController extends Controller
             'cuentas' => array_values(array_map(fn ($c) => [
                 'id' => (string) ($c['id'] ?? ''), 'nombre' => $c['name'] ?? '', 'tipo' => $c['type'] ?? null,
             ], array_filter($lista($cuentas), [\App\Services\Alegra\CatalogoAlegra::class, 'activo']))),
+            // Bodega y centro de costo de cada tienda (FEN1917: "3 - EDEN" y "EDEN").
+            'bodegas' => array_values(array_map(fn ($b) => [
+                'id' => (string) ($b['id'] ?? ''), 'nombre' => $b['name'] ?? '',
+            ], array_filter($lista($bodegas), [\App\Services\Alegra\CatalogoAlegra::class, 'activo']))),
+            'centros_costo' => array_values(array_map(fn ($c) => [
+                'id' => (string) ($c['id'] ?? ''), 'nombre' => trim(($c['code'] ?? '') . ' ' . ($c['name'] ?? '')),
+            ], array_filter(self::listaDe($centros), [\App\Services\Alegra\CatalogoAlegra::class, 'activo']))),
             'impuestos' => array_values(array_map(fn ($t) => [
                 'id' => (string) ($t['id'] ?? ''), 'nombre' => $t['name'] ?? '', 'porcentaje' => $t['percentage'] ?? null,
                 'tipo' => $t['type'] ?? null,
@@ -393,9 +402,41 @@ class FacturacionElectronicaController extends Controller
     }
 
     /** GET /facturacion-electronica/alegra/items?buscar= */
+    /**
+     * La API nueva de Alegra (centros de costo) puede devolver la lista dentro
+     * de "data"; la vieja la devuelve sola.
+     */
+    private static function listaDe($r): array
+    {
+        if (! $r->ok || ! is_array($r->json)) return [];
+        $j = isset($r->json['data']) && is_array($r->json['data']) ? $r->json['data'] : $r->json;
+
+        return array_values(array_filter($j, 'is_array'));
+    }
+
+    /**
+     * PUT /facturacion-electronica/productos/{id}/alegra — qué producto de
+     * Alegra es este mueble. Lo escoge el facturador en la revisión cuando no
+     * se encontró por el nombre; queda para las siguientes facturas.
+     */
+    public function emparejarProducto(Request $request, int $id)
+    {
+        $u = $this->exigir($request);
+        $datos = $request->validate([
+            'alegra_item_id' => 'required|string|max:40',
+            'alegra_nombre'  => 'nullable|string|max:200',
+        ]);
+        abort_unless(DB::table('productos')->where('id', $id)->exists(), 404, 'Ese producto no existe.');
+
+        \App\Services\Alegra\ProductosEnAlegra::guardar($id, $datos['alegra_item_id'], $datos['alegra_nombre'] ?? null, 'manual', $u->id);
+
+        return response()->json(['message' => 'Producto de Alegra guardado para ese mueble.']);
+    }
+
     public function itemsAlegra(Request $request, ClienteAlegra $alegra)
     {
-        $this->exigirSupervisor($request);
+        // El facturador también busca: escoge el producto de Alegra de un mueble.
+        $this->exigir($request);
         try {
             $r = $alegra->get('items', array_filter(['query' => $request->query('buscar'), 'limit' => 30]));
         } catch (SinRespuestaDeAlegra $e) {

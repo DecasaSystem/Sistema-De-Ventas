@@ -169,6 +169,22 @@ Si los Ajustes ya se habían guardado antes, lo guardado manda sobre estos valor
 en Ajustes "Facturar las restauraciones" (apagado), "Días de plazo" (1) y "Mandarle la factura al
 correo" (prendido).
 
+## 5f. Como la factura real FEN1917 (2026-11-12)
+
+Una factura hecha a mano en Alegra mostró cómo factura Decasa. Trae **migración**
+`2026_11_14_000001_productos_en_alegra` (solo crea `alegra_productos`).
+
+| En FEN1917 | Qué hace el sistema |
+|---|---|
+| Ítem **"SOFA TELAVID"**, descripción **"TAUPE"**: cada mueble es su propio producto en Alegra, con inventario | Ajustes → "Cada mueble con su producto" (de fábrica). `Services/Alegra/ProductosEnAlegra`: lo emparejado manda; si no, busca en Alegra por el nombre (sin tildes ni mayúsculas) y si hay uno exacto lo usa y lo recuerda; si no, **bloquea** y el facturador lo escoge en la línea (`PUT /productos/{id}/alegra`), queda guardado. La descripción es la variante (texto de la orden) + medidas + tela. Lo que no es del catálogo va con el "producto para diseños especiales" (`item_producto_id`). El modo "Un producto general" sigue disponible |
+| **Bodega "3 - EDEN"**, **centro de costo "EDEN"** | Ajustes: bodega y centro de costo general y por tienda (`GET /warehouses`, `GET /cost-centers`, activos); van en la factura (`warehouse`, `costCenter`). Sin bodega: advertencia (Alegra descontaría de la principal) |
+| **Notas** con el régimen ZESE; **Términos** de la letra de cambio | De fábrica, ese mismo texto (`nota_factura` + "Orden de venta {orden}", `terminos_factura` → `termsConditions`), editable. Si quedó guardada la nota vieja "Orden de venta {orden}", se usa la nueva |
+| Medio de pago **"Transferencia débito"** | Transferencia → `DEBIT_TRANSFER` de fábrica |
+| "Envío de factura al cliente: **Entregada**" (Alegra ya la manda) | "Mandarle la factura al correo" de fábrica **apagado**, para que no le lleguen dos |
+
+**Permisos del token:** para ver bodegas y centros de costo, el JWT necesita "Almacenes" y
+"Centros de costos" (ver). Sin ellos, Ajustes avisa y las listas salen vacías.
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:

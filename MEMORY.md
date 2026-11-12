@@ -911,7 +911,15 @@ escribiendo precios (Fase 1b).
   facturan** (en orden mixta va solo el mueble); sin consumidor final: nombre completo + cédula +
   correo obligatorios; **el régimen de IVA no se supone** (naturales pueden ser responsables);
   plazo 1 día (1/15/30); factura al correo del cliente; botón "Usar 2,5 %" de retención; notas
-  crédito a mano. Por defecto mío
+  crédito a mano (subido, 928e9f2). Usuario, 2026-11-12: **las FV2 nunca se facturan**; ventas y
+  restauraciones **van en órdenes separadas** (el sistema no deja juntarlas: lo de la orden mixta
+  en ArmarFactura queda solo de seguro); se factura **al entregar el mueble**. **Factura real
+  FEN1917 (2026-11-12, §5f del plan; sin subir, migración `2026_11_14_000001_productos_en_alegra`):**
+  cada mueble es su propio producto en Alegra ("SOFA TELAVID", descripción "TAUPE") con inventario
+  por bodega; cada tienda tiene bodega y centro de costo; notas = régimen ZESE; términos = letra
+  de cambio; transferencia = "Transferencia débito"; Alegra ya le manda el correo al cliente. El
+  sistema empareja mueble ↔ producto de Alegra por nombre o lo escoge el facturador una vez
+  (`alegra_productos`). El JWT necesita además ver "Almacenes" y "Centros de costos". Por defecto mío
   (**falta confirmar**): restauraciones e independientes sí se facturan, sin cédula se pide, los
   pagos se registran en Alegra. No probado contra una cuenta real de Alegra (los campos del CUFE y
   del PDF en la respuesta se leen con cuidado). Pendiente: nota crédito desde el sistema (hoy la

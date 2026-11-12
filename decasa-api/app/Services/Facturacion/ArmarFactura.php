@@ -40,6 +40,9 @@ class ArmarFactura
     /** Lo de la orden que no va en la factura (restauraciones, si no se facturan). */
     private float $valorSinFacturar = 0;
 
+    /** Muebles a los que no se les encontró su producto en Alegra. */
+    private array $productosSinAlegra = [];
+
     /**
      * @param float $retencion la que le hizo el cliente empresa (se cruza en Alegra al pagar)
      */
@@ -123,6 +126,24 @@ class ArmarFactura
         ];
         if ($numeracion = ReglasFacturacion::numeracionDe($o->tienda_id)) {
             $factura['numberTemplate'] = ['id' => $numeracion];
+        }
+        if (trim((string) $r['terminos_factura']) !== '') {
+            $factura['termsConditions'] = (string) $r['terminos_factura'];
+        }
+        // Bodega y centro de costo de la tienda (FEN1917: bodega "3 - EDEN",
+        // centro de costo "EDEN"): de ahí descuenta Alegra el inventario y ahí
+        // carga la venta en su contabilidad.
+        if ($bodega = ReglasFacturacion::bodegaDe($o->tienda_id)) {
+            $factura['warehouse'] = ['id' => $bodega];
+        } elseif ($r['items_alegra'] === 'por_producto') {
+            $this->advertencia('sin_bodega', 'No hay bodega de Alegra escogida para ' . ($o->tienda?->nombre ?? 'esta tienda')
+                . ': Alegra descontará el inventario de su bodega principal. Escógela en Ajustes.');
+        }
+        if ($centro = ReglasFacturacion::centroCostoDe($o->tienda_id)) {
+            $factura['costCenter'] = ['id' => $centro];
+        } else {
+            $this->advertencia('sin_centro_costo', 'No hay centro de costo de Alegra escogido para '
+                . ($o->tienda?->nombre ?? 'esta tienda') . ' (Ajustes).', false);
         }
         // Los pagos NO van dentro de la factura: se registran después, uno por uno
         // y con el total exacto que diga Alegra (EmitirFactura::registrarPagos).
@@ -225,11 +246,29 @@ class ArmarFactura
             $ivaPct   = $this->ivaDe($servicio);
             $baseUnit = round(($neto / $cantidad) / (1 + $ivaPct / 100), (int) $r['decimales']);
 
-            $lineas[] = $this->linea($nombre, $cantidad, $baseUnit, $ivaPct, $servicio, $neto, (float) $item->precio_unitario, $item->id);
+            $linea = $this->linea($nombre, $cantidad, $baseUnit, $ivaPct, $servicio, $neto, (float) $item->precio_unitario, $item->id);
+
+            // Como factura Decasa (FEN1917): el ítem es el mueble ("SOFA TELAVID")
+            // y la descripción, la variante ("TAUPE") con medidas y tela.
+            if ($r['items_alegra'] === 'por_producto' && $item->producto_id && ! $servicio) {
+                $match = app(\App\Services\Alegra\ProductosEnAlegra::class)
+                    ->para((int) $item->producto_id, (string) $item->producto?->nombre);
+                $linea['alegra_item'] = $match + ['producto_id' => (int) $item->producto_id, 'producto' => $item->producto?->nombre];
+                $linea['alegra']['id'] = $match['id'];
+                $linea['alegra']['description'] = mb_substr($this->detalleDe($item), 0, 300);
+                if (! $match['id']) $this->productosSinAlegra[] = $item->producto?->nombre;
+            }
+
+            $lineas[] = $linea;
         }
 
         if ($regalos) {
             $this->advertencia('regalos', 'No van en la factura por no tener valor: ' . implode(', ', $regalos) . '.');
+        }
+        if ($this->productosSinAlegra) {
+            $this->bloqueo('producto_sin_alegra', 'No se encontró en Alegra el producto de: '
+                . implode(', ', array_unique(array_filter($this->productosSinAlegra)))
+                . '. Escógelo abajo en cada línea (queda guardado para las siguientes facturas).');
         }
         if ($sinFacturar) {
             $this->advertencia('restauracion_fuera', 'No van en la factura (las restauraciones no se facturan, Ajustes): '
@@ -307,7 +346,15 @@ class ArmarFactura
      */
     private function nombreDe($item): string
     {
-        $nombre = $item->producto?->nombre ?: ($item->nombre_custom ?: 'Producto');
+        $nombre  = $item->producto?->nombre ?: ($item->nombre_custom ?: 'Producto');
+        $detalle = $this->detalleDe($item);
+
+        return trim($nombre . ($detalle !== '' ? ' · ' . $detalle : ''));
+    }
+
+    /** Lo que va en la descripción cuando el ítem de Alegra ya es el mueble: variante, medidas, tela. */
+    private function detalleDe($item): string
+    {
         $partes = [];
 
         $variante = trim((string) ($item->variante_texto ?? ''));
@@ -323,7 +370,7 @@ class ArmarFactura
             $partes[] = 'Tela: ' . $tela;
         }
 
-        return trim($nombre . ($partes ? ' · ' . implode(' · ', $partes) : ''));
+        return implode(' · ', $partes);
     }
 
     /** Las medidas: las de la ficha del diseño especial o, si no, las del producto del catálogo. */
@@ -596,8 +643,13 @@ class ArmarFactura
         if (! \App\Services\Alegra\ClienteAlegra::configurado()) {
             $this->bloqueo('sin_conexion', 'Alegra no está conectado (falta ALEGRA_TOKEN en el servidor, y ALEGRA_EMAIL si es el token clásico).');
         }
-        if (! $r['item_producto_id']) {
-            $this->bloqueo('sin_item', 'Falta escoger en Ajustes el producto de Alegra con que se facturan las ventas.');
+        // El producto "comodín" hace falta si alguna línea lo usa: todo en modo
+        // genérico, o un diseño especial sin producto del catálogo.
+        $usanComodin = array_filter($lineas, fn ($l) => ! isset($l['alegra_item']));
+        if ($usanComodin && ! $r['item_producto_id']) {
+            $this->bloqueo('sin_item', $r['items_alegra'] === 'por_producto'
+                ? 'Esta orden tiene muebles que no son del catálogo: falta escoger en Ajustes el producto de Alegra para diseños especiales.'
+                : 'Falta escoger en Ajustes el producto de Alegra con que se facturan las ventas.');
         }
         $llevaIva = array_filter($lineas, fn ($l) => $l['iva_pct'] > 0);
         if ($llevaIva && ! $r['impuesto_iva_id']) {
@@ -635,15 +687,16 @@ class ArmarFactura
             }
         }
 
-        // Los productos genéricos: que existan, activos y sin inventario en Alegra.
-        $usados = array_unique(array_filter(array_map(fn ($l) => $l['es_servicio']
-            ? ($r['item_servicio_id'] ?: $r['item_producto_id']) : $r['item_producto_id'], $lineas)));
+        // Los productos de Alegra de cada línea: que existan y estén activos. El
+        // aviso de inventario es solo para el "comodín" en modo genérico: en
+        // Decasa cada mueble lleva inventario en Alegra a propósito (por bodega).
+        $usados = array_unique(array_filter(array_map(fn ($l) => $l['alegra']['id'] ?? null, $lineas)));
         foreach ($usados as $id) {
             $item = $cat->item((string) $id);
             if ($item === null) continue;
             if (! empty($item['_no_existe']) || ! \App\Services\Alegra\CatalogoAlegra::activo($item)) {
-                $this->bloqueo('item_no_sirve', "El producto de Alegra escogido en Ajustes (id {$id}) ya no existe o está inactivo. Escoge otro.");
-            } elseif (\App\Services\Alegra\CatalogoAlegra::llevaInventario($item)) {
+                $this->bloqueo('item_no_sirve', 'El producto de Alegra "' . ($item['name'] ?? "id {$id}") . '" ya no existe o está inactivo. Escoge otro.');
+            } elseif ($r['items_alegra'] === 'generico' && \App\Services\Alegra\CatalogoAlegra::llevaInventario($item)) {
                 $this->advertencia('item_con_inventario', 'El producto de Alegra "' . ($item['name'] ?? $id) . '" lleva inventario: '
                     . 'cada factura le descuenta existencias allá y, si no deja inventario negativo, la factura falla. Conviene uno sin inventario.', false);
             }

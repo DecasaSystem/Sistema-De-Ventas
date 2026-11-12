@@ -11,6 +11,8 @@ export const detalleFE     = (ordenId, pagoId = null, retencion = 0) =>
     params: { ...(pagoId ? { pago_id: pagoId } : {}), ...(retencion > 0 ? { retencion } : {}) },
   })
 export const guardarClienteFE = (clienteId, datos) => api.put(`${base}/clientes/${clienteId}`, datos)
+export const emparejarProductoFE = (productoId, alegraItemId, alegraNombre) =>
+  api.put(`${base}/productos/${productoId}/alegra`, { alegra_item_id: alegraItemId, alegra_nombre: alegraNombre })
 export const facturarFE    = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/facturar`, datos)
 export const externaFE     = (ordenId, datos) => api.post(`${base}/ordenes/${ordenId}/externa`, datos)
 export const actualizarFE  = (facturaId) => api.post(`${base}/facturas/${facturaId}/actualizar`)

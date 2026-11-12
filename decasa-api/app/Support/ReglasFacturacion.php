@@ -110,15 +110,28 @@ class ReglasFacturacion
 
         // ── Alegra ─────────────────────────────────────────────────────────────
         'impuesto_iva_id'         => null,
+        // Cómo va cada mueble en la factura (FEN1917, 2026-11-12):
+        //  'por_producto': cada mueble con SU producto de Alegra (así factura
+        //   Decasa: ítem "SOFA TELAVID", descripción "TAUPE"); lo que no es del
+        //   catálogo (diseños especiales) va con item_producto_id.
+        //  'generico': todo con item_producto_id y el detalle en la descripción.
+        'items_alegra'            => 'por_producto',
+        // El producto "comodín": lo de diseño propio/personalizado sin producto
+        // del catálogo, o todo si items_alegra = 'generico'.
         'item_producto_id'        => null,
         'item_servicio_id'        => null,
+        // Bodega y centro de costo de Alegra por tienda (FEN1917: bodega
+        // "3 - EDEN", centro de costo "EDEN"). { "*": id, "<tienda_id>": id }
+        'bodegas'                 => [],
+        'centros_costo'           => [],
         // { "*": idNumeracion, "<tienda_id>": idNumeracion }
         'numeraciones'            => [],
         // { "*": { "efectivo": idCuenta, ... }, "<tienda_id>": { ... } }
         'cuentas'                 => [],
         'medios_dian'             => [
             'efectivo'      => 'CASH',
-            'transferencia' => 'CREDIT_TRANSFER',
+            // Así salen hoy las de Decasa (FEN1917: "Transferencia débito").
+            'transferencia' => 'DEBIT_TRANSFER',
             'tarjeta'       => 'CREDIT_CARD',
             'addi'          => 'MUTUAL_AGREEMENT',
             'otro'          => 'MUTUAL_AGREEMENT',
@@ -130,10 +143,16 @@ class ReglasFacturacion
             'addi'          => 'transfer',
             'otro'          => 'cash',
         ],
-        // Contador, 2026-11-12: que la factura le llegue al cliente sola.
-        'enviar_correo'           => true,
-        // Texto que se ve en el PDF ("Notas"). {orden} se cambia por la referencia.
-        'nota_factura'            => 'Orden de venta {orden}',
+        // Que el sistema le pida a Alegra mandar la factura por correo. Apagado:
+        // Alegra ya se la manda sola al cliente al emitir (FEN1917: "Envío de
+        // factura al cliente: Entregada"); prenderlo le haría llegar dos.
+        'enviar_correo'           => false,
+        // "Notas" del PDF. Va el texto que llevan hoy las facturas de Decasa (la
+        // nota del régimen ZESE, FEN1917): mandar otro la reemplazaría. {orden}
+        // se cambia por la referencia de la orden.
+        'nota_factura'            => "Somo beneficiarios del régimen tributario especial ZESE, desde 01/07/2020. consagrado en el artículo 268 de la Ley 1955 de 2019 y reglamentado por el Decreto 2112 del 24 de noviembre de 2019. Tarifa general de renta, retención en la fuente y autorretención a título de impuesto sobre la renta (0%) por los primeros 5 años y del 50% durante los 5 años siguientes.\nOrden de venta {orden}",
+        // "Términos y condiciones" del PDF, como en FEN1917.
+        'terminos_factura'        => 'Esta factura se asimila en todos sus efectos a una letra de cambio de conformidad con el Art. 774 del código de comercio. Autorizo que en caso de incumplimiento de esta obligación sea reportado a las centrales de riesgo, se cobraran intereses por mora.',
     ];
 
     private static ?array $cache = null;
@@ -157,6 +176,11 @@ class ReglasFacturacion
         } catch (\Throwable) {
             $guardado = [];
         }
+
+        // La nota de fábrica de antes ("Orden de venta {orden}") taparía la nota
+        // del régimen ZESE que llevan las facturas de Decasa: si quedó guardada
+        // tal cual, se usa la nueva (2026-11-12).
+        if (($guardado['nota_factura'] ?? null) === 'Orden de venta {orden}') unset($guardado['nota_factura']);
 
         $todo = array_merge(self::DEFECTO, array_intersect_key($guardado, self::DEFECTO));
         // Los mapas por método se completan con los de fábrica: un método nuevo
@@ -253,8 +277,26 @@ class ReglasFacturacion
         foreach (['impuesto_iva_id', 'item_producto_id', 'item_servicio_id', 'consumidor_final_id'] as $id) {
             if (array_key_exists($id, $valores)) $nuevo[$id] = self::id($valores[$id]);
         }
+        // Alegra deja 500 caracteres en cada uno.
         if (array_key_exists('nota_factura', $valores)) {
-            $nuevo['nota_factura'] = mb_substr(trim((string) $valores['nota_factura']), 0, 400);
+            $nuevo['nota_factura'] = mb_substr(trim((string) $valores['nota_factura']), 0, 480);
+        }
+        if (array_key_exists('terminos_factura', $valores)) {
+            $nuevo['terminos_factura'] = mb_substr(trim((string) $valores['terminos_factura']), 0, 500);
+        }
+        if (array_key_exists('items_alegra', $valores)) {
+            in_array($valores['items_alegra'], ['por_producto', 'generico'], true)
+                ? $nuevo['items_alegra'] = $valores['items_alegra']
+                : $errores[] = 'Los productos van "por_producto" o "generico".';
+        }
+        foreach (['bodegas', 'centros_costo'] as $mapa) {
+            if (! array_key_exists($mapa, $valores)) continue;
+            $nuevo[$mapa] = [];
+            foreach ((array) $valores[$mapa] as $tienda => $id) {
+                if (($t = self::llaveTienda($tienda)) !== null && ($i = self::id($id)) !== null) {
+                    $nuevo[$mapa][$t] = $i;
+                }
+            }
         }
 
         if (array_key_exists('numeraciones', $valores)) {
@@ -318,6 +360,22 @@ class ReglasFacturacion
         $n = (array) self::get('numeraciones');
 
         return $n[(string) $tiendaId] ?? $n['*'] ?? null;
+    }
+
+    /** Bodega de Alegra de la tienda, o la general. */
+    public static function bodegaDe(?int $tiendaId): ?string
+    {
+        $b = (array) self::get('bodegas');
+
+        return $b[(string) $tiendaId] ?? $b['*'] ?? null;
+    }
+
+    /** Centro de costo de Alegra de la tienda, o el general. */
+    public static function centroCostoDe(?int $tiendaId): ?string
+    {
+        $c = (array) self::get('centros_costo');
+
+        return $c[(string) $tiendaId] ?? $c['*'] ?? null;
     }
 
     /** Cuenta de Alegra (caja o banco) donde entra un pago de esa tienda con ese medio. */
