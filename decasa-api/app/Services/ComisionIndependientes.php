@@ -100,14 +100,27 @@ class ComisionIndependientes
             ? round($base * ReglasComision::numero('compartida_parte_vendedor', $mes, null, (int) $o->vendedor_id))
             : $base;
 
-        // 3. Compartida con una tienda, desde el 50/50 (dueño, 2026-11-12):
-        //    el independiente cobra sobre su mitad, no sobre la venta entera.
-        //    Antes del corte cobraba el 5% entero y el almacén otro 5% entero
-        //    (se pagaba dos veces); lo vendido antes sigue con esa regla.
+        return $o;
+    }
+
+    /**
+     * 3. Una VENTA compartida con una tienda, desde el 50/50 (dueño,
+     *    2026-11-12): el independiente cobra sobre su mitad, no sobre la venta
+     *    entera. Antes del corte cobraba el 5% entero y el almacén otro 5%
+     *    entero (se pagaba dos veces); lo vendido antes sigue con esa regla.
+     *
+     *    Las RESTAURACIONES no: son un caso aparte que el dueño quiere así
+     *    (mismo día, "eso se queda así"). Henry hace una y la comparte con un
+     *    almacén: entra entera al bolsón (5% para Henry, 5% para Flavio) y el
+     *    almacén cobra su 5% de la restauración entera, partido en su equipo.
+     */
+    private static function mitadDelIndependiente(object $o, string $mes, array $idsRestauracion): object
+    {
         if (! empty($o->tienda_abonada_id)
+            && ! in_array($o->id, $idsRestauracion, true)
             && Carbon::parse($o->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->toDateString()
                 >= ComisionController::CORTE_ALMACEN_50_50) {
-            $o->valor_total = round($base * (1 - ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id)));
+            $o->valor_total = round($o->base_entera * (1 - ReglasComision::numero('almacen_fraccion_meta', $mes, (int) $o->tienda_abonada_id)));
         }
 
         return $o;
@@ -151,6 +164,7 @@ class ComisionIndependientes
 
         // Una restauración no le suma a la meta del almacén aunque se comparta.
         $idsRestauracion = self::idsDeRestauracion($ordenes->pluck('id')->all());
+        $ordenes = $ordenes->map(fn ($o) => self::mitadDelIndependiente($o, $mes, $idsRestauracion));
 
         // Las restauraciones que subió alguien de un almacén. Cuentan como si
         // las hubiera subido Henry compartidas con esa tienda: entran al

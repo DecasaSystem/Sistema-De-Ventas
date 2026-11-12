@@ -131,7 +131,7 @@ function otrosCaminos(b, r, ordenes) {
       // antes de esa fecha de un independiente, sobre la venta entera), y una
       // venta en una tienda con meta ya no sale aquí: la paga el pool.
       lineas.push(`Lo que otros compartieron con la tienda: ${pesos(ab)}. Por cada una, la tienda cobra un solo ${num(r.almacen_pct)}% `
-        + `sobre su parte (la mitad; lo de un independiente de antes del 12 nov. 2026, sobre la venta entera) `
+        + `sobre su parte (la mitad; sobre la venta entera si es una restauración de un independiente o algo de un independiente de antes del 12 nov. 2026) `
         + `y se parte entre los que estaban ese día (aquí ${delInd.length} ${delInd.length !== 1 ? 'órdenes' : 'orden'}). `
         + `Quien la vendió cobra sobre su mitad, aparte.`)
     }

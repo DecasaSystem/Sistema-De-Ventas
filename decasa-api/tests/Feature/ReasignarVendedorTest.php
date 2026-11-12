@@ -396,8 +396,12 @@ class ReasignarVendedorTest extends TestCase
         $this->assertSame(1.0, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-11', false, true));
         // Desde el corte, venta en tienda con meta: la paga el pool.
         $this->assertSame(0.0, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', false, true));
-        // Restauración: la mitad aparte.
-        $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', true, true));
+        // Restauración de un independiente: caso aparte, el almacén cobra su
+        // 5% de la restauración entera (y el independiente la mete entera al
+        // bolsón: 5% para Henry, 5% para Flavio, 5% para el almacén).
+        $this->assertSame(1.0, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', true, true));
+        // Restauración de alguien de tienda: la mitad aparte.
+        $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::UNICENTRO, '2026-11-12', true, false));
         // Tienda sin meta (Norte aquí): la mitad aparte.
         $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::NORTE, '2026-11-12', false, false));
     }

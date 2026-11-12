@@ -4146,14 +4146,21 @@ class ComisionController extends Controller
      * Qué parte de una venta compartida con una tienda se le paga APARTE a su
      * gente (filas `abono_almacen`), fuera del pool:
      *  - 1: la venta entera. Independiente que vendió antes del corte (la
-     *    regla con la que se vendió).
+     *    regla con la que se vendió), o restauración de un independiente
+     *    (siempre: caso aparte del dueño, no va 50/50).
      *  - 0: nada aparte. Venta (no restauración) y la tienda tiene meta: su
      *    mitad ya le suma a las ventas de la tienda y la paga el pool.
-     *  - la mitad (almacen_fraccion_meta): restauración, o tienda sin meta.
+     *  - la mitad (almacen_fraccion_meta): restauración de alguien de tienda,
+     *    o tienda sin meta.
      */
     public static function fraccionAparteDelAlmacen(int $tiendaId, string $fechaVenta, bool $esRestauracion, bool $vendioIndependiente): float
     {
         if ($vendioIndependiente && $fechaVenta < self::CORTE_ALMACEN_50_50) return 1.0;
+        // Restauración de un independiente compartida: caso aparte que no va
+        // 50/50 (dueño, 2026-11-12, "eso se queda así"). El independiente la
+        // mete entera al bolsón y el almacén cobra su 5% de la restauración
+        // entera, partido entre su gente.
+        if ($vendioIndependiente && $esRestauracion) return 1.0;
 
         $mes     = substr($fechaVenta, 0, 7);
         // Las pruebas montan esquemas a mano, a veces sin metas: sin tabla, sin meta.

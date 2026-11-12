@@ -124,7 +124,7 @@ independiente cobra el 5 % del bolsón completo. Si se comparte con un almacén
 almacén cobra su propio 5 %. **Eso cambió el 2026-11-12** (ver abajo); sigue así solo para lo
 de independientes vendido antes de esa fecha.
 
-### Compartir la venta con otra tienda: 50/50 (dueño, 2026-11-12, **sin subir**, sin migración)
+### Compartir la venta con otra tienda: 50/50 (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - Ya no es solo de independientes: vendedores de tienda y supervisores también comparten con
   otra tienda desde Nueva orden y Editar orden (Reasignar). Con otro asesor o con una tienda,
   no las dos. Cuando un supervisor hace la orden, la otra mitad es suya (cobra su 5 %).
@@ -139,10 +139,15 @@ de independientes vendido antes de esa fecha.
   mitad). Corte `ComisionController::CORTE_ALMACEN_50_50` = 2026-11-12: lo de independientes
   vendido antes sigue con la regla vieja. Por defecto mío (**falta que el dueño confirme**): solo
   órdenes nuevas, no las viejas sin pagar (el dueño no contestó esa pregunta).
+- **Excepción: las restauraciones de independientes NO van 50/50** (dueño, mismo día: "ESO ES UN
+  CASO ESPECIAL QUE FUNCIONA ASÍ… eso se queda así"). Henry hace una restauración y la comparte
+  con un almacén: entra entera al bolsón (5 % para Henry, 5 % para Flavio) y el almacén cobra su
+  5 % de la restauración entera, partido entre su equipo. Igual que las que sube un almacén sin
+  compartir (ya entraban al bolsón). La versión subida en b90337f las partía: corregido después.
 - Cambiar el vendedor ya no quita el reparto; solo se quita si la orden pasa a esa misma tienda.
 - Tests al final de `ReasignarVendedorTest`.
 
-### Trabajos de restauración separados (dueño, 2026-11-12, **sin subir**, sin migración)
+### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
   Ajustes, clave `restauracion_trabajos` en `configuracion`, JSON) o uno escrito a mano, cada uno
   con cuántas unidades lo llevan, y sigue el espacio de notas. Todo se junta en el

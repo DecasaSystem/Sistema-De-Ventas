@@ -407,8 +407,9 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <p>Cualquiera puede compartir una venta con otra tienda (la tienda le pasó el cliente o lo atendió): un independiente, un vendedor de tienda o un supervisor. Desde el 12 de noviembre de 2026 es <b>{{ laParte(r.almacen_fraccion_meta) }} para cada lado</b>, en la meta y en la bonificación; nada se paga dos veces:</p>
           <ul>
             <li>A la <b>meta y a las ventas de la otra tienda le suma {{ laParte(r.almacen_fraccion_meta, { espacio: true }) }}</b> de la venta. Si la tienda tiene meta, esa mitad la paga su pool, como cualquier venta suya.</li>
-            <li>Si la tienda no tiene meta, o es una <b>restauración</b> (que no suma a la meta), la tienda cobra el {{ pct('almacen_pct') }} sobre su mitad<template v-if="conIva"> (a la venta se le quita el IVA; a la restauración {{ r.iva_en_restauracion ? 'también' : 'no' }})</template>, repartido entre el equipo de ese día.</li>
+            <li>Si la tienda no tiene meta, o es una <b>restauración</b> (que no suma a la meta) de alguien de tienda, la tienda cobra el {{ pct('almacen_pct') }} sobre su mitad<template v-if="conIva"> (a la venta se le quita el IVA; a la restauración {{ r.iva_en_restauracion ? 'también' : 'no' }})</template>, repartido entre el equipo de ese día.</li>
             <li>Quien vendió cobra sobre <b>la otra mitad</b>: el independiente con su {{ pct('indep_pct_venta') }}; el de tienda, en su tienda como cualquier venta suya.</li>
+            <li><b>Restauración de un independiente: caso aparte, no va 50/50.</b> Entra entera al bolsón (cada independiente cobra su {{ pct('indep_pct_bolson') }} del bolsón, por ejemplo Henry y Flavio) y el almacén cobra su {{ pct('almacen_pct') }} de la restauración entera, repartido entre su equipo.</li>
           </ul>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
