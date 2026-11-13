@@ -13,6 +13,8 @@ import api from '@/api'
 import { getVariantes } from '@/api/inventario'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import { updateCliente } from '@/api/clientes'
+import AvisosCliente from '@/components/clientes/AvisosCliente.vue'
+import { digitoVerificacion } from '@/utils/revisarCliente'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
@@ -120,7 +122,7 @@ const clienteResultados = ref([])
 const clienteSeleccionado = ref(null)
 const buscandoCliente   = ref(false)
 const modoNuevoCliente  = ref(false)
-const nuevoCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '' })
+const nuevoCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '', tipo_persona: 'natural', tipo_documento: 'CC', dv: '' })
 const creandoCliente = ref(false)
 const errCliente = ref('')
 
@@ -164,7 +166,7 @@ function usarClienteExistente(c) {
   seleccionarCliente(c)
   modoNuevoCliente.value  = false
   posiblesDuplicados.value = []
-  nuevoCliente.value = { nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '' }
+  nuevoCliente.value = { nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '', tipo_persona: 'natural', tipo_documento: 'CC', dv: '' }
 }
 
 // Completar datos de interesado antes de continuar
@@ -192,6 +194,45 @@ watch(clienteSeleccionado, (c) => {
   }
 })
 
+/**
+ * Los avisos de datos mal escritos (utils/revisarCliente.js, la misma regla
+ * que revisa al facturar). En el formulario el arreglo solo llena los campos;
+ * en un cliente ya guardado se guarda de una vez.
+ */
+function esEmpresa(c) {
+  return c?.tipo_persona === 'juridica' || c?.tipo_documento === 'NIT'
+}
+function ponerTipoCliente(empresa) {
+  Object.assign(nuevoCliente.value, empresa
+    ? { tipo_persona: 'juridica', tipo_documento: 'NIT' }
+    : { tipo_persona: 'natural', tipo_documento: 'CC', dv: '' })
+}
+const dvNuevoCliente = computed(() => {
+  const d = String(nuevoCliente.value.cedula || '').replace(/\D/g, '')
+  return esEmpresa(nuevoCliente.value) && d.length >= 6 ? String(digitoVerificacion(d)) : ''
+})
+function arreglarNuevoCliente(a) {
+  Object.assign(nuevoCliente.value, a.arreglo.campos)
+}
+function arreglarCompletarCliente(a) {
+  Object.assign(formCompletarCliente.value, a.arreglo.campos)
+}
+const corrigiendoCliente = ref('')
+async function arreglarClienteSeleccionado(a) {
+  const c = clienteSeleccionado.value
+  if (!c?.id) return
+  corrigiendoCliente.value = a.codigo
+  try {
+    const { data } = await updateCliente(c.id, a.arreglo.campos)
+    clienteSeleccionado.value = { ...c, ...a.arreglo.campos, ...(data ?? {}) }
+    toast.success('Cliente corregido: ' + a.arreglo.texto)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir el cliente')
+  } finally {
+    corrigiendoCliente.value = ''
+  }
+}
+
 async function completarYConvertirCliente() {
   errCompletarCliente.value = ''
   const f = formCompletarCliente.value
@@ -209,6 +250,8 @@ async function completarYConvertirCliente() {
       telefono:  f.telefono.trim(),
       email:     f.email.trim() || null,
       direccion: f.direccion.trim(),
+      // Lo que se corrigió con un aviso (empresa con NIT, su dígito).
+      ...Object.fromEntries(['tipo_documento', 'tipo_persona', 'dv'].filter(k => f[k]).map(k => [k, f[k]])),
     }
     await updateCliente(clienteSeleccionado.value.id, payload)
     clienteSeleccionado.value = { ...clienteSeleccionado.value, ...payload }
@@ -293,10 +336,15 @@ async function crearCliente() {
   }
   creandoCliente.value = true
   try {
-    const { data } = await api.post('/clientes', nuevoCliente.value)
+    // Persona o empresa (NIT) va con el cliente para no corregirlo al facturar;
+    // sin documento no se manda (un interesado puede no tenerlo todavía).
+    const payload = { ...nuevoCliente.value }
+    if (!String(payload.cedula || '').trim()) { delete payload.tipo_documento; delete payload.dv }
+    if (payload.tipo_documento !== 'NIT') delete payload.dv
+    const { data } = await api.post('/clientes', payload)
     seleccionarCliente(data)
     modoNuevoCliente.value = false
-    nuevoCliente.value = { nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '' }
+    nuevoCliente.value = { nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '', tipo_persona: 'natural', tipo_documento: 'CC', dv: '' }
   } catch (e) {
     errCliente.value = e.response?.data?.message ?? 'Error al crear cliente'
   } finally {
@@ -4152,6 +4200,9 @@ onBeforeUnmount(() => {
             <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0" />
             <p class="text-xs text-amber-700">Los datos del cliente se completarán al finalizar la venta.</p>
           </div>
+
+          <!-- Datos mal escritos de un cliente que ya existe: se corrigen aquí con un toque -->
+          <AvisosCliente :cliente="clienteSeleccionado" :ocupado="corrigiendoCliente" @aplicar="arreglarClienteSeleccionado" />
         </div>
       </div>
 
@@ -4246,17 +4297,37 @@ onBeforeUnmount(() => {
         <div v-if="nuevoCliente.tipo === 'oficial'" class="text-xs text-gray-400">
           Todos los campos marcados con <span class="text-red-500">*</span> son obligatorios.
         </div>
+        <!-- Persona o empresa: la factura electrónica la necesita así (una SAS va con NIT) -->
+        <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+          <button type="button" @click="ponerTipoCliente(false)"
+            :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg', !esEmpresa(nuevoCliente) ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">
+            Persona
+          </button>
+          <button type="button" @click="ponerTipoCliente(true)"
+            :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg', esEmpresa(nuevoCliente) ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">
+            Empresa (NIT)
+          </button>
+        </div>
         <input
           v-model="nuevoCliente.nombre"
           class="input"
-          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Nombre completo *' : 'Nombre completo (opcional)'"
+          :placeholder="esEmpresa(nuevoCliente)
+            ? (nuevoCliente.tipo === 'oficial' ? 'Razón social (ej. Muebles El Roble SAS) *' : 'Razón social (opcional)')
+            : (nuevoCliente.tipo === 'oficial' ? 'Nombre completo *' : 'Nombre completo (opcional)')"
         />
-        <input
-          v-model="nuevoCliente.cedula"
-          class="input"
-          inputmode="numeric"
-          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Cédula / NIT *' : 'Cédula / NIT (opcional)'"
-        />
+        <div>
+          <input
+            v-model="nuevoCliente.cedula"
+            class="input"
+            inputmode="numeric"
+            :placeholder="esEmpresa(nuevoCliente)
+              ? (nuevoCliente.tipo === 'oficial' ? 'NIT sin el dígito de verificación *' : 'NIT (opcional)')
+              : (nuevoCliente.tipo === 'oficial' ? 'Cédula *' : 'Cédula (opcional)')"
+          />
+          <p v-if="dvNuevoCliente" class="text-[11px] text-gray-400 mt-0.5">
+            Dígito de verificación: <b class="text-gray-600">{{ dvNuevoCliente }}</b> · NIT {{ nuevoCliente.cedula.replace(/\D/g, '') }}-{{ dvNuevoCliente }}
+          </p>
+        </div>
         <input
           v-model="nuevoCliente.telefono"
           class="input"
@@ -4274,6 +4345,7 @@ onBeforeUnmount(() => {
           class="input"
           :placeholder="nuevoCliente.tipo === 'oficial' ? 'Dirección *' : 'Dirección (opcional)'"
         />
+        <AvisosCliente :cliente="nuevoCliente" @aplicar="arreglarNuevoCliente" />
 
         <!-- Campos para interesado -->
         <template v-if="nuevoCliente.tipo === 'interesado'">
@@ -6085,6 +6157,7 @@ onBeforeUnmount(() => {
             <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
           </div>
+          <AvisosCliente :cliente="{ ...clienteSeleccionado, ...formCompletarCliente }" @aplicar="arreglarCompletarCliente" />
           <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
           <button
             @click="completarYConvertirCliente"

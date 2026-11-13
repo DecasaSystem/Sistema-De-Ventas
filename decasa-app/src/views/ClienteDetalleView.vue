@@ -20,6 +20,7 @@ import {
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { getCliente, getClienteOrdenes, updateCliente, eliminarCliente } from '@/api/clientes'
+import AvisosCliente from '@/components/clientes/AvisosCliente.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -176,7 +177,29 @@ async function convertirAOficial() {
 const editando  = ref(false)
 const guardando = ref(false)
 const errorEdit = ref('')
-const formEdit  = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '' })
+const formEdit  = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo_documento: 'CC', tipo_persona: 'natural', dv: '' })
+
+// Persona o empresa (NIT): la factura electrónica la necesita bien (2026-11-13).
+const esEmpresa = (c) => c?.tipo_persona === 'juridica' || c?.tipo_documento === 'NIT'
+function ponerTipoEdit(empresa) {
+  Object.assign(formEdit.value, empresa
+    ? { tipo_persona: 'juridica', tipo_documento: 'NIT' }
+    : { tipo_persona: 'natural', tipo_documento: 'CC', dv: '' })
+}
+// Datos mal escritos (utils/revisarCliente.js): en la ficha se guardan de una vez.
+const corrigiendo = ref('')
+async function corregirCliente(a) {
+  corrigiendo.value = a.codigo
+  try {
+    await updateCliente(cliente.value.id, a.arreglo.campos)
+    toast.success('Cliente corregido: ' + a.arreglo.texto)
+    await cargarCliente()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir')
+  } finally {
+    corrigiendo.value = ''
+  }
+}
 
 function abrirEdicion() {
   formEdit.value = {
@@ -185,6 +208,9 @@ function abrirEdicion() {
     telefono:  cliente.value?.telefono  ?? '',
     email:     cliente.value?.email     ?? '',
     direccion: cliente.value?.direccion ?? '',
+    tipo_documento: cliente.value?.tipo_documento || 'CC',
+    tipo_persona:   cliente.value?.tipo_persona || (cliente.value?.tipo_documento === 'NIT' ? 'juridica' : 'natural'),
+    dv:             cliente.value?.dv ?? '',
   }
   errorEdit.value = ''
   editando.value  = true
@@ -204,6 +230,10 @@ async function guardarEdicion() {
       telefono:  formEdit.value.telefono.trim()  || null,
       email:     formEdit.value.email.trim()     || null,
       direccion: formEdit.value.direccion.trim() || null,
+      tipo_documento: formEdit.value.tipo_documento || null,
+      tipo_persona:   formEdit.value.tipo_persona || null,
+      // Sin dígito escrito, el servidor lo calcula (solo con NIT).
+      dv: formEdit.value.tipo_documento === 'NIT' ? (String(formEdit.value.dv || '').trim() || null) : null,
     })
     editando.value = false
     await cargarCliente()
@@ -400,8 +430,8 @@ onMounted(async () => {
         <div v-if="cliente.cedula" class="flex items-center gap-3">
           <IdentificationIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
           <div>
-            <p class="text-xs text-gray-400">Cédula</p>
-            <p class="font-medium text-gray-800">{{ cliente.cedula }}</p>
+            <p class="text-xs text-gray-400">{{ cliente.tipo_documento === 'NIT' ? 'NIT · empresa' : 'Cédula' }}</p>
+            <p class="font-medium text-gray-800">{{ cliente.cedula }}<span v-if="cliente.tipo_documento === 'NIT' && cliente.dv">-{{ cliente.dv }}</span></p>
           </div>
         </div>
         <div v-if="cliente.telefono" class="flex items-center gap-3">
@@ -428,6 +458,7 @@ onMounted(async () => {
         <p v-if="!cliente.cedula && !cliente.telefono && !cliente.email && !cliente.direccion" class="text-xs text-gray-400 italic">
           Sin datos de contacto registrados.
         </p>
+        <AvisosCliente :cliente="cliente" :ocupado="corrigiendo" @aplicar="corregirCliente" class="pt-1" />
       </div>
 
       <!-- Info del cliente — modo edición -->
@@ -448,13 +479,19 @@ onMounted(async () => {
             class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
         </div>
+        <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+          <button type="button" @click="ponerTipoEdit(false)"
+            :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg', !esEmpresa(formEdit) ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">Persona</button>
+          <button type="button" @click="ponerTipoEdit(true)"
+            :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg', esEmpresa(formEdit) ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500']">Empresa (NIT)</button>
+        </div>
         <div>
-          <label class="text-xs font-medium text-gray-600 mb-1 block">Cédula</label>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">{{ esEmpresa(formEdit) ? 'NIT (sin el dígito de verificación)' : 'Cédula' }}</label>
           <input
             v-model="formEdit.cedula"
             type="text"
             inputmode="numeric"
-            placeholder="Número de cédula"
+            :placeholder="esEmpresa(formEdit) ? 'Ej: 900623208' : 'Número de cédula'"
             class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
         </div>
@@ -486,6 +523,7 @@ onMounted(async () => {
           />
         </div>
 
+        <AvisosCliente :cliente="formEdit" @aplicar="(a) => Object.assign(formEdit, a.arreglo.campos)" />
         <p v-if="errorEdit" class="text-xs text-red-600 font-medium">{{ errorEdit }}</p>
 
         <div class="flex gap-2 pt-1">

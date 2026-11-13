@@ -410,6 +410,23 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertNotNull(collect($armado['alertas'])->firstWhere('codigo', 'empresa_sin_retencion'));
     }
 
+    /** Nueva orden manda si es empresa (NIT) al crear/editar el cliente; sin dígito, se calcula (2026-11-13). */
+    public function test_el_cliente_se_crea_y_edita_como_empresa_con_nit(): void
+    {
+        $yo = $this->como($this->supervisor);
+        $id = $this->actingAs($yo)->postJson('/api/clientes', [
+            'nombre' => 'MUEBLES EL ROBLE SAS', 'cedula' => '900623208', 'tipo_documento' => 'NIT', 'tipo_persona' => 'juridica',
+        ])->assertCreated()->json('id');
+        $c = DB::table('clientes')->find($id);
+        $this->assertSame(['NIT', 'juridica', '3'], [$c->tipo_documento, $c->tipo_persona, $c->dv]);
+
+        // Cambiar el número: el dígito viejo ya no sirve y se recalcula.
+        $this->actingAs($yo)->putJson("/api/clientes/{$id}", ['cedula' => '901152550'])->assertOk();
+        $this->assertSame((string) \App\Services\Facturacion\ArmarFactura::digitoVerificacion('901152550'), DB::table('clientes')->where('id', $id)->value('dv'));
+
+        $this->actingAs($yo)->putJson("/api/clientes/{$id}", ['tipo_documento' => 'XX'])->assertStatus(422);
+    }
+
     /** #1042 (2026-11-13): las fotos por producto de la entrega son {url, orden_item_id} y el detalle daba 500. */
     public function test_el_detalle_abre_con_fotos_de_entrega_por_producto(): void
     {

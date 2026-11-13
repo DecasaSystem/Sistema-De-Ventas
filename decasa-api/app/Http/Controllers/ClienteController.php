@@ -55,7 +55,8 @@ class ClienteController extends Controller
             'categorias_interes' => 'nullable|array',
             'categorias_interes.*' => 'string|max:50',
             'notas_interes'    => 'nullable|string|max:1000',
-        ]);
+        ] + self::REGLAS_FISCALES);
+        $data = self::datosFiscales($data);
 
         // Auto-asignar tienda del vendedor si no se proporcionó
         if (empty($data['tienda_id']) && $request->user()?->tienda_default_id) {
@@ -86,11 +87,50 @@ class ClienteController extends Controller
             'categorias_interes' => 'sometimes|nullable|array',
             'categorias_interes.*' => 'string|max:50',
             'notas_interes'     => 'sometimes|nullable|string|max:1000',
-        ]);
+        ] + self::REGLAS_FISCALES);
+        $data = self::datosFiscales($data, $cliente);
 
         $cliente->update($data);
 
         return response()->json($cliente);
+    }
+
+    /**
+     * Si es persona o empresa (NIT y su dígito), desde Nueva orden (usuario,
+     * 2026-11-13: "para no tener que estar corrigiendo" al facturar). Los
+     * mismos valores que guarda Facturación electrónica.
+     */
+    private const REGLAS_FISCALES = [
+        'tipo_documento' => 'sometimes|nullable|in:CC,NIT,CE,PP,TI,PEP,DIE,NUIP,TE,RC,FOREIGN_NIT',
+        'dv'             => 'sometimes|nullable|string|max:2',
+        'tipo_persona'   => 'sometimes|nullable|in:natural,juridica',
+    ];
+
+    /**
+     * Lo fiscal, limpio: solo las columnas que existen; con NIT y sin dígito,
+     * el dígito se calcula; si cambió la identidad, el contacto de Alegra
+     * guardado ya no es este cliente.
+     */
+    private static function datosFiscales(array $data, ?Cliente $antes = null): array
+    {
+        foreach (['tipo_documento', 'dv', 'tipo_persona'] as $k) {
+            if (array_key_exists($k, $data) && ! \App\Support\Esquema::columna('clientes', $k)) unset($data[$k]);
+        }
+        $tipo = $data['tipo_documento'] ?? $antes?->tipo_documento;
+        $doc  = $data['cedula'] ?? $antes?->cedula;
+        // Sin dígito escrito: se calcula si no tenía o si cambió el número (el viejo ya no sirve).
+        $cambioDoc = $antes && array_key_exists('cedula', $data) && $data['cedula'] !== $antes->cedula;
+        if ($tipo === 'NIT' && $doc && ctype_digit((string) $doc) && empty($data['dv'])
+            && ($cambioDoc || empty($antes?->dv)) && \App\Support\Esquema::columna('clientes', 'dv')) {
+            $data['dv'] = (string) \App\Services\Facturacion\ArmarFactura::digitoVerificacion((string) $doc);
+        }
+        if ($antes && \App\Support\Esquema::columna('clientes', 'alegra_contacto_id')
+            && ((array_key_exists('cedula', $data) && $data['cedula'] !== $antes->cedula)
+                || (array_key_exists('tipo_documento', $data) && $data['tipo_documento'] !== $antes->tipo_documento))) {
+            $data['alegra_contacto_id'] = null;
+        }
+
+        return $data;
     }
 
     /**
