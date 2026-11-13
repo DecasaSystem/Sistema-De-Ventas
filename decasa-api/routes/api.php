@@ -874,7 +874,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
 
     // Facturación electrónica con Alegra (docs/plan-facturacion-alegra.md). El
-    // permiso (facturador o supervisor; Ajustes solo supervisor) se revisa en el
+    // permiso (facturador o supervisor, también para Ajustes) se revisa en el
     // controlador. Rutas literales antes de las de {id}.
     Route::prefix('facturacion-electronica')->controller(\App\Http\Controllers\FacturacionElectronicaController::class)->group(function () {
         Route::get('/estado',              'estado');

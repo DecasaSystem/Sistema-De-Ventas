@@ -115,7 +115,7 @@ limitar a un vendedor a solo lo suyo.
 - La migración `2026_11_15_000001_bolson_de_restauraciones_solo_henry_y_flabio` pone la regla
   `entra_al_bolson`: general No + Henry Sí + Flabio Sí desde el primer mes. No hace nada si hay otro
   independiente marcado o si ya existe la regla general. Después de subirla se puede marcar
-  independiente a quien sea sin tocar el bolsón. **Sin subir** al 2026-11-13.
+  independiente a quien sea sin tocar el bolsón. **Subido a `main`** el 2026-11-13 (86dde9ec). Ese día también se arregló que editar cualquier tienda en Gestión daba "validateSometimes|required" (437d7d34).
 - La "sede de independientes" (`tiendas.es_independientes`, Gestión → Tiendas) estaba en **Feria**,
   no en la tienda "Independientes": quien se marca independiente cae en Feria, y Feria queda fuera
   de Caja y Estadísticas. Se cambia en la app (lo decide el usuario).
@@ -926,7 +926,7 @@ escribiendo precios (Fase 1b).
   `claude/alegra-billing-integration-a51e78`, trae **migración** `2026_11_10_000001_facturacion_electronica`,
   solo agrega). Detalle en `docs/plan-facturacion-alegra.md`. Decisiones del dueño ese día: se
   factura **al entregar**, **las FV2 no se facturan**, el **facturador revisa** la orden y toca
-  Facturar, y **todo personalizable** desde el programa (Ajustes del módulo, solo supervisor). Viene
+  Facturar, y **todo personalizable** desde el programa (Ajustes del módulo: supervisor o quien tenga la función de facturación, usuario 2026-11-13). Viene
   apagado y en "solo borrador". Necesita `ALEGRA_TOKEN` en Render: el usuario creó el 2026-11-11 un
   **JWT** "Sodege" con permisos escogidos (vence **11 nov 2027**: renovarlo antes). El sistema lo
   manda como `Bearer`; con el token clásico usa Basic + `ALEGRA_EMAIL` (2026-11-11, **sin subir**).

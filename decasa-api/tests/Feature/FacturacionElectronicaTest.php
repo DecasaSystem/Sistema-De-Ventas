@@ -278,9 +278,15 @@ class FacturacionElectronicaTest extends TestCase
             ->assertOk()->assertJsonCount(0, 'data');
     }
 
-    public function test_solo_un_supervisor_cambia_los_ajustes(): void
+    public function test_los_ajustes_los_cambia_quien_factura(): void
     {
+        // Usuario, 2026-11-13: con la función de facturación prendida ve y
+        // cambia los Ajustes aunque no sea supervisor.
         $this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/estado')->assertOk()->assertJsonPath('puede_ajustes', true);
+        $this->actingAs($this->como($this->facturador))
+            ->putJson('/api/facturacion-electronica/reglas', ['reglas' => ['modo' => 'borrador']])->assertOk();
+        $this->actingAs($this->como($this->vendedor))
             ->putJson('/api/facturacion-electronica/reglas', ['reglas' => ['activo' => true]])->assertForbidden();
         $this->actingAs($this->como($this->vendedor))
             ->getJson('/api/facturacion-electronica/pendientes')->assertForbidden();

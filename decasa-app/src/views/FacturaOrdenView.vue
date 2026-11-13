@@ -557,7 +557,7 @@ onMounted(cargar)
           {{ enviando ? 'Enviando a Alegra…' : textoBoton }}
         </button>
         <p v-if="armado.modo !== 'emitir'" class="text-xs text-amber-700">
-          Modo prueba: queda como borrador en Alegra y no se manda a la DIAN. Un supervisor lo cambia en Ajustes.
+          Modo prueba: queda como borrador en Alegra y no se manda a la DIAN. Se cambia en Ajustes.
         </p>
         <p v-else class="text-xs text-gray-500">
           Una factura emitida no se puede borrar: solo se corrige con nota crédito.

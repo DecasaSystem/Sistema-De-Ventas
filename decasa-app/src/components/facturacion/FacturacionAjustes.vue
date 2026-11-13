@@ -2,7 +2,7 @@
 /**
  * Facturación electrónica → Ajustes. Todo lo que cambia cómo se factura, sin
  * tocar código (dueño, 2026-11-09). Lo guarda ReglasFacturacion en el
- * servidor; solo un supervisor lo cambia.
+ * servidor; lo cambia quien factura (supervisor o con la función prendida).
  */
 import { ref, computed, onMounted } from 'vue'
 import AppSpinner from '@/components/common/AppSpinner.vue'

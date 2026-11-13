@@ -2,7 +2,7 @@
 /**
  * Facturación electrónica (Alegra). Lo que pidió el dueño (2026-11-09): la
  * orden se entrega → le aparece aquí al facturador → entra, revisa todo y
- * toca Facturar. Qué sale aquí lo deciden los Ajustes (solo supervisor).
+ * toca Facturar. Qué sale aquí lo deciden los Ajustes (quien factura).
  */
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -121,7 +121,7 @@ onMounted(async () => {
         Se factura {{ MOMENTOS[estado.momento] }}<span v-if="estado.desde">, desde el {{ estado.desde }}</span>.
         {{ estado.requiere_revision ? 'Cada factura la revisa una persona antes de salir.' : 'Lo que no tiene advertencias sale solo.' }}
       </p>
-      <p v-else>Mientras esté apagada no sale nada aquí. {{ estado.puede_ajustes ? 'Se prende en Ajustes.' : 'La prende un supervisor.' }}</p>
+      <p v-else>Mientras esté apagada no sale nada aquí. {{ estado.puede_ajustes ? 'Se prende en Ajustes.' : 'La prende quien factura, en Ajustes.' }}</p>
     </div>
 
     <div class="flex bg-gray-100 rounded-xl p-1 gap-1 overflow-x-auto">

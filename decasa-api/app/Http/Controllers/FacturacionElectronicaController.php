@@ -22,7 +22,9 @@ use Illuminate\Support\Facades\DB;
  * Facturación electrónica (docs/plan-facturacion-alegra.md).
  *
  * Quién: el facturador (usuarios.facturacion) y los supervisores facturan;
- * solo un supervisor cambia los Ajustes. El flujo que pidió el dueño
+ * los Ajustes los cambian ellos mismos (usuario, 2026-11-13: "que las
+ * personas que tengan activo lo de factura electrónica les aparezca lo de
+ * ajustes así no sea supervisor"). El flujo que pidió el dueño
  * (2026-11-09): la orden se entrega → le aparece al facturador en "Por
  * facturar" → entra, revisa toda la orden con sus pruebas → toca Facturar.
  */
@@ -41,10 +43,11 @@ class FacturacionElectronicaController extends Controller
         return $u;
     }
 
-    private function exigirSupervisor(Request $request): Usuario
+    // Ajustes: los mismos que facturan (supervisor o con la función prendida).
+    private function exigirAjustes(Request $request): Usuario
     {
         $u = $request->user();
-        abort_unless($u && $u->rol === 'supervisor', 403, 'Solo un supervisor cambia cómo se factura.');
+        abort_unless(self::puedeFacturar($u), 403, 'Tu cuenta no tiene la función de facturación.');
 
         return $u;
     }
@@ -61,7 +64,7 @@ class FacturacionElectronicaController extends Controller
             'momento'         => $r['momento'],
             'desde'           => $r['desde'],
             'conectado'       => ClienteAlegra::configurado(),
-            'puede_ajustes'   => $u->rol === 'supervisor',
+            'puede_ajustes'   => true,
             'requiere_revision' => $r['requiere_revision'],
         ]);
     }
@@ -305,7 +308,7 @@ class FacturacionElectronicaController extends Controller
         return response()->json(['message' => 'Diferencia marcada como resuelta.', 'factura' => $this->filaFactura($f->fresh())]);
     }
 
-    // ── Ajustes (solo supervisor) ───────────────────────────────────────────
+    // ── Ajustes (quien factura) ───────────────────────────────────────────
 
     public function reglas(Request $request)
     {
@@ -342,7 +345,7 @@ class FacturacionElectronicaController extends Controller
 
     public function guardarReglas(Request $request)
     {
-        $this->exigirSupervisor($request);
+        $this->exigirAjustes($request);
         [$reglas, $errores] = ReglasFacturacion::guardar((array) $request->input('reglas', []));
 
         if ($errores) {
@@ -355,7 +358,7 @@ class FacturacionElectronicaController extends Controller
     /** GET /facturacion-electronica/alegra/catalogos — lo que hay en Alegra para escoger en Ajustes. */
     public function catalogos(Request $request, ClienteAlegra $alegra)
     {
-        $this->exigirSupervisor($request);
+        $this->exigirAjustes($request);
         if (! ClienteAlegra::configurado()) {
             return response()->json(['message' => 'Alegra no está conectado: falta ALEGRA_TOKEN en el servidor (y ALEGRA_EMAIL si es el token clásico).'], 422);
         }
@@ -454,7 +457,7 @@ class FacturacionElectronicaController extends Controller
     /** GET /facturacion-electronica/alegra/contactos?buscar= (para escoger "Consumidor final"). */
     public function contactosAlegra(Request $request, ClienteAlegra $alegra)
     {
-        $this->exigirSupervisor($request);
+        $this->exigirAjustes($request);
         try {
             $r = $alegra->get('contacts', array_filter(['query' => $request->query('buscar'), 'limit' => 30]));
         } catch (SinRespuestaDeAlegra $e) {
