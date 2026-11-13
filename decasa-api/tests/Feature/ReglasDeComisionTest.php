@@ -433,6 +433,39 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals([0, 50_000], $this->bolsonDeDos());
     }
 
+    public function test_la_migracion_deja_el_bolson_solo_a_henry_y_flabio_sin_mover_un_peso(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        // Antes de la migración: Henry y Flabio, cada uno 50.000.
+        $this->assertEquals([50_000, 50_000], $this->bolsonDeDos());
+
+        $m = require base_path('database/migrations/2026_11_15_000001_bolson_de_restauraciones_solo_henry_y_flabio.php');
+        ob_start(); $m->up(); $m->up(); ob_end_clean();
+        $this->assertSame(3, DB::table('comision_reglas')->where('clave', 'entra_al_bolson')->count(), 'Una sola vez.');
+
+        // Después marcan a otro independiente (Margarita): no entra, y a ellos dos no les cambia nada.
+        DB::table('usuarios')->insert(['id' => 42, 'nombre' => 'Margarita', 'rol' => 'supervisor', 'independiente' => true,
+            'email' => '42@d.com', 'password' => 'x', 'created_at' => now()]);
+        \App\Services\ComisionIndependientes::olvidarCache();
+        ReglasComision::olvidarCache();
+        $cuenta = \App\Services\ComisionIndependientes::delMes(self::MES);
+        $de = fn ($id) => collect($cuenta['independientes'])->firstWhere('vendedor_id', $id)['comision_restauraciones'] ?? 0;
+        $this->assertEquals([50_000, 50_000, 0], [$de(40), $de(41), $de(42)]);
+    }
+
+    public function test_la_migracion_del_bolson_no_hace_nada_si_hay_otro_independiente_marcado(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->bolsonDeDos();
+        DB::table('usuarios')->insert(['id' => 42, 'nombre' => 'Margarita', 'rol' => 'supervisor', 'independiente' => true,
+            'email' => '42@d.com', 'password' => 'x', 'created_at' => now()]);
+
+        $m = require base_path('database/migrations/2026_11_15_000001_bolson_de_restauraciones_solo_henry_y_flabio.php');
+        ob_start(); $m->up(); $salida = ob_get_clean();
+        $this->assertSame(0, DB::table('comision_reglas')->where('clave', 'entra_al_bolson')->count());
+        $this->assertStringContainsString('Margarita', $salida);
+    }
+
     public function test_una_opcion_que_no_existe_se_frena(): void
     {
         Carbon::setTestNow('2026-10-26 10:00:00');

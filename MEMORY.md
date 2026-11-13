@@ -108,6 +108,18 @@ limitar a un vendedor a solo lo suyo.
   Simulado en la copia de producción: solo cambió Unicentro agosto (R-1100: .750 a Juan Esteban y a Génesis → /usr/bin/bash).
 - Las restauraciones de independientes siguen en su bolsón como siempre.
 
+### El bolsón de restauraciones es solo de Henry y Flabio (usuario, 2026-11-13, desde siempre)
+- Trampa: quién entra al bolsón se decide con quién está marcado como independiente **hoy**, no
+  con quién lo estaba ese mes. Marcar a Margarita, Juan Peláez y Nicolás los metió en el bolsón de
+  ago–oct sin pagar (~$580.000 más a cada uno solo en noviembre); se desmarcaron el mismo día.
+- La migración `2026_11_15_000001_bolson_de_restauraciones_solo_henry_y_flabio` pone la regla
+  `entra_al_bolson`: general No + Henry Sí + Flabio Sí desde el primer mes. No hace nada si hay otro
+  independiente marcado o si ya existe la regla general. Después de subirla se puede marcar
+  independiente a quien sea sin tocar el bolsón. **Sin subir** al 2026-11-13.
+- La "sede de independientes" (`tiendas.es_independientes`, Gestión → Tiendas) estaba en **Feria**,
+  no en la tienda "Independientes": quien se marca independiente cae en Feria, y Feria queda fuera
+  de Caja y Estadísticas. Se cambia en la app (lo decide el usuario).
+
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
   pagaban con solo llegar el 20; se cambió en `enriquecer` y `ComisionIndependientes::delMes`.
