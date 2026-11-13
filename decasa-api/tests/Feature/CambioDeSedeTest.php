@@ -314,4 +314,41 @@ class CambioDeSedeTest extends TestCase
         $this->assertFalse($tienda->activa);
         $this->assertSame('2026-08-27', $tienda->cerrada_en->toDateString());
     }
+
+    /**
+     * Editar una tienda reventaba siempre ("validateSometimes|required does
+     * not exist"): no se podía pasar la sede de independientes de Feria a
+     * Independientes, y por eso tampoco eliminar Feria (usuario, 2026-11-13).
+     */
+    public function test_se_puede_editar_una_tienda_y_pasarle_la_sede_de_independientes(): void
+    {
+        Schema::table('tiendas', fn (Blueprint $t) => $t->boolean('es_fabrica')->default(false));
+        Schema::table('tiendas', fn (Blueprint $t) => $t->string('ciudad')->nullable());
+        Schema::table('tiendas', fn (Blueprint $t) => $t->string('direccion')->nullable());
+        Schema::table('tiendas', fn (Blueprint $t) => $t->string('telefono')->nullable());
+        Schema::create('inventario', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id'); $t->integer('cantidad_disponible')->default(0);
+        });
+        DB::table('usuarios')->insert(['id' => 1, 'nombre' => 'Jefa', 'rol' => 'supervisor']);
+        DB::table('tiendas')->where('id', self::CIRCUNVALAR)->update(['es_independientes' => true]);
+        $jefa = Usuario::find(1);
+
+        // Sin mandar el nombre (solo la marca), como la casilla de Gestión.
+        $this->actingAs($jefa)
+            ->patchJson('/api/tiendas/' . self::UNICENTRO, ['es_independientes' => true])
+            ->assertOk()
+            ->assertJsonPath('es_independientes', true);
+        $this->assertFalse((bool) Tienda::find(self::CIRCUNVALAR)->es_independientes);
+
+        // Mandando el nombre vacío sí se frena.
+        $this->actingAs($jefa)
+            ->patchJson('/api/tiendas/' . self::UNICENTRO, ['nombre' => ''])
+            ->assertStatus(422);
+
+        // Ya sin la marca, la vieja se puede eliminar (se desactiva: tiene gente).
+        $this->actingAs($jefa)
+            ->deleteJson('/api/tiendas/' . self::CIRCUNVALAR)
+            ->assertOk()
+            ->assertJsonPath('desactivada', true);
+    }
 }

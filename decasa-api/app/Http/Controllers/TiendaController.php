@@ -104,10 +104,13 @@ class TiendaController extends Controller
 
     private function validarDatos(Request $request, bool $sometimes = false): array
     {
-        $regla = fn(string $r) => $sometimes ? "sometimes|$r" : $r;
+        // En una lista de reglas cada regla va en su propio elemento: un
+        // "sometimes|required" junto revienta ("validateSometimes|required
+        // does not exist") y no dejaba editar ninguna tienda.
+        $nombre = $sometimes ? ['sometimes', 'required'] : ['required'];
 
         return $request->validate([
-            'nombre'            => [$regla('required'), 'string', 'max:100'],
+            'nombre'            => [...$nombre, 'string', 'max:100'],
             'ciudad'            => 'nullable|string|max:80',
             'direccion'         => 'nullable|string|max:200',
             'telefono'          => 'nullable|string|max:20',
