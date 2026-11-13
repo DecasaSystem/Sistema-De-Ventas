@@ -460,6 +460,10 @@ onMounted(cargar)
             <span>Forma de pago</span>
             <span>{{ armado.forma_pago === 'CASH' ? 'Contado' : `Crédito (debe ${pesos(armado.totales.saldo_sin_retencion)})` }}</span>
           </div>
+          <div v-if="armado.tienda_que_vendio" class="flex justify-between text-xs text-gray-500">
+            <span>Bodega y centro de costo de</span>
+            <span>{{ armado.tienda_que_vendio.nombre }}</span>
+          </div>
         </div>
         <!-- Retención del cliente empresa: no es deuda, se cruza en Alegra al pagar. -->
         <div v-if="!hecha && (armado.totales.saldo > 0.01 || retencion > 0)" class="border-t border-gray-100 pt-2 space-y-1">

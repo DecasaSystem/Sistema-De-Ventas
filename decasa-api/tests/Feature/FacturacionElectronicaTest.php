@@ -70,7 +70,7 @@ class FacturacionElectronicaTest extends TestCase
             $t->decimal('descuento_condicionado', 14, 2)->default(0);
             $t->string('direccion_envio')->nullable(); $t->string('ciudad_envio')->nullable(); $t->string('departamento_envio')->nullable();
             $t->json('factura_fotos')->nullable(); $t->string('factura_foto_url')->nullable(); $t->string('anexo_foto_url')->nullable();
-            $t->string('canal')->nullable(); $t->text('notas')->nullable();
+            $t->string('canal')->nullable(); $t->unsignedBigInteger('tienda_vendedor_id')->nullable(); $t->text('notas')->nullable();
             $t->timestamps();
         });
         Schema::create('orden_items', function (Blueprint $t) {
@@ -1174,5 +1174,115 @@ class FacturacionElectronicaTest extends TestCase
 
         $this->assertSame(0, FacturaElectronica::count());
         Http::assertNothingSent();
+    }
+    // ── La tienda que vendió y el mismo día (contador, 2026-11-13) ──────────
+
+    private const EDEN = 2;
+    private const VIRTUAL = 3;
+
+    private function tiendasDeRedes(): void
+    {
+        DB::table('tiendas')->insert([
+            ['id' => self::EDEN, 'nombre' => 'El Edén', 'ciudad' => 'Armenia'],
+            ['id' => self::VIRTUAL, 'nombre' => 'Tienda Virtual', 'ciudad' => 'Armenia'],
+        ]);
+        // Norte = bodega 3 / centro 7; El Edén = 4 / 8; Tienda Virtual = la de Fábrica, 6 / 9.
+        $this->prender([
+            'bodegas'       => ['*' => '3', (string) self::EDEN => '4', (string) self::VIRTUAL => '6'],
+            'centros_costo' => ['*' => '7', (string) self::EDEN => '8', (string) self::VIRTUAL => '9'],
+        ]);
+    }
+
+    private function envioDe(int $ordenId): array
+    {
+        $armado = ArmarFactura::de(\App\Models\Orden::find($ordenId));
+
+        return [$armado['factura']['warehouse'] ?? null, $armado['factura']['costCenter'] ?? null, $armado['tienda_que_vendio']['nombre']];
+    }
+
+    public function test_un_whatsapp_de_el_eden_va_a_la_bodega_y_centro_de_el_eden(): void
+    {
+        $this->tiendasDeRedes();
+        // Se hizo en Norte (inventario y consecutivo), pero la vendió alguien de El Edén por WhatsApp.
+        $id = $this->ordenEntregada(['canal' => 'whatsapp', 'tienda_vendedor_id' => self::EDEN]);
+
+        $this->assertSame([['id' => '4'], ['id' => '8'], 'El Edén'], $this->envioDe($id));
+    }
+
+    public function test_lo_de_tienda_virtual_va_a_fabrica(): void
+    {
+        $this->tiendasDeRedes();
+        $id = $this->ordenEntregada(['canal' => 'instagram', 'tienda_vendedor_id' => self::VIRTUAL]);
+
+        $this->assertSame([['id' => '6'], ['id' => '9'], 'Tienda Virtual'], $this->envioDe($id));
+    }
+
+    public function test_una_venta_en_la_tienda_es_de_la_tienda_aunque_el_vendedor_sea_de_otra(): void
+    {
+        $this->tiendasDeRedes();
+        $id = $this->ordenEntregada(['canal' => 'fisica', 'tienda_vendedor_id' => self::EDEN]);
+
+        $this->assertSame([['id' => '3'], ['id' => '7'], 'Decasa Norte'], $this->envioDe($id));
+    }
+
+    public function test_lo_entregado_otro_dia_sale_atrasado(): void
+    {
+        $this->prender();
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06 10:00', 'America/Bogota'));
+        $viejo = $this->ordenEntregada();
+        $hoy = $this->ordenEntregada();
+        DB::table('despacho_items')->where('orden_id', $hoy)->update(['entregado_at' => '2026-11-06 14:00:00']);
+
+        $filas = collect($this->actingAs($this->como($this->facturador))
+            ->getJson('/api/facturacion-electronica/pendientes')->assertOk()->json('data'))->keyBy('orden_id');
+        $this->assertSame(1, $filas[$viejo]['dias_sin_facturar'], 'Se entregó el 5: el 6 ya va atrasada.');
+        $this->assertSame(0, $filas[$hoy]['dias_sin_facturar']);
+    }
+
+    private function tablaDeAvisos(): void
+    {
+        Schema::create('notificaciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id')->nullable(); $t->string('tipo'); $t->string('titulo');
+            $t->text('mensaje')->nullable(); $t->boolean('leida')->default(false); $t->boolean('urgente')->default(false);
+            $t->json('datos')->nullable(); $t->timestamps();
+        });
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Event::fake();
+    }
+
+    public function test_a_la_hora_de_ajustes_se_avisa_una_vez_lo_sin_facturar(): void
+    {
+        $this->prender();
+        $this->tablaDeAvisos();
+        $this->ordenEntregada();
+        $hoy = $this->ordenEntregada();
+        DB::table('despacho_items')->where('orden_id', $hoy)->update(['entregado_at' => '2026-11-06 14:00:00']);
+
+        // Antes de las 5:00 p. m. no avisa.
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06 16:50', 'America/Bogota'));
+        Artisan::call('facturacion:avisar-sin-facturar');
+        $this->assertSame(0, DB::table('notificaciones')->count());
+
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06 17:05', 'America/Bogota'));
+        Artisan::call('facturacion:avisar-sin-facturar');
+        Artisan::call('facturacion:avisar-sin-facturar');
+        $avisos = DB::table('notificaciones')->get();
+        // Al facturador y al supervisor, una sola vez.
+        $this->assertEqualsCanonicalizing([$this->facturador, $this->supervisor], $avisos->pluck('usuario_id')->all());
+        $this->assertSame('Quedan 2 órdenes sin facturar', $avisos[0]->titulo);
+        $this->assertStringContainsString('1 entregada hoy y 1 de días anteriores', $avisos[0]->mensaje);
+    }
+
+    public function test_sin_hora_no_se_avisa(): void
+    {
+        $this->prender(['aviso_sin_facturar_hora' => '']);
+        $this->tablaDeAvisos();
+        $this->ordenEntregada();
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06 20:00', 'America/Bogota'));
+
+        Artisan::call('facturacion:avisar-sin-facturar');
+        $this->assertSame(0, DB::table('notificaciones')->count());
+        [, $errores] = ReglasFacturacion::guardar(['aviso_sin_facturar_hora' => '5 pm']);
+        $this->assertNotEmpty($errores);
     }
 }

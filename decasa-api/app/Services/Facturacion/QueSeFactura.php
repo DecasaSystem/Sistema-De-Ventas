@@ -125,6 +125,20 @@ class QueSeFactura
         return $ultima ? \Carbon\Carbon::parse($ultima) : $orden->updated_at;
     }
 
+    /**
+     * Días (en Bogotá) que lleva sin facturar desde la fecha que cuenta: 0 =
+     * se entregó hoy. El contador factura el mismo día de la entrega, así que
+     * 1 o más es atrasada.
+     */
+    public static function diasSinFacturar(Orden $orden, ?Pago $pago = null): int
+    {
+        $fecha = $pago?->created_at ?? self::fechaQueCuenta($orden);
+        if (! $fecha) return 0;
+        $dia = \Carbon\Carbon::parse($fecha)->setTimezone('America/Bogota')->startOfDay();
+
+        return max(0, (int) $dia->diffInDays(now('America/Bogota')->startOfDay()));
+    }
+
     /** max(entregado_at) de las entregas de verdad: las que cierran una garantía no cuentan. */
     private static function consultaUltimaEntrega()
     {

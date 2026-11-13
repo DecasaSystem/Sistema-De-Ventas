@@ -167,6 +167,10 @@ onMounted(async () => {
               <span v-if="f.intento" :class="['px-2 py-0.5 rounded-full text-xs font-semibold', ESTADOS_FE[f.intento.estado]?.clase]">
                 {{ ESTADOS_FE[f.intento.estado]?.label }}
               </span>
+              <span v-if="tab === 'pendientes' && f.dias_sin_facturar > 0" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                title="Se factura el mismo día de la entrega">
+                Atrasada · {{ f.dias_sin_facturar === 1 ? '1 día' : `${f.dias_sin_facturar} días` }}
+              </span>
               <span v-if="f.faltan?.length" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
                 Falta {{ f.faltan.join(', ') }}
               </span>

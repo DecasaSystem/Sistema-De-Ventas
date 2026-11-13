@@ -185,6 +185,15 @@ Una factura hecha a mano en Alegra mostró cómo factura Decasa. Trae **migraci�
 **Permisos del token:** para ver bodegas y centros de costo, el JWT necesita "Almacenes" y
 "Centros de costos" (ver). Sin ellos, Ajustes avisa y las listas salen vacías.
 
+## 5g. Tercera ronda del contador (2026-11-13)
+
+| Respuesta | Qué hace el sistema |
+|---|---|
+| "La factura el mismo día de la entrega" | En "Por facturar", lo entregado otro día sale **Atrasada · N días** (`dias_sin_facturar`, días de Bogotá). Tarea `facturacion:avisar-sin-facturar` (cada 15 min): desde la hora de Ajustes (`aviso_sin_facturar_hora`, de fábrica 17:00; vacía = no avisa) manda **una vez al día** "Quedan N órdenes sin facturar (X entregadas hoy y Y de días anteriores)" a quien factura y a los supervisores (`AvisoFacturacion::destinatarios`, tipo `factura_electronica`, grupo "Abonos y facturación"). Si no queda nada, no avisa |
+| "Alegra envía eso automático" | "Mandarle la factura al correo" sigue apagado de fábrica |
+| "Los muebles de diseño nuevo se facturan como diseño especial" | Ya era así: lo que no es del catálogo va con el producto de Alegra "para diseños especiales" (`item_producto_id`) |
+| Bodega y centro de costo "de la tienda que vendió"; un WhatsApp de El Edén → El Edén; lo de **Tienda Virtual** (redes, la maneja la fábrica) → Fábrica | `ArmarFactura::tiendaQueVendio()` = la misma regla de comisiones (`ComisionController::tiendaParaComision`): lo físico, la tienda de la orden; lo digital, la tienda del vendedor cuando vendió (`tienda_vendedor_id`). Para Tienda Virtual se escoge en Ajustes la bodega y el centro de costo de Fábrica. La revisión de la orden dice de qué tienda van. La **numeración** sigue por la tienda de la orden (todas usan FEN) |
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:

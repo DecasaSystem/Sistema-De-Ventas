@@ -130,20 +130,28 @@ class ArmarFactura
         if (trim((string) $r['terminos_factura']) !== '') {
             $factura['termsConditions'] = (string) $r['terminos_factura'];
         }
-        // Bodega y centro de costo de la tienda (FEN1917: bodega "3 - EDEN",
-        // centro de costo "EDEN"): de ahí descuenta Alegra el inventario y ahí
-        // carga la venta en su contabilidad.
-        if ($bodega = ReglasFacturacion::bodegaDe($o->tienda_id)) {
+        // Bodega y centro de costo de la TIENDA QUE VENDIÓ (FEN1917: bodega
+        // "3 - EDEN", centro de costo "EDEN"): de ahí descuenta Alegra el
+        // inventario y ahí carga la venta. Contador, 2026-11-13: un WhatsApp que
+        // hizo El Edén va a El Edén; lo de Tienda Virtual (redes, la maneja gente
+        // de la fábrica) va a Fábrica, y eso se escoge en Ajustes para Tienda
+        // Virtual. Es la misma regla de las comisiones (tiendaParaComision): lo
+        // físico es de la tienda de la orden, lo digital de la del vendedor.
+        $tiendaVendio = $this->tiendaQueVendio();
+        $nombreVendio = $tiendaVendio === (int) $o->tienda_id
+            ? ($o->tienda?->nombre ?? 'esta tienda')
+            : (\App\Models\Tienda::where('id', $tiendaVendio)->value('nombre') ?? 'esta tienda');
+        if ($bodega = ReglasFacturacion::bodegaDe($tiendaVendio)) {
             $factura['warehouse'] = ['id' => $bodega];
         } elseif ($r['items_alegra'] === 'por_producto') {
-            $this->advertencia('sin_bodega', 'No hay bodega de Alegra escogida para ' . ($o->tienda?->nombre ?? 'esta tienda')
+            $this->advertencia('sin_bodega', 'No hay bodega de Alegra escogida para ' . $nombreVendio
                 . ': Alegra descontará el inventario de su bodega principal. Escógela en Ajustes.');
         }
-        if ($centro = ReglasFacturacion::centroCostoDe($o->tienda_id)) {
+        if ($centro = ReglasFacturacion::centroCostoDe($tiendaVendio)) {
             $factura['costCenter'] = ['id' => $centro];
         } else {
             $this->advertencia('sin_centro_costo', 'No hay centro de costo de Alegra escogido para '
-                . ($o->tienda?->nombre ?? 'esta tienda') . ' (Ajustes).', false);
+                . $nombreVendio . ' (Ajustes).', false);
         }
         // Los pagos NO van dentro de la factura: se registran después, uno por uno
         // y con el total exacto que diga Alegra (EmitirFactura::registrarPagos).
@@ -184,6 +192,8 @@ class ArmarFactura
             'forma_pago'    => $formaPago,
             'medio_pago'    => $factura['paymentMethod'],
             'numeracion'    => $this->numeracion,
+            // Para que el facturador vea a qué bodega y centro de costo va.
+            'tienda_que_vendio' => ['id' => $tiendaVendio, 'nombre' => $nombreVendio],
             'alertas'       => $this->alertas,
             'se_puede'      => ! $bloqueos,
             'advertencias'  => array_values(array_map(fn ($a) => $a['codigo'],
@@ -195,6 +205,17 @@ class ArmarFactura
     }
 
     /** Lo que se escribe en las observaciones de la factura para encontrarla después. */
+    /**
+     * La tienda que vendió, para la bodega y el centro de costo de Alegra.
+     * Misma regla que las comisiones: lo físico, la tienda de la orden; lo
+     * digital (WhatsApp, Instagram…), la tienda del vendedor cuando vendió.
+     * Un independiente (sin tienda) se queda con la de la orden.
+     */
+    public function tiendaQueVendio(): int
+    {
+        return \App\Http\Controllers\ComisionController::tiendaParaComision($this->orden);
+    }
+
     public function marca(): string
     {
         return $this->pago ? "[DECASA-PAGO-{$this->pago->id}]" : "[DECASA-ORDEN-{$this->orden->id}]";

@@ -927,6 +927,12 @@ escribiendo precios (Fase 1b).
   nunca reintentar un POST /invoices sin pasar por `EmitirFactura` (busca por la marca
   `[DECASA-ORDEN-ID]` antes de crear otra). El `vendor` del worktree venía incompleto: se copió el
   del repo principal.
+  **Tercera ronda del contador (2026-11-13, §5g del plan; sin subir, sin migración):** se factura el
+  **mismo día de la entrega** (lo de otro día sale "Atrasada" y a las 5 p. m., configurable, se avisa
+  lo que quedó sin facturar); diseño nuevo = producto "diseño especial"; **bodega y centro de costo
+  de la tienda que vendió**, con la regla de comisiones (WhatsApp de El Edén → El Edén); lo de
+  **Tienda Virtual** lo maneja la fábrica: en Ajustes, a Tienda Virtual se le pone la bodega y el
+  centro de Fábrica.
 - **Costos: apartar importados y comprados** (2026-11-10, **sin subir**, trae **migración**
   `2026_11_10_000002_productos_que_no_se_fabrican`, solo crea tabla; misma rama, ya con `main`
   mezclado). Pedido del usuario: un botón para omitir los productos importados cuyo costo no se

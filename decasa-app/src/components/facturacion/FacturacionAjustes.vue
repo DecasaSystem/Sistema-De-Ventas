@@ -209,6 +209,9 @@ onMounted(cargar)
           <input v-model.number="r.aviso_numeracion_dias" type="number" min="0" max="365" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-gray-500">…o le queden (números)
           <input v-model.number="r.aviso_numeracion_numeros" type="number" min="0" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" /></label>
+        <label class="text-xs text-gray-500 col-span-2">Avisar a esta hora lo entregado sin facturar
+          <input v-model="r.aviso_sin_facturar_hora" type="time" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <span class="block mt-0.5">Se factura el mismo día de la entrega. Una vez al día; vacío = no avisar.</span></label>
       </div>
       <div class="space-y-2 text-sm text-gray-700">
         <label class="flex items-center justify-between gap-3"><span>Las restauraciones llevan IVA</span><input v-model="r.iva_en_restauraciones" type="checkbox" class="w-5 h-5" /></label>
@@ -329,7 +332,9 @@ onMounted(cargar)
           <p v-if="cat && !(cat.bodegas?.length || cat.centros_costo?.length)" class="col-span-2 text-xs text-amber-700">
             Alegra no mostró bodegas ni centros de costo: al token le falta el permiso de ver "Almacenes" y "Centros de costos" (Alegra → API → editar el token).
           </p>
-          <p class="col-span-2 text-xs text-gray-400">Cada tienda tiene su bodega y su centro de costo: escógelos en "por tienda", abajo.</p>
+          <p class="col-span-2 text-xs text-gray-400">Cada tienda tiene su bodega y su centro de costo: escógelos en "por tienda", abajo.
+            Va la de la tienda que vendió: una venta por WhatsApp o redes es de la tienda del vendedor (si la hizo El Edén, El Edén).
+            Lo de Tienda Virtual la maneja la fábrica: a Tienda Virtual escógele la bodega y el centro de costo de Fábrica.</p>
         </div>
 
         <div class="space-y-2 border-t border-gray-100 pt-3">

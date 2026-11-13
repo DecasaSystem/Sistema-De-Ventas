@@ -519,6 +519,10 @@ function destinoNotificacion(tipo, datos) {
   }
   if (datos.consulta_id)      return { name: 'consulta-detalle', params: { id: datos.consulta_id } }
   if (tipo === 'ruta_atrasada') return { name: 'despacho' }
+  // "Quedan N entregas sin facturar" (recordatorio del final del día): a la lista.
+  if (tipo === 'factura_electronica' && datos.sin_facturar && auth.puedeFacturarElectronica) {
+    return { name: 'facturacion-electronica' }
+  }
   // Conductor: cualquier aviso con orden_id lo lleva a sus entregas.
   if (tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
     return { name: 'mis-entregas' }

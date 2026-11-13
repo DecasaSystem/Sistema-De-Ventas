@@ -107,6 +107,11 @@ class ReglasFacturacion
         // (2026-11-11: FEN tenía 83 números y vencía en 3 meses).
         'aviso_numeracion_dias'    => 30,
         'aviso_numeracion_numeros' => 100,
+        // Contador, 2026-11-13: "la factura el mismo día de la entrega". A esta
+        // hora (Bogotá) se le avisa al facturador lo entregado que sigue sin
+        // facturar; '' = no avisar. En la lista, lo de días anteriores sale
+        // como atrasado.
+        'aviso_sin_facturar_hora'  => '17:00',
 
         // ── Alegra ─────────────────────────────────────────────────────────────
         'impuesto_iva_id'         => null,
@@ -278,6 +283,14 @@ class ReglasFacturacion
             if (array_key_exists($id, $valores)) $nuevo[$id] = self::id($valores[$id]);
         }
         // Alegra deja 500 caracteres en cada uno.
+        if (array_key_exists('aviso_sin_facturar_hora', $valores)) {
+            $h = trim((string) $valores['aviso_sin_facturar_hora']);
+            if ($h === '' || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $h)) {
+                $nuevo['aviso_sin_facturar_hora'] = $h;
+            } else {
+                $errores[] = 'La hora del aviso va como HH:MM (24 horas) o vacía para no avisar.';
+            }
+        }
         if (array_key_exists('nota_factura', $valores)) {
             $nuevo['nota_factura'] = mb_substr(trim((string) $valores['nota_factura']), 0, 480);
         }

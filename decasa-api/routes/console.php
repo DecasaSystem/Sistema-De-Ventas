@@ -129,6 +129,51 @@ Artisan::command('facturacion:actualizar-estados', function () {
     if ($al) $this->info("Facturas actualizadas: {$al}");
 })->purpose('Pone al día las facturas en "DIAN validando" o sin confirmar');
 
+// "La factura el mismo día de la entrega" (contador, 2026-11-13). Desde la hora
+// de Ajustes (de fábrica 5:00 p. m., Bogotá) se le avisa UNA vez al día al
+// facturador lo entregado que sigue sin facturar: lo de hoy y lo atrasado.
+// Vacía la hora = no avisa. Si no queda nada, no manda nada.
+Artisan::command('facturacion:avisar-sin-facturar', function () {
+    $r = \App\Support\ReglasFacturacion::todo();
+    $hora = trim((string) ($r['aviso_sin_facturar_hora'] ?? ''));
+    if (! \App\Support\ReglasFacturacion::activo() || $r['momento'] !== 'al_entregar' || $hora === '') return;
+
+    $ahora = now('America/Bogota');
+    if ($ahora->format('H:i') < $hora) return;
+    // Una vez al día, aunque la tarea corra cada 15 minutos.
+    if (! \Illuminate\Support\Facades\Cache::add('facturacion:aviso-sin-facturar:' . $ahora->toDateString(), true, now()->addDays(2))) return;
+
+    $hoy = 0;
+    $atrasadas = 0;
+    foreach (\App\Services\Facturacion\QueSeFactura::pendientes() as $p) {
+        \App\Services\Facturacion\QueSeFactura::diasSinFacturar($p['orden'], $p['pago']) === 0 ? $hoy++ : $atrasadas++;
+    }
+    $total = $hoy + $atrasadas;
+    if (! $total) return;
+
+    $partes = [];
+    if ($hoy) $partes[] = $hoy === 1 ? '1 entregada hoy' : "{$hoy} entregadas hoy";
+    if ($atrasadas) $partes[] = $atrasadas === 1 ? '1 de días anteriores' : "{$atrasadas} de días anteriores";
+    $titulo = $total === 1 ? 'Queda 1 orden sin facturar' : "Quedan {$total} órdenes sin facturar";
+
+    foreach (\App\Services\AvisoFacturacion::destinatarios() as $d) {
+        \App\Services\NotificacionService::crear(
+            tipo:      'factura_electronica',
+            titulo:    $titulo,
+            mensaje:   ucfirst(implode(' y ', $partes)) . '. Se facturan el mismo día de la entrega.',
+            datos:     ['sin_facturar' => $total, 'hoy' => $hoy, 'atrasadas' => $atrasadas],
+            usuarioId: $d->id,
+        );
+    }
+    $this->info("Aviso: {$total} sin facturar");
+})->purpose('Avisa al facturador lo entregado que sigue sin factura electrónica');
+
+Schedule::command('facturacion:avisar-sin-facturar')
+    ->everyFifteenMinutes()
+    ->name('facturacion-avisar-sin-facturar')
+    ->withoutOverlapping(30)
+    ->runInBackground();
+
 Schedule::command('facturacion:actualizar-estados')
     ->everyTenMinutes()
     ->name('facturacion-actualizar-estados')

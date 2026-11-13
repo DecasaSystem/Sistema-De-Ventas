@@ -502,6 +502,7 @@ class FacturacionElectronicaController extends Controller
             'valor'       => $pago ? (float) $pago->monto : (float) $orden->valor_total,
             'pago'        => $pago ? ['tipo' => $pago->tipo, 'metodo' => $pago->metodo, 'fecha' => $pago->created_at] : null,
             'fecha'       => QueSeFactura::fechaQueCuenta($orden),
+            'dias_sin_facturar' => QueSeFactura::diasSinFacturar($orden, $pago),
             'faltan'      => $faltan,
             'intento'     => $f ? ['estado' => $f->estado, 'error' => $f->error, 'id' => $f->id] : null,
         ];
