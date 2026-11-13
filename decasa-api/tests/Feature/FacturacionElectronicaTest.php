@@ -386,6 +386,30 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertContains('saldo', $armado['advertencias']);
     }
 
+    /** #4421 (2026-11-13): empresa guardada con cédula y el NIT con el dígito pegado; el botón la corrige. */
+    public function test_empresa_con_cedula_se_corrige_con_el_arreglo(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada(cliente: ['nombre' => 'INVERSIONES CONVERSA SAS', 'cedula' => '9006232083', 'tipo_documento' => 'CC', 'tipo_persona' => 'natural']);
+        $yo = $this->como($this->facturador);
+
+        $alertas = collect($this->actingAs($yo)->getJson("/api/facturacion-electronica/ordenes/{$id}")->assertOk()->json('armado.alertas'));
+        $empresa = $alertas->firstWhere('codigo', 'cliente_empresa');
+        $this->assertNotNull($empresa);
+        $this->assertSame('900623208', $empresa['arreglo']['campos']['cedula']);
+
+        $clienteId = DB::table('ordenes')->where('id', $id)->value('cliente_id');
+        $this->actingAs($yo)->putJson("/api/facturacion-electronica/clientes/{$clienteId}", $empresa['arreglo']['campos'])->assertOk();
+
+        $armado = $this->actingAs($yo)->getJson("/api/facturacion-electronica/ordenes/{$id}")->json('armado');
+        $this->assertNull(collect($armado['alertas'])->firstWhere('codigo', 'cliente_empresa'));
+        $this->assertSame('NIT', $armado['cliente']['tipo_documento']);
+        $this->assertSame('3', $armado['cliente']['dv']);
+        $this->assertSame('juridica', $armado['cliente']['tipo_persona']);
+        // Ahora que es empresa, recuerda preguntar por la retención.
+        $this->assertNotNull(collect($armado['alertas'])->firstWhere('codigo', 'empresa_sin_retencion'));
+    }
+
     /** #1042 (2026-11-13): las fotos por producto de la entrega son {url, orden_item_id} y el detalle daba 500. */
     public function test_el_detalle_abre_con_fotos_de_entrega_por_producto(): void
     {

@@ -112,6 +112,13 @@ class ArmarFactura
         $this->revisarConfiguracion($lineas, $pagos);
         $this->revisarCambiosDePlata();
         $this->revisarRecibos($pagos);
+        $this->revisarComprobantes($pagos);
+        // Una empresa casi siempre retiene (contador, 2026-11-11: 2,5 %): si no se
+        // anotó, que el facturador lo pregunte antes de facturar.
+        if ($cliente['tipo_persona'] === 'juridica' && $retencion <= 0) {
+            $this->advertencia('empresa_sin_retencion', 'El cliente es una empresa: pregunta si le hizo retención al pagar (suele ser 2,5 %). '
+                . 'Si la hizo, anótala abajo antes de facturar.', false);
+        }
 
         $hoy = now('America/Bogota')->toDateString();
         $metodoPrincipal = $this->metodoPrincipal($pagos);
@@ -581,6 +588,21 @@ class ArmarFactura
         if ($faltan) {
             $this->bloqueo('datos_cliente', 'Faltan datos del cliente para la DIAN: ' . implode(', ', $faltan) . '. Complétalos arriba.');
         }
+        // Lo que está escrito pero mal: empresa con cédula, NIT con el dígito
+        // pegado, dígito de verificación malo, correo "gmail.con"… (2026-11-13,
+        // la #4421). Cada uno trae el arreglo para aplicarlo con un botón.
+        if (! $consumidorFinal && $c) {
+            foreach (RevisarCliente::problemas([
+                'nombre' => $c->nombre, 'documento' => $documento, 'tipo_documento' => $tipoDoc, 'dv' => $c->dv,
+                'tipo_persona' => $persona, 'email' => $c->email, 'telefono' => $c->telefono,
+            ]) as $p) {
+                match ($p['tipo']) {
+                    'bloqueo'     => $this->bloqueo($p['codigo'], $p['mensaje'], $p['arreglo']),
+                    'advertencia' => $this->advertencia($p['codigo'], $p['mensaje'], true, $p['arreglo']),
+                    default       => $this->advertencia($p['codigo'], $p['mensaje'], false, $p['arreglo']),
+                };
+            }
+        }
         if (! $consumidorFinal && ! $r['exigir_correo'] && ! $c?->email) {
             $this->advertencia('sin_correo', 'El cliente no tiene correo: la DIAN no le podrá mandar la factura.', false);
         }
@@ -804,15 +826,33 @@ class ArmarFactura
         }
     }
 
-    private function bloqueo(string $codigo, string $mensaje): void
+    /** $arreglo: ['texto', 'campos'] que la pantalla aplica al cliente con un botón (RevisarCliente). */
+    /**
+     * Un pago que no es en efectivo sin foto del comprobante (2026-11-13, #4421:
+     * $14.530.000 con tarjeta y "Sin comprobante"): no hay con qué comprobar
+     * que la plata entró antes de facturar.
+     */
+    private function revisarComprobantes(array $pagos): void
     {
-        $this->alertas[] = ['tipo' => 'bloqueo', 'codigo' => $codigo, 'mensaje' => $mensaje];
+        $sin = array_values(array_filter($pagos, fn ($p) => ($p['metodo'] ?? '') !== 'efectivo' && empty($p['comprobantes'])));
+        if ($sin) {
+            $detalle = implode(', ', array_map(fn ($p) => self::pesos($p['monto']) . ' (' . ($p['metodo'] ?: 'sin medio') . ', ' . ($p['fecha'] ?? '?') . ')', $sin));
+            $this->advertencia('pago_sin_comprobante', count($sin) === 1
+                ? "Un pago no tiene comprobante: {$detalle}. Pídele al vendedor la foto del voucher o de la transferencia."
+                : count($sin) . " pagos no tienen comprobante: {$detalle}. Pídele al vendedor las fotos.", false);
+        }
+    }
+
+    private function bloqueo(string $codigo, string $mensaje, ?array $arreglo = null): void
+    {
+        $this->alertas[] = ['tipo' => 'bloqueo', 'codigo' => $codigo, 'mensaje' => $mensaje] + ($arreglo ? ['arreglo' => $arreglo] : []);
     }
 
     /** $confirmar = false: solo informativa, no hace falta aceptarla. */
-    private function advertencia(string $codigo, string $mensaje, bool $confirmar = true): void
+    private function advertencia(string $codigo, string $mensaje, bool $confirmar = true, ?array $arreglo = null): void
     {
-        $this->alertas[] = ['tipo' => $confirmar ? 'advertencia' : 'info', 'codigo' => $codigo, 'mensaje' => $mensaje];
+        $this->alertas[] = ['tipo' => $confirmar ? 'advertencia' : 'info', 'codigo' => $codigo, 'mensaje' => $mensaje]
+            + ($arreglo ? ['arreglo' => $arreglo] : []);
     }
 
     public static function pesos(float $v): string

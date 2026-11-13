@@ -19,7 +19,7 @@ import {
   detalleFE, guardarClienteFE, facturarFE, externaFE, actualizarFE, diferenciaResueltaFE, registrarPagosFE, ESTADOS_FE,
   emparejarProductoFE, itemsAlegra,
 } from '@/api/facturacionElectronica'
-import { ArrowLeftIcon, ExclamationTriangleIcon, InformationCircleIcon, CheckCircleIcon, NoSymbolIcon } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon, ExclamationTriangleIcon, InformationCircleIcon, CheckCircleIcon, NoSymbolIcon, WrenchIcon } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
 const router = useRouter()
@@ -79,6 +79,27 @@ async function cargar() {
     error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
   } finally {
     cargando.value = false
+  }
+}
+
+/**
+ * El arreglo que propone el servidor para un dato mal escrito del cliente
+ * (empresa con cédula, NIT con el dígito pegado, "gmail.con"…): se guarda
+ * tal cual y se vuelve a revisar la factura.
+ */
+const arreglando = ref('')
+async function aplicarArreglo(a) {
+  if (!armado.value?.cliente?.id || !a.arreglo) return
+  arreglando.value = a.codigo
+  try {
+    await guardarClienteFE(armado.value.cliente.id, a.arreglo.campos)
+    toast.success('Cliente corregido: ' + a.arreglo.texto)
+    revisado.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir')
+  } finally {
+    arreglando.value = ''
   }
 }
 
@@ -322,19 +343,35 @@ onMounted(cargar)
       <!-- Alertas -->
       <div v-if="!hecha && bloqueos.length" class="bg-white border border-red-200 rounded-xl p-3 space-y-1.5">
         <p class="text-sm font-semibold text-red-700 flex items-center gap-1.5"><NoSymbolIcon class="w-4 h-4" /> No se puede facturar todavía</p>
-        <p v-for="a in bloqueos" :key="a.codigo + a.mensaje" class="text-sm text-red-700">• {{ a.mensaje }}</p>
+        <div v-for="a in bloqueos" :key="a.codigo + a.mensaje" class="text-sm text-red-700">
+          <p>• {{ a.mensaje }}</p>
+          <button v-if="a.arreglo" type="button" @click="aplicarArreglo(a)" :disabled="arreglando === a.codigo"
+            class="mt-1 ml-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-xs font-semibold disabled:opacity-50">
+            <WrenchIcon class="w-3.5 h-3.5" /> {{ arreglando === a.codigo ? 'Corrigiendo…' : `Corregir: ${a.arreglo.texto}` }}
+          </button>
+        </div>
       </div>
       <div v-if="!hecha && advertencias.length" class="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
         <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5"><ExclamationTriangleIcon class="w-4 h-4" /> Revisa esto antes de facturar</p>
-        <label v-for="a in advertencias" :key="a.codigo" class="flex items-start gap-2 text-sm text-gray-700">
-          <input type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" :checked="aceptadas.includes(a.codigo)" @change="alternar(a.codigo)" />
-          <span>{{ a.mensaje }}</span>
-        </label>
+        <div v-for="a in advertencias" :key="a.codigo">
+          <label class="flex items-start gap-2 text-sm text-gray-700">
+            <input type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" :checked="aceptadas.includes(a.codigo)" @change="alternar(a.codigo)" />
+            <span>{{ a.mensaje }}</span>
+          </label>
+          <button v-if="a.arreglo" type="button" @click="aplicarArreglo(a)" :disabled="arreglando === a.codigo"
+            class="mt-1 ml-6 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-xs font-semibold disabled:opacity-50">
+            <WrenchIcon class="w-3.5 h-3.5" /> {{ arreglando === a.codigo ? 'Corrigiendo…' : `Corregir: ${a.arreglo.texto}` }}
+          </button>
+        </div>
       </div>
-      <div v-if="!hecha && informativas.length" class="bg-white rounded-xl shadow-sm p-3 space-y-1">
-        <p v-for="a in informativas" :key="a.codigo" class="text-xs text-gray-500 flex gap-1.5">
-          <InformationCircleIcon class="w-4 h-4 shrink-0" /> {{ a.mensaje }}
-        </p>
+      <div v-if="!hecha && informativas.length" class="bg-white rounded-xl shadow-sm p-3 space-y-1.5">
+        <div v-for="a in informativas" :key="a.codigo" class="text-xs text-gray-500">
+          <p class="flex gap-1.5"><InformationCircleIcon class="w-4 h-4 shrink-0" /> {{ a.mensaje }}</p>
+          <button v-if="a.arreglo" type="button" @click="aplicarArreglo(a)" :disabled="arreglando === a.codigo"
+            class="mt-1 ml-[22px] text-xs font-semibold text-blue-600 disabled:opacity-50">
+            {{ arreglando === a.codigo ? 'Corrigiendo…' : `Corregir: ${a.arreglo.texto}` }}
+          </button>
+        </div>
       </div>
 
       <!-- Cliente -->

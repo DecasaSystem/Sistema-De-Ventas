@@ -194,6 +194,29 @@ Una factura hecha a mano en Alegra mostró cómo factura Decasa. Trae **migraci�
 | "Los muebles de diseño nuevo se facturan como diseño especial" | Ya era así: lo que no es del catálogo va con el producto de Alegra "para diseños especiales" (`item_producto_id`) |
 | Bodega y centro de costo "de la tienda que vendió"; un WhatsApp de El Edén → El Edén; lo de **Tienda Virtual** (redes, la maneja la fábrica) → Fábrica | `ArmarFactura::tiendaQueVendio()` = la misma regla de comisiones (`ComisionController::tiendaParaComision`): lo físico, la tienda de la orden; lo digital, la tienda del vendedor cuando vendió (`tienda_vendedor_id`). Para Tienda Virtual se escoge en Ajustes la bodega y el centro de costo de Fábrica. La revisión de la orden dice de qué tienda van. La **numeración** sigue por la tienda de la orden (todas usan FEN) |
 
+## 5h. Datos del cliente mal escritos (2026-11-13)
+
+La #4421 era de "INVERSIONES CONVERSA SAS", guardada como cédula, persona natural, con
+9006232083 (= NIT 900623208, DV 3 pegado). `Services/Facturacion/RevisarCliente` revisa lo
+que está escrito pero mal, y cada aviso trae un **arreglo** (`alertas[].arreglo` = texto +
+campos del cliente) que la pantalla aplica con el botón "Corregir: …" (`PUT clientes/{id}`):
+
+| Código | Tipo | Qué |
+|---|---|---|
+| `cliente_empresa` | advertencia | Nombre de empresa (SAS, LTDA, S.A., E.U., cooperativa, fundación…) con cédula o como persona natural → NIT, jurídica (y separa el DV si viene pegado) |
+| `cedula_parece_nit` | advertencia | "Cédula" de 10 cifras que empieza por 8/9 y cuadra con el DV |
+| `nit_con_dv` | advertencia | NIT de 10 cifras con el DV pegado |
+| `dv_malo` | bloqueo | El DV escrito no es el que da el algoritmo de la DIAN |
+| `juridica_con_cedula` | bloqueo | Persona jurídica con CC/TI/RC |
+| `cedula_con_letras` / `cedula_rara` | bloqueo / advertencia | Letras, o menos de 5 / más de 10 cifras |
+| `correo_malo` / `correo_dudoso` | bloqueo / advertencia | Sin forma de correo, o "gmail.con", "hotmal.com"… (propone el bueno) |
+| `telefono_con_texto` | info | "3128251383 JUAN M" → deja el número |
+
+Además, en la factura: `pago_sin_comprobante` (info: pago que no es efectivo sin foto) y
+`empresa_sin_retencion` (info: cliente jurídico sin retención anotada). Revisado con las 125
+órdenes entregadas recientes (producción, solo lectura): saltaron #1231, #1276, #4368 y #4421
+(SAS con cédula), #4369 (cédula de 11 cifras) y #4394 (correo sin ".com").
+
 ## 6. Nunca dos facturas de lo mismo
 
 Alegra no tiene llave de idempotencia y una factura emitida no se borra. Por eso:
