@@ -292,7 +292,7 @@ onMounted(cargar)
             Pago #{{ p.pago_id }} · {{ pesos(p.monto) }} · {{ p.estado === 'incierto' ? 'sin confirmar' : 'no entró' }}<span v-if="p.error">: {{ p.error }}</span>
           </p>
           <label v-if="factura.pagos_sin_registrar.some(p => p.estado === 'incierto')" class="flex items-start gap-2 text-xs text-gray-700">
-            <input v-model="confirmoPagos" type="checkbox" class="mt-0.5" />
+            <input v-model="confirmoPagos" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" />
             <span>Revisé en Alegra y esos pagos sin confirmar NO están (si están, no lo marques: quedarían dos veces).</span>
           </label>
           <button @click="reintentarPagos" :disabled="enviando" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">
@@ -312,7 +312,7 @@ onMounted(cargar)
             La factura no cambia sola: si bajó, nota crédito; si subió, factura por la diferencia. Hazla en Alegra y anótala aquí.
           </p>
           <div class="flex gap-2">
-            <input v-model="notaDif" placeholder="Ej.: nota crédito NC-3" class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+            <input v-model="notaDif" placeholder="Ej.: nota crédito NC-3" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             <button @click="resolverDiferencia" :disabled="!notaDif.trim()" class="px-3 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Resuelta</button>
           </div>
         </div>
@@ -327,7 +327,7 @@ onMounted(cargar)
       <div v-if="!hecha && advertencias.length" class="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
         <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5"><ExclamationTriangleIcon class="w-4 h-4" /> Revisa esto antes de facturar</p>
         <label v-for="a in advertencias" :key="a.codigo" class="flex items-start gap-2 text-sm text-gray-700">
-          <input type="checkbox" class="mt-1" :checked="aceptadas.includes(a.codigo)" @change="alternar(a.codigo)" />
+          <input type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" :checked="aceptadas.includes(a.codigo)" @change="alternar(a.codigo)" />
           <span>{{ a.mensaje }}</span>
         </label>
       </div>
@@ -362,28 +362,28 @@ onMounted(cargar)
           </template>
         </div>
         <div v-else class="grid grid-cols-2 gap-2 text-sm">
-          <label class="col-span-2 text-xs text-gray-500">Nombre o razón social
-            <input v-model="cliente.nombre" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <label class="col-span-2 text-xs font-semibold text-gray-600">Nombre o razón social
+            <input v-model="cliente.nombre" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-          <label class="text-xs text-gray-500">Tipo de documento
-            <select v-model="cliente.tipo_documento" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+          <label class="text-xs font-semibold text-gray-600">Tipo de documento
+            <select v-model="cliente.tipo_documento" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
               <option v-for="[v, l] in TIPOS_DOC" :key="v" :value="v">{{ l }}</option>
             </select>
           </label>
-          <label class="text-xs text-gray-500">Número
-            <input v-model="cliente.cedula" inputmode="numeric" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <label class="text-xs font-semibold text-gray-600">Número
+            <input v-model="cliente.cedula" inputmode="numeric" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
           <label v-if="cliente.tipo_documento === 'NIT'" class="text-xs text-gray-500">Dígito de verificación
-            <input v-model="cliente.dv" maxlength="1" placeholder="Se calcula solo" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+            <input v-model="cliente.dv" maxlength="1" placeholder="Se calcula solo" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-          <label class="text-xs text-gray-500">Tipo de persona
-            <select v-model="cliente.tipo_persona" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+          <label class="text-xs font-semibold text-gray-600">Tipo de persona
+            <select v-model="cliente.tipo_persona" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
               <option value="natural">Persona natural</option>
               <option value="juridica">Empresa (jurídica)</option>
             </select>
           </label>
-          <label class="text-xs text-gray-500">Régimen de IVA
-            <select v-model="cliente.regimen" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+          <label class="text-xs font-semibold text-gray-600">Régimen de IVA
+            <select v-model="cliente.regimen" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
               <option value="" disabled>Escoger (pregúntale al cliente)</option>
               <option value="no_responsable">No responsable</option>
               <option value="responsable">Responsable</option>
@@ -399,11 +399,11 @@ onMounted(cargar)
               requerida
             />
           </div>
-          <label class="text-xs text-gray-500">Correo
-            <input v-model="cliente.email" type="email" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <label class="text-xs font-semibold text-gray-600">Correo
+            <input v-model="cliente.email" type="email" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-          <label class="text-xs text-gray-500">Teléfono
-            <input v-model="cliente.telefono" inputmode="tel" class="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <label class="text-xs font-semibold text-gray-600">Teléfono
+            <input v-model="cliente.telefono" inputmode="tel" class="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
           <button @click="guardarCliente" :disabled="guardandoCliente"
             class="col-span-2 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">
@@ -440,7 +440,7 @@ onMounted(cargar)
             <div v-if="emparejando === l.alegra_item.producto_id" class="mt-1.5 border border-gray-200 rounded-lg p-2 space-y-1.5">
               <div class="flex gap-2">
                 <input v-model="buscarAlegra" @keyup.enter="buscarEnAlegra" placeholder="Buscar en Alegra"
-                  class="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs" />
+                  class="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <button @click="buscarEnAlegra" class="px-2 bg-gray-100 rounded-lg text-xs font-semibold">Buscar</button>
               </div>
               <button v-for="c in (resultadosAlegra ?? l.alegra_item.candidatos)" :key="c.id" @click="emparejar(l, c)"
@@ -467,7 +467,7 @@ onMounted(cargar)
         </div>
         <!-- Retención del cliente empresa: no es deuda, se cruza en Alegra al pagar. -->
         <div v-if="!hecha && (armado.totales.saldo > 0.01 || retencion > 0)" class="border-t border-gray-100 pt-2 space-y-1">
-          <label class="text-xs text-gray-500">¿El cliente (empresa) le hizo retención? Anótala: no es deuda, se cruza en Alegra.</label>
+          <label class="text-xs font-semibold text-gray-600">¿El cliente (empresa) le hizo retención? Anótala: no es deuda, se cruza en Alegra.</label>
           <div class="flex items-center gap-2">
             <div class="flex-1"><InputPesos v-model="retencion" placeholder="0" /></div>
             <button v-if="armado.totales.base > 0" type="button" @click="retencion = Math.round(armado.totales.base * 0.025)"
@@ -548,7 +548,7 @@ onMounted(cargar)
       <!-- Facturar -->
       <div v-if="!hecha" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <label class="flex items-start gap-2 text-sm text-gray-700">
-          <input v-model="revisado" type="checkbox" class="mt-1" :disabled="!armado.se_puede" />
+          <input v-model="revisado" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" :disabled="!armado.se_puede" />
           <span>Revisé el cliente, los productos, los valores y los comprobantes: está todo bien para facturar.</span>
         </label>
         <button @click="facturar" :disabled="!puedeFacturar"
@@ -568,8 +568,8 @@ onMounted(cargar)
         </button>
         <div v-else class="space-y-2 border-t border-gray-100 pt-3">
           <p class="text-xs text-gray-500">Si ya la hiciste a mano en Alegra, anota el número para que salga de la lista.</p>
-          <input v-model="externa.numero" placeholder="Número de factura, ej. FE-1203" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
-          <input v-model="externa.nota" placeholder="Nota (opcional)" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm" />
+          <input v-model="externa.numero" placeholder="Número de factura, ej. FE-1203" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          <input v-model="externa.nota" placeholder="Nota (opcional)" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           <div class="flex gap-2">
             <button @click="externa.abierta = false" class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">Cancelar</button>
             <button @click="guardarExterna" :disabled="!externa.numero.trim() || enviando" class="flex-1 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Anotar</button>
