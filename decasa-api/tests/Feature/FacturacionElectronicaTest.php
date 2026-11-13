@@ -386,6 +386,21 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertContains('saldo', $armado['advertencias']);
     }
 
+    /** #1042 (2026-11-13): las fotos por producto de la entrega son {url, orden_item_id} y el detalle daba 500. */
+    public function test_el_detalle_abre_con_fotos_de_entrega_por_producto(): void
+    {
+        $this->prender();
+        $id = $this->ordenEntregada();
+        DB::table('despacho_items')->where('orden_id', $id)->update([
+            'foto_producto'  => 'https://res.cloudinary.com/x/a.jpg',
+            'fotos_producto' => json_encode([['url' => 'https://res.cloudinary.com/x/a.jpg', 'orden_item_id' => 1], ['url' => 'https://res.cloudinary.com/x/b.jpg', 'orden_item_id' => 2]]),
+        ]);
+
+        $this->actingAs($this->como($this->facturador))->getJson("/api/facturacion-electronica/ordenes/{$id}")
+            ->assertOk()
+            ->assertJsonPath('orden.entregas.0.fotos_producto', ['https://res.cloudinary.com/x/a.jpg', 'https://res.cloudinary.com/x/b.jpg']);
+    }
+
     public function test_sin_datos_del_cliente_no_se_puede_y_el_facturador_los_completa(): void
     {
         $this->prender();

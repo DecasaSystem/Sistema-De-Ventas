@@ -580,9 +580,16 @@ class FacturacionElectronicaController extends Controller
             $cols = array_values(array_filter(['id', 'entregado_at', 'foto_producto', 'fotos_producto', 'foto_pago', 'fotos_pago', 'estado'],
                 fn ($c) => $c === 'id' || Esquema::columna('despacho_items', $c)));
             foreach (DB::table('despacho_items')->where('orden_id', $o->id)->select($cols)->orderBy('id')->get() as $d) {
-                $lista = fn ($una, $varias) => array_values(array_filter(array_merge(
-                    json_decode((string) ($d->{$varias} ?? '[]'), true) ?: [],
-                    ! empty($d->{$una}) ? [$d->{$una}] : [],
+                // Las fotos por producto de la entrega se guardan como
+                // {url, orden_item_id}, no como enlace suelto: array_unique sobre
+                // esos objetos reventaba ("Array to string conversion", 500 al
+                // abrir la orden #1042 para facturar, 2026-11-13). Se deja el enlace.
+                $lista = fn ($una, $varias) => array_values(array_filter(array_map(
+                    fn ($f) => is_array($f) ? ($f['url'] ?? null) : (is_string($f) ? $f : null),
+                    array_merge(
+                        (array) (json_decode((string) ($d->{$varias} ?? '[]'), true) ?: []),
+                        ! empty($d->{$una}) ? [$d->{$una}] : [],
+                    ),
                 )));
                 $entregas[] = [
                     'id'            => $d->id,
