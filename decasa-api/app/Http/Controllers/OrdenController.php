@@ -509,18 +509,16 @@ class OrdenController extends Controller
         $esFv2           = $request->boolean('es_fv2', false);
         $fv2SinIva       = $esFv2 && $request->boolean('fv2_sin_iva') && $request->user()->puede_fv2_sin_iva;
 
-        // Abonarle media venta a una tienda es cosa de vendedores independientes:
-        // van a un almacen, les pasan el contacto y cierran ellos. Un vendedor de
-        // tienda ya vende para la suya, no tiene a quien abonarle nada.
+        // Compartir la venta con otra tienda. Nació para los independientes (van
+        // a un almacén, les pasan el contacto y cierran ellos), y desde el
+        // 2026-11-12 también lo hacen los vendedores de tienda y los
+        // supervisores (dueño: "eso debería ser posible"). Para ellos es 50/50
+        // con la otra tienda, como una venta compartida con un asesor de allá:
+        // la mitad le suma a su meta y la otra mitad a la de quien vendió. Lo
+        // que cambia según quién vende lo decide
+        // ComisionController::sincronizarAbonoAlmacen, no esta validación.
         $tiendaAbonadaId = $data['tienda_abonada_id'] ?? null;
         if ($tiendaAbonadaId) {
-            // store() marca como vendedor al usuario que la crea, asi que el
-            // dueno de la venta es quien esta logueado.
-            if (! $request->user()->independiente) {
-                return response()->json([
-                    'message' => 'Solo un vendedor independiente puede abonarle la venta a una tienda.',
-                ], 422);
-            }
             if ((int) $tiendaAbonadaId === (int) $tiendaId) {
                 return response()->json([
                     'message' => 'La tienda que se lleva la mitad no puede ser la misma de la orden.',
@@ -2198,16 +2196,16 @@ class OrdenController extends Controller
                     abort(422, 'El vendedor y el co-vendedor no pueden ser la misma persona.');
                 }
 
-                // Compartir la venta con un almacén es solo de independientes.
-                // Si la venta era de un independiente que la compartía y en
-                // realidad es de alguien de tienda, el reparto se va con él:
-                // si no, la gente del almacén seguía cobrando su parte del 5%
-                // de una venta que ya cobra entera quien la hizo. La pantalla
-                // esconde el campo al cambiar el vendedor, así que no lo manda.
+                // Desde el 2026-11-12 cualquiera comparte con una tienda (para
+                // los de tienda es 50/50, ver sincronizarAbonoAlmacen), así que
+                // cambiar el vendedor ya no quita el reparto. Solo se quita si
+                // la orden se fue para esa misma tienda: no se comparte consigo
+                // misma (reasignar se lleva la tienda del vendedor nuevo).
+                $tiendaFinal = (int) ($updateOrden['tienda_id'] ?? $orden->tienda_id);
                 if (isset($updateOrden['vendedor_id'])
                     && $orden->tienda_abonada_id
                     && ! array_key_exists('tienda_abonada_id', $data)
-                    && ! Usuario::where('id', $vendedorFinal)->value('independiente')) {
+                    && (int) $orden->tienda_abonada_id === $tiendaFinal) {
                     $cambios[] = [
                         'campo'   => 'tienda_abonada_id',
                         'label'   => 'Venta compartida con almacén',
@@ -2219,12 +2217,6 @@ class OrdenController extends Controller
 
                 if (array_key_exists('tienda_abonada_id', $data)
                     && (int) $data['tienda_abonada_id'] !== (int) $orden->tienda_abonada_id) {
-                    // Aqui el dueno de la venta es el vendedor de la orden, no
-                    // el supervisor que la esta corrigiendo.
-                    $vendedorFinal = Usuario::find($updateOrden['vendedor_id'] ?? $orden->vendedor_id);
-                    if ($data['tienda_abonada_id'] && ! $vendedorFinal?->independiente) {
-                        abort(422, 'Solo un vendedor independiente puede abonarle la venta a una tienda.');
-                    }
                     if ($data['tienda_abonada_id']
                         && (int) $data['tienda_abonada_id'] === (int) ($updateOrden['tienda_id'] ?? $orden->tienda_id)) {
                         abort(422, 'La tienda que se lleva la mitad no puede ser la misma de la orden.');

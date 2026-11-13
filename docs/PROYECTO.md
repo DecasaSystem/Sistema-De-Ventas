@@ -214,8 +214,8 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   (de catálogo con variante/opción, personalizados, restauraciones, por juego o
   pieza), anticipo en uno o varios pagos (`efectivo, transferencia, tarjeta, addi, otro`),
   comprobantes (varias fotos), firma, anexo de garantía, descuento comercial y
-  condicionado, venta compartida (`covendedor_id`), FV2, abono a tienda
-  (`tienda_abonada_id`), entrega inmediata por ítem. Reserva stock, crea
+  condicionado, venta compartida (`covendedor_id`), FV2, venta compartida con otra tienda
+  (`tienda_abonada_id`, 50/50 en meta y bonificación desde 2026-11-12, la hace cualquiera; ver MEMORY.md), restauraciones con trabajos separados (lista en Gestión → Ajustes), entrega inmediata por ítem. Reserva stock, crea
   producción para lo que se fabrica, crea comisiones, aparta tela.
   Protegida contra doble envío (`clave_envio`).
 - **Numeración:** consecutivo por grupo (`armenia` / `pereira`, tabla

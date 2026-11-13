@@ -2290,7 +2290,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <span class="text-gray-500">Compartida con</span>
           <span class="font-medium text-indigo-700 flex items-center gap-1">
             <span class="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
-            {{ orden.tienda_abonada.nombre }} <span class="text-xs font-normal text-gray-400">(almacén)</span>
+            {{ orden.tienda_abonada.nombre }} <span class="text-xs font-normal text-gray-400">(tienda, 50/50)</span>
           </span>
         </div>
         <div class="flex justify-between">

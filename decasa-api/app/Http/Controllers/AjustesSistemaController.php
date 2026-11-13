@@ -31,10 +31,16 @@ class AjustesSistemaController extends Controller
             // Vacío vale: no avisar con anticipación (el "Entrega hoy" sigue).
             'avisar_entrega_dias_antes'      => 'sometimes|array',
             'avisar_entrega_dias_antes.*'    => 'integer|in:' . implode(',', AjustesSistema::DIAS_AVISO_POSIBLES),
+            // Los trabajos que se escogen al agregar una restauración.
+            'trabajos_restauracion'          => 'sometimes|array|max:40',
+            'trabajos_restauracion.*'        => 'nullable|string|max:60',
         ]);
 
         if (array_key_exists('avisar_entrega_dias_antes', $data)) {
             AjustesSistema::definirDiasAvisoEntrega($data['avisar_entrega_dias_antes'] ?? []);
+        }
+        if (array_key_exists('trabajos_restauracion', $data)) {
+            AjustesSistema::definirTrabajosRestauracion($data['trabajos_restauracion'] ?? []);
         }
 
         $claves = [

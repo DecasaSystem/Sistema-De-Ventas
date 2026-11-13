@@ -772,7 +772,7 @@ class ComisionController extends Controller
                 ? 'por el pool de la tienda, en partes iguales entre el equipo'
                 : 'por el pool de la tienda, según los días que estuvo cada quien',
             'abono_almacen'  => 'su parte del ' . self::pctTexto(ReglasComision::numero('almacen_pct', $mes, $tiendaRegla))
-                . ' que dejó un independiente al compartir una venta con su tienda',
+                . ' de una venta que alguien compartió con su tienda',
         ];
 
         return [
@@ -4136,6 +4136,42 @@ class ComisionController extends Controller
     public const ORIGEN_ABONO = 'abono_almacen';
 
     /**
+     * Desde este día (hora de Bogotá) una venta de independiente compartida
+     * con un almacén es 50/50: el almacén ya no cobra el 5% de la venta
+     * entera encima de su mitad en la meta. Ver sincronizarAbonoAlmacen.
+     */
+    public const CORTE_ALMACEN_50_50 = '2026-11-12';
+
+    /**
+     * Qué parte de una venta compartida con una tienda se le paga APARTE a su
+     * gente (filas `abono_almacen`), fuera del pool:
+     *  - 1: la venta entera. Independiente que vendió antes del corte (la
+     *    regla con la que se vendió), o restauración de un independiente
+     *    (siempre: caso aparte del dueño, no va 50/50).
+     *  - 0: nada aparte. Venta (no restauración) y la tienda tiene meta: su
+     *    mitad ya le suma a las ventas de la tienda y la paga el pool.
+     *  - la mitad (almacen_fraccion_meta): restauración de alguien de tienda,
+     *    o tienda sin meta.
+     */
+    public static function fraccionAparteDelAlmacen(int $tiendaId, string $fechaVenta, bool $esRestauracion, bool $vendioIndependiente): float
+    {
+        if ($vendioIndependiente && $fechaVenta < self::CORTE_ALMACEN_50_50) return 1.0;
+        // Restauración de un independiente compartida: caso aparte que no va
+        // 50/50 (dueño, 2026-11-12, "eso se queda así"). El independiente la
+        // mete entera al bolsón y el almacén cobra su 5% de la restauración
+        // entera, partido entre su gente.
+        if ($vendioIndependiente && $esRestauracion) return 1.0;
+
+        $mes     = substr($fechaVenta, 0, 7);
+        // Las pruebas montan esquemas a mano, a veces sin metas: sin tabla, sin meta.
+        $conMeta = \App\Support\Esquema::tabla('metas_tienda')
+            && (float) (MetaTienda::vigentesEn($mes)[$tiendaId]->meta ?? 0) > 0;
+        if ($conMeta && ! $esRestauracion) return 0.0;
+
+        return ReglasComision::numero('almacen_fraccion_meta', $mes, $tiendaId);
+    }
+
+    /**
      * La parte del pool de alguien que no vendió nada ese mes.
      *
      * En una tienda con meta la comisión es de la TIENDA, no de la venta: el
@@ -4201,6 +4237,36 @@ class ComisionController extends Controller
 
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
 
+        // Sobre cuánto cobra la gente del almacén. Antes del 50/50: el 5% de la
+        // venta entera que deja el independiente, ADEMÁS de su mitad en la meta.
+        $base = (float) $orden->valor_total - self::costoDatafono($orden);
+
+        // 50/50 entre las dos partes (dueño, 2026-11-12: "que no se pague dos
+        // veces y sea 2,5 para cada uno"). Juan vende $4 M con El Edén: $2 M
+        // le suman a la meta y a las ventas de El Edén (abonadoParaMeta), con
+        // las que su pool se calcula como siempre; Juan cobra su 5% sobre sus
+        // $2 M (valorComisionable). Una VENTA en una tienda con meta, entonces,
+        // no lleva filas aparte: la paga el pool. Una restauración no suma a
+        // la meta y una tienda sin meta no tiene pool: ahí su mitad se paga
+        // como una restauración o una venta sin meta, repartida entre su gente.
+        //
+        // Aplica a todo lo de un vendedor de tienda o supervisor (antes no
+        // podían compartir) y a lo de un independiente vendido desde el corte:
+        // lo de antes sigue con la regla con la que se vendió.
+        $fraccion = self::fraccionAparteDelAlmacen(
+            (int) $orden->tienda_abonada_id,
+            $fechaVenta->toDateString(),
+            self::esRestauracionCompleta($orden),
+            (bool) Usuario::whereKey($orden->vendedor_id)->value('independiente'),
+        );
+
+        if ($fraccion <= 0) {
+            $existentes->where('estado', '!=', 'pagada')->each->delete();
+            return;
+        }
+
+        $base = round($base * $fraccion);
+
         // Entre quiénes: el EQUIPO de la tienda, el mismo que reparte el pool
         // y las restauraciones. Se repartía entre todos los usuarios con esa
         // tienda como fija, que es otra lista: un supervisor con sede en Norte
@@ -4209,10 +4275,10 @@ class ComisionController extends Controller
         //
         // Sin equipo registrado —una tienda que no comparte, sin meta— se cae
         // a la gente de planta, que es como se hacía siempre ahí.
-        $base = self::equipoBase((int) $orden->tienda_abonada_id, $fechaVenta->format('Y-m'));
+        $equipo = self::equipoBase((int) $orden->tienda_abonada_id, $fechaVenta->format('Y-m'));
 
-        if (! $base) {
-            $base = Usuario::where('tienda_default_id', $orden->tienda_abonada_id)
+        if (! $equipo) {
+            $equipo = Usuario::where('tienda_default_id', $orden->tienda_abonada_id)
                 ->where('activo', true)
                 ->whereIn('rol', ['vendedor', 'supervisor'])
                 ->pluck('id')->map(fn ($v) => (int) $v)->all();
@@ -4224,7 +4290,7 @@ class ComisionController extends Controller
         // un reemplazo se seguía llevando su parte del abono del almacén
         // aunque el pool del mes ya lo hubiera dejado en cero.
         $gente = collect(TiendaReemplazo::equipoElDia(
-            (int) $orden->tienda_abonada_id, $fechaVenta->toDateString(), $base
+            (int) $orden->tienda_abonada_id, $fechaVenta->toDateString(), $equipo
         ));
 
         if ($gente->isEmpty()) return;
@@ -4232,7 +4298,7 @@ class ComisionController extends Controller
         // Su pedazo del valor de la orden, ya sin lo que se llevó el datáfono.
         // El 5% se lo saca enriquecer() con la misma regla que a todo lo demás,
         // así que basta con darle la base.
-        $porCabeza = round(((float) $orden->valor_total - self::costoDatafono($orden)) / $gente->count());
+        $porCabeza = round($base / $gente->count());
 
         // Al que ya no está en la tienda se le quita, salvo que ya se le pagara.
         $existentes->whereNotIn('vendedor_id', $gente->all())

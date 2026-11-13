@@ -60,6 +60,21 @@ class AjustesSistema
      */
     public const PEDIR_TELA = 'ventas_tela_por_definir';
 
+    /**
+     * Los trabajos que se escogen al agregar una restauración en Nueva orden
+     * (dueño, 2026-11-12: "separar los trabajos a realizar en vez de un solo
+     * input… y poder elegir cuántos aplica"). Lista fija que se edita aquí;
+     * en la orden se marcan los que aplican, cada uno con su cantidad, y
+     * sigue el espacio de notas. Se guarda como JSON; sin fila, la de fábrica.
+     * No toca plata: el precio del mueble sigue siendo uno solo.
+     */
+    public const TRABAJOS_RESTAURACION = 'restauracion_trabajos';
+
+    private const TRABAJOS_FABRICA = [
+        'Tapizado', 'Laca', 'Lijado', 'Pintura', 'Reparación de estructura',
+        'Cambio de espuma', 'Cambio de resortes', 'Limpieza',
+    ];
+
     /** Los días que se pueden escoger en la pantalla. */
     public const DIAS_AVISO_POSIBLES = [1, 2, 3];
 
@@ -115,7 +130,42 @@ class AjustesSistema
 
     private static function clavesJuntas(): array
     {
-        return [...array_keys(self::DEFINICION), self::DIAS_AVISO_ENTREGA];
+        return [...array_keys(self::DEFINICION), self::DIAS_AVISO_ENTREGA, self::TRABAJOS_RESTAURACION];
+    }
+
+    /** @return string[] en el orden en que se guardaron */
+    public static function trabajosRestauracion(): array
+    {
+        if (! Esquema::tabla('configuracion')) return self::TRABAJOS_FABRICA;
+
+        $valor = Configuracion::valor(self::TRABAJOS_RESTAURACION, self::clavesJuntas());
+        if ($valor === null) return self::TRABAJOS_FABRICA;
+
+        $lista = json_decode($valor, true);
+
+        return is_array($lista) ? self::limpiarTrabajos($lista) : self::TRABAJOS_FABRICA;
+    }
+
+    public static function definirTrabajosRestauracion(array $trabajos): void
+    {
+        DB::table('configuracion')->updateOrInsert(
+            ['clave' => self::TRABAJOS_RESTAURACION],
+            ['valor' => json_encode(self::limpiarTrabajos($trabajos), JSON_UNESCAPED_UNICODE)],
+        );
+        Configuracion::olvidar();
+    }
+
+    /** Sin vacíos ni repetidos (sin mirar mayúsculas), recortados. */
+    private static function limpiarTrabajos(array $trabajos): array
+    {
+        $out = [];
+        foreach ($trabajos as $t) {
+            $t = trim(preg_replace('/\s+/u', ' ', (string) $t));
+            if ($t === '') continue;
+            $out[mb_strtolower($t)] ??= mb_substr($t, 0, 60);
+        }
+
+        return array_values($out);
     }
 
     public static function definir(string $clave, bool $activo): void
@@ -136,6 +186,7 @@ class AjustesSistema
             'declaracion_personalizados'     => self::activo(self::DECLARACION_PERSONALIZADOS),
             'avisar_entrega_dias_antes'      => self::diasAvisoEntrega(),
             'tela_por_definir'               => self::pideTela(),
+            'trabajos_restauracion'          => self::trabajosRestauracion(),
         ];
     }
 

@@ -202,4 +202,25 @@ class AjustesCalificarTallerTest extends TestCase
         $this->actingAs($jefe)->patchJson('/api/ajustes-sistema', ['calificar_trabajadores_taller' => true])
             ->assertOk()->assertJsonPath('calificar_trabajadores_taller', true);
     }
+
+    public function test_trabajos_de_restauracion_vienen_de_fabrica_y_los_cambia_un_supervisor(): void
+    {
+        // Dueño, 2026-11-12: separar los trabajos de una restauración. La lista
+        // se marca en Nueva orden y se maneja en Gestión → Ajustes.
+        $monica = $this->usuario('Monica');
+        $jefe   = $this->usuario('Jefe', 'supervisor');
+
+        $this->assertContains('Tapizado', AjustesSistema::trabajosRestauracion());
+
+        $this->actingAs($monica)->patchJson('/api/ajustes-sistema', ['trabajos_restauracion' => ['Laca']])
+            ->assertForbidden();
+
+        // Sin vacíos ni repetidos (sin mirar mayúsculas), y en el orden dado.
+        $this->actingAs($jefe)->patchJson('/api/ajustes-sistema', [
+            'trabajos_restauracion' => ['  Laca ', 'Tapizado', 'laca', '', 'Cambio de cojinería'],
+        ])->assertOk()->assertJsonPath('trabajos_restauracion', ['Laca', 'Tapizado', 'Cambio de cojinería']);
+
+        $this->actingAs($monica)->getJson('/api/ajustes-sistema')
+            ->assertOk()->assertJsonPath('trabajos_restauracion', ['Laca', 'Tapizado', 'Cambio de cojinería']);
+    }
 }

@@ -121,7 +121,40 @@ Porcentaje fijo, sin meta. Venta → 5 % de lo suyo (÷1,19) para quien vendió.
 Restauración → bolsón común de todas las restauraciones del mes; cada
 independiente cobra el 5 % del bolsón completo. Si se comparte con un almacén
 (`tienda_abonada_id`), a la meta del almacén le suma la mitad de la venta y el
-almacén cobra su propio 5 %.
+almacén cobra su propio 5 %. **Eso cambió el 2026-11-12** (ver abajo); sigue así solo para lo
+de independientes vendido antes de esa fecha.
+
+### Compartir la venta con otra tienda: 50/50 (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
+- Ya no es solo de independientes: vendedores de tienda y supervisores también comparten con
+  otra tienda desde Nueva orden y Editar orden (Reasignar). Con otro asesor o con una tienda,
+  no las dos. Cuando un supervisor hace la orden, la otra mitad es suya (cobra su 5 %).
+- **50/50 para meta y bonificación; "que no se pague dos veces y sea 2,5 para cada uno"**.
+  Ejemplo del dueño: Juan (independiente) vende $4 M con El Edén → $2 M suman a meta y ventas de
+  El Edén (su pool se calcula normal) y Juan cobra su 5 % sobre sus $2 M. Antes Juan cobraba el
+  5 % de los $4 M **y** el equipo de El Edén otro 5 % de los $4 M, además de la mitad en la meta.
+- En una tienda con meta, la mitad de una venta la paga el pool (sin filas `abono_almacen`). En
+  una restauración (no suma a la meta) o en una tienda sin meta, la otra tienda cobra el 5 % sobre
+  su mitad, partido entre su equipo. Regla en `ComisionController::fraccionAparteDelAlmacen`
+  (filas) y `ComisionIndependientes::conLaBaseQueDeVerdadComisiona` (el independiente cobra su
+  mitad). Corte `ComisionController::CORTE_ALMACEN_50_50` = 2026-11-12: lo de independientes
+  vendido antes sigue con la regla vieja. Por defecto mío (**falta que el dueño confirme**): solo
+  órdenes nuevas, no las viejas sin pagar (el dueño no contestó esa pregunta).
+- **Excepción: las restauraciones de independientes NO van 50/50** (dueño, mismo día: "ESO ES UN
+  CASO ESPECIAL QUE FUNCIONA ASÍ… eso se queda así"). Henry hace una restauración y la comparte
+  con un almacén: entra entera al bolsón (5 % para Henry, 5 % para Flavio) y el almacén cobra su
+  5 % de la restauración entera, partido entre su equipo. Igual que las que sube un almacén sin
+  compartir (ya entraban al bolsón). La versión subida en b90337f las partía: corregido después.
+- Cambiar el vendedor ya no quita el reparto; solo se quita si la orden pasa a esa misma tienda.
+- Tests al final de `ReasignarVendedorTest`.
+
+### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
+- En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
+  Ajustes, clave `restauracion_trabajos` en `configuracion`, JSON) o uno escrito a mano, cada uno
+  con cuántas unidades lo llevan, y sigue el espacio de notas. Todo se junta en el
+  `descripcion_trabajo` de siempre ("Tapizado ×6 · Laca ×2. Notas…", `utils/trabajosRestauracion.js`),
+  así taller, PDF, firma y cotizador lo ven sin cambios. No toca plata: un solo precio por mueble.
+- No hecho: el "agregar restauración" de Editar orden sigue con un solo campo de texto;
+  `RestauracionView.vue` no está en el router (pantalla sin uso).
 
 ### Entregas por producto (plan `docs/plan-entregas-parciales.md`, fases A–D hechas)
 Se entregan **productos, no órdenes** (`entrega_lineas`). Decisiones 2026-09-11:
