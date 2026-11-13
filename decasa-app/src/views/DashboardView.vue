@@ -185,10 +185,13 @@ const accesos = computed(() => {
   items.push(...accesoEncargos.value)
 
   // Facturación electrónica (Alegra): a quien tiene la función de facturación
-  // y a los supervisores, de primero en el Inicio (usuario, 2026-11-13: antes
-  // solo estaba en el menú de abajo). Va con la de "Facturación" de siempre.
+  // y a los supervisores (usuario, 2026-11-13: antes solo estaba en el menú de
+  // abajo). Por el medio, no de primera: primero lo del día (Nueva orden,
+  // Órdenes, Clientes…). Va justo después de Cotizaciones.
   if (auth.puedeFacturarElectronica) {
-    items.unshift({ label: 'Fact. electrónica', icon: DocumentCheckIcon, to: { name: 'facturacion-electronica' } })
+    const fe = { label: 'Fact. electrónica', icon: DocumentCheckIcon, to: { name: 'facturacion-electronica' } }
+    const despues = items.findIndex(i => i.modulo === 'cotizaciones')
+    despues >= 0 ? items.splice(despues + 1, 0, fe) : items.push(fe)
   }
   if (auth.isFacturador) {
     items.unshift({ modulo: 'facturacion', label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' }, badge: abonosNoLeidos.value })
