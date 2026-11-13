@@ -5,7 +5,7 @@
  * la orden (comprobantes, fotos de entrega, cambios de plata). Lo que se ve
  * aquí es exactamente lo que se manda: lo arma el servidor (ArmarFactura).
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import TarjetaPdf from '@/components/common/TarjetaPdf.vue'
@@ -72,7 +72,8 @@ async function cargar() {
       tipo_persona: c.tipo_persona ?? 'natural', regimen: c.regimen ?? '', email: c.email ?? '',
       telefono: c.telefono ?? '', direccion: c.direccion ?? '', ciudad: c.ciudad ?? '', departamento: c.departamento ?? '',
     }
-    if (c.faltan?.length) editandoCliente.value = true
+    // Si solo falta el régimen, bastan los dos botones: no se abre todo el formulario.
+    if (c.faltan?.some(f => f !== 'régimen de IVA')) editandoCliente.value = true
     // Lo que ya se aceptó en un intento anterior se olvida: se revisa otra vez.
     aceptadas.value = aceptadas.value.filter(a => data.armado.advertencias.includes(a))
   } catch (e) {
@@ -187,6 +188,54 @@ async function emparejar(l, c) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar')
   }
 }
+
+// ── Qué falta para facturar, con atajo (2026-11-13, #4428: "no me deja
+// facturar" y faltaban el régimen y un producto de Alegra). ─────────────
+function irA(id) {
+  nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+}
+async function ponerRegimen(regimen) {
+  if (!armado.value?.cliente?.id) return
+  guardandoCliente.value = true
+  try {
+    await guardarClienteFE(armado.value.cliente.id, { regimen })
+    toast.success(regimen === 'responsable' ? 'Cliente: responsable de IVA' : 'Cliente: no responsable de IVA')
+    revisado.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar')
+  } finally {
+    guardandoCliente.value = false
+  }
+}
+const queFalta = computed(() => {
+  const a = armado.value
+  if (!a || hecha.value) return []
+  const out = []
+  for (const b of bloqueos.value) {
+    if (b.codigo === 'datos_cliente') {
+      const faltan = a.cliente?.faltan ?? []
+      for (const f of faltan) {
+        out.push(f === 'régimen de IVA'
+          ? { texto: 'Escoger si el cliente es responsable de IVA', boton: 'Escoger', ir: () => irA(editandoCliente.value ? 'fe-cliente' : 'fe-regimen') }
+          : { texto: `Completar el ${f} del cliente`, boton: 'Completar', ir: () => { editandoCliente.value = true; irA('fe-cliente') } })
+      }
+    } else if (b.codigo === 'producto_sin_alegra') {
+      for (const l of a.lineas.filter(x => x.alegra_item && !x.alegra_item.id)) {
+        out.push({ texto: `Escoger en Alegra el producto de ${l.alegra_item.producto}`, boton: 'Escoger',
+          ir: () => { if (emparejando.value !== l.alegra_item.producto_id) abrirEmparejar(l); irA('fe-producto-' + l.alegra_item.producto_id) } })
+      }
+    } else {
+      out.push({ texto: b.mensaje, ...(b.arreglo ? { boton: 'Corregir', ir: () => aplicarArreglo(b) } : {}) })
+    }
+  }
+  const sinAceptar = advertencias.value.filter(x => !aceptadas.value.includes(x.codigo)).length
+  if (sinAceptar) {
+    out.push({ texto: `Marcar ${sinAceptar === 1 ? 'el aviso' : `los ${sinAceptar} avisos`} de "Revisa esto" (que ya lo revisaste)`, boton: 'Ver', ir: () => irA('fe-avisos') })
+  }
+  if (a.se_puede && !revisado.value) out.push({ texto: 'Marcar la casilla "Revisé el cliente, los productos…"' })
+  return out
+})
 
 const confirmoPagos = ref(false)
 async function reintentarPagos() {
@@ -351,7 +400,7 @@ onMounted(cargar)
           </button>
         </div>
       </div>
-      <div v-if="!hecha && advertencias.length" class="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
+      <div v-if="!hecha && advertencias.length" id="fe-avisos" class="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
         <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5"><ExclamationTriangleIcon class="w-4 h-4" /> Revisa esto antes de facturar</p>
         <div v-for="a in advertencias" :key="a.codigo">
           <label class="flex items-start gap-2 text-sm text-gray-700">
@@ -375,7 +424,7 @@ onMounted(cargar)
       </div>
 
       <!-- Cliente -->
-      <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <div id="fe-cliente" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-gray-800">Cliente (como va a la DIAN)</h3>
           <button v-if="!hecha && !armado.cliente.consumidor_final" @click="editandoCliente = !editandoCliente" class="text-xs font-semibold text-blue-600">
@@ -396,6 +445,23 @@ onMounted(cargar)
             </p>
             <p class="text-xs text-gray-500">{{ armado.cliente.direccion || 'Sin dirección' }} · {{ armado.cliente.ciudad || 'sin ciudad' }}, {{ armado.cliente.departamento || 'sin departamento' }}</p>
             <p class="text-xs text-gray-500">{{ armado.cliente.email || 'Sin correo' }} · {{ armado.cliente.telefono || 'sin teléfono' }}</p>
+            <!-- Régimen sin escoger: dos botones en vez de abrir todo el formulario
+                 (2026-11-13, #4428: "no me deja facturar" y era solo esto). -->
+            <div v-if="!hecha && !armado.cliente.regimen" id="fe-regimen" class="mt-2 rounded-lg border border-amber-300 p-2.5 space-y-2">
+              <p class="text-xs font-semibold text-amber-800">¿El cliente es responsable de IVA? Pregúntale (o mira su RUT).</p>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" @click="ponerRegimen('no_responsable')" :disabled="guardandoCliente"
+                  class="py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-700 hover:border-blue-500 disabled:opacity-50">
+                  No responsable
+                  <span class="block font-normal text-[11px] text-gray-400">Lo común en personas</span>
+                </button>
+                <button type="button" @click="ponerRegimen('responsable')" :disabled="guardandoCliente"
+                  class="py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-700 hover:border-blue-500 disabled:opacity-50">
+                  Responsable de IVA
+                  <span class="block font-normal text-[11px] text-gray-400">Cobra IVA (casi todas las empresas)</span>
+                </button>
+              </div>
+            </div>
           </template>
         </div>
         <div v-else class="grid grid-cols-2 gap-2 text-sm">
@@ -469,10 +535,15 @@ onMounted(cargar)
               En Alegra: <b class="text-gray-700">{{ l.alegra_item.nombre || ('id ' + l.alegra_item.id) }}</b>
               <button v-if="!hecha" @click="abrirEmparejar(l)" class="ml-1 text-blue-600 font-semibold">cambiar</button>
             </p>
-            <p v-else class="text-xs text-amber-700">
-              {{ l.alegra_item.origen === 'varios' ? 'En Alegra hay varios con ese nombre.' : 'No se encontró en Alegra.' }}
-              <button @click="abrirEmparejar(l)" class="ml-1 text-blue-600 font-semibold">Escoger producto de Alegra</button>
-            </p>
+            <div v-else :id="'fe-producto-' + l.alegra_item.producto_id"
+              class="rounded-lg border border-amber-300 px-2.5 py-2 flex items-center justify-between gap-2">
+              <span class="text-xs text-amber-800">
+                {{ l.alegra_item.origen === 'varios' ? 'En Alegra hay varios con ese nombre: escoge cuál es.' : 'No se encontró en Alegra: escógelo.' }}
+              </span>
+              <button @click="abrirEmparejar(l)" class="shrink-0 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold">
+                {{ emparejando === l.alegra_item.producto_id ? 'Cerrar' : 'Escoger' }}
+              </button>
+            </div>
             <!-- Escoger: lo que se parece y un buscador. Queda guardado para las siguientes facturas. -->
             <div v-if="emparejando === l.alegra_item.producto_id" class="mt-1.5 border border-gray-200 rounded-lg p-2 space-y-1.5">
               <div class="flex gap-2">
@@ -588,6 +659,14 @@ onMounted(cargar)
           <input v-model="revisado" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-blue-600" :disabled="!armado.se_puede" />
           <span>Revisé el cliente, los productos, los valores y los comprobantes: está todo bien para facturar.</span>
         </label>
+        <!-- Por qué el botón está apagado, con un atajo a cada cosa (2026-11-13, #4428). -->
+        <div v-if="queFalta.length" class="rounded-lg border border-gray-200 p-3 space-y-1.5">
+          <p class="text-xs font-semibold text-gray-600">Para poder {{ armado.modo === 'emitir' ? 'facturar' : 'crear el borrador' }} falta:</p>
+          <div v-for="(f, i) in queFalta" :key="i" class="flex items-start justify-between gap-2 text-xs text-gray-700">
+            <span class="flex gap-1.5"><span class="text-red-500">•</span>{{ f.texto }}</span>
+            <button v-if="f.ir" type="button" @click="f.ir()" class="shrink-0 font-semibold text-blue-600">{{ f.boton || 'Ir' }}</button>
+          </div>
+        </div>
         <button @click="facturar" :disabled="!puedeFacturar"
           class="w-full py-3 bg-blue-600 text-white rounded-lg text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
           <CheckCircleIcon class="w-5 h-5" />
