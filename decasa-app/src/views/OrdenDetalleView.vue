@@ -43,7 +43,7 @@ import ChatOrden from '@/components/ordenes/ChatOrden.vue'
 // Se usaba sin importar: mientras cargaba la orden no se veía nada
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, DocumentTextIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
@@ -638,6 +638,12 @@ function fotosDePago(pago) {
   const lista = pago?.comprobante_fotos
   if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
   return pago?.comprobante_url ? [pago.comprobante_url] : []
+}
+
+/** Abre el visor con las fotos del comprobante de ese pago (sin los PDF), desde la que se tocó. */
+function verComprobantesPago(pago, url) {
+  const fotos = fotosDePago(pago).filter(u => !esUrlDePdf(u))
+  abrirFoto(fotos, { indice: Math.max(0, fotos.indexOf(url)), nombre: `Comprobante ${pago.tipo ?? ''}`.trim() })
 }
 
 /** Todas las fotos del comprobante; las órdenes viejas traen una sola. */
@@ -3253,19 +3259,30 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 por {{ c.usuario }} · {{ formatDateTime(c.fecha) }}
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
-              <span v-if="fotosDePago(pago).length" class="inline-flex flex-wrap gap-x-2 mt-0.5">
-                <a
-                  v-for="(url, i) in fotosDePago(pago)"
-                  :key="url"
-                  :href="url"
-                  target="_blank"
-                  rel="noopener"
-                  class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                >
-                  <ArrowDownTrayIcon class="w-3 h-3" />
-                  {{ fotosDePago(pago).length > 1 ? `Comprobante ${i + 1}` : 'Ver comprobante' }}
-                </a>
-              </span>
+              <!-- Miniatura de cada comprobante (pedido del usuario, 2026-11-13:
+                   "solo aparece Ver comprobante y no la fotico"). Toca y abre el
+                   visor con todos; un PDF abre en otra pestaña. -->
+              <div v-if="fotosDePago(pago).length" class="flex flex-wrap gap-1.5 mt-1.5">
+                <template v-for="(url, i) in fotosDePago(pago)" :key="url">
+                  <a
+                    v-if="esUrlDePdf(url)"
+                    :href="url" target="_blank" rel="noopener" data-sin-visor
+                    class="w-14 h-14 rounded-lg border border-gray-200 bg-white flex flex-col items-center justify-center gap-0.5 hover:border-gray-300"
+                    :title="`Comprobante ${i + 1} (PDF)`"
+                  >
+                    <DocumentTextIcon class="w-5 h-5 text-red-600" />
+                    <span class="text-[10px] font-semibold text-red-600">PDF</span>
+                  </a>
+                  <button
+                    v-else type="button"
+                    @click="verComprobantesPago(pago, url)"
+                    class="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    :aria-label="fotosDePago(pago).length > 1 ? `Ver comprobante ${i + 1}` : 'Ver comprobante'"
+                  >
+                    <img :src="cloudinaryOpt(url, 160)" class="w-full h-full object-cover" alt="" loading="lazy" />
+                  </button>
+                </template>
+              </div>
             </div>
             <div class="text-right">
               <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>
