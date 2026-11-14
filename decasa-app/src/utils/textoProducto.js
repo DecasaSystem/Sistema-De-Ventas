@@ -4,6 +4,17 @@
  * preguntan "¿cuánto vale la cama Bali?": nombre, precio, medidas, cada
  * versión con su precio y la promoción si hay.
  *
+ * Qué precio se copia lo escoge la persona (usuario, 2026-11-14: "tiene el
+ * precio general y el de las variantes, copia el que se le da la gana y no
+ * pregunta"). Antes, si las versiones valían distinto, salía "Desde" lo más
+ * barato de todo, contando el precio general aunque ninguna versión se
+ * vendiera a ese precio. Ahora, si el producto tiene versiones con precio,
+ * Inventario pregunta (`opcionesParaCopiar`) y se copia:
+ *  - 'general': solo el precio general del producto.
+ *  - 'config:<id>' / 'talla:<id>': solo esa versión con su precio.
+ *  - 'todo': el precio general y cada versión con el suyo.
+ * Sin versiones con precio no se pregunta: va el precio general.
+ *
  * Solo lleva lo que se le puede decir al cliente: nada de costos, stock en
  * números, apartados ni mínimos. Los asteriscos y las virgulillas son el
  * formato de WhatsApp (*negrita*, ~tachado~).
@@ -12,8 +23,8 @@
  *  - `precio_adicional` de una opción (1.40, con baúl) es el PRECIO COMPLETO
  *    de esa versión; en 0, la versión vale lo del producto. Nunca se suma
  *    como recargo (así se corrigió en Inventario el 2026-10-16).
- *  - `precio_variante` de una tela o talla es también su precio completo;
- *    vacío, vale lo del producto.
+ *  - `precio_variante` de una talla es también su precio completo; vacío,
+ *    vale lo del producto.
  * La promoción se busca con la misma regla de Nueva orden (`promoParaItem`):
  * la de esa versión gana sobre la del producto entero.
  */
@@ -40,6 +51,49 @@ function precioConPromo(lista, promo) {
   return { texto: `~${plata(lista)}~ *${plata(lista - rebaja)}*`, promo, final: lista - rebaja }
 }
 
+/** Las versiones con su precio de verdad (0 = el del producto). */
+function versionesDe({ producto, grupos = [], variantes = [], esTalla = false }) {
+  const base = Number(producto?.precio_base) || 0
+  const gruposConPrecio = grupos
+    .filter(g => g.items?.length)
+    .map(g => ({
+      nombre: g.tipo?.nombre ?? 'Opciones',
+      items: g.items.map(o => ({
+        clave: `config:${o.id}`,
+        nombre: o.opcion_nombre,
+        precio: Number(o.precio_adicional) > 0 ? Number(o.precio_adicional) : base,
+        extra: { _config_id: o.id },
+      })),
+    }))
+  // Tallas: cada una con su precio.
+  const tallas = esTalla
+    ? variantes.filter(v => v.medida).map(v => ({
+        clave: `talla:${v.id}`,
+        nombre: v.medida,
+        precio: v.precio_variante != null && Number(v.precio_variante) > 0 ? Number(v.precio_variante) : base,
+        extra: { variante_id: v.id },
+      }))
+    : []
+  if (tallas.length) gruposConPrecio.push({ nombre: 'Tallas', items: tallas })
+  return { base, grupos: gruposConPrecio }
+}
+
+/**
+ * Lo que Inventario ofrece antes de copiar. `preguntar` es falso cuando el
+ * producto no tiene versiones: ahí no hay nada que escoger.
+ */
+export function opcionesParaCopiar(datos) {
+  const { base, grupos } = versionesDe(datos)
+  return {
+    preguntar: grupos.length > 0,
+    base,
+    grupos: grupos.map(g => ({
+      nombre: g.nombre,
+      items: g.items.map(i => ({ clave: i.clave, nombre: i.nombre, precio: i.precio })),
+    })),
+  }
+}
+
 /**
  * @param {object} p
  * @param {object} p.producto  el producto de la tarjeta (nombre, precio_base, medidas…)
@@ -47,58 +101,36 @@ function precioConPromo(lista, promo) {
  * @param {Array}  p.variantes telas/colores o tallas (`getVariantes`)
  * @param {boolean} p.esTalla  si las variantes son tallas (medida + precio) y no telas
  * @param {Array}  p.promos    las vigentes en la tienda que se mira (vacío en "todas")
+ * @param {string} p.eleccion  'general' | 'todo' | 'config:<id>' | 'talla:<id>'
  */
-export function textoDelProducto({ producto, grupos = [], variantes = [], esTalla = false, promos = [] }) {
+export function textoDelProducto({ producto, grupos = [], variantes = [], esTalla = false, promos = [], eleccion = 'todo' }) {
   const pid  = producto?.id
-  const base = Number(producto?.precio_base) || 0
-  const promoDe = (extra) => promoParaItem(promos, { producto_id: pid, precio_unitario: extra.precio, ...extra })
-  const finales = []         // lo que de verdad paga el cliente por cada versión
+  const { base, grupos: versiones } = versionesDe({ producto, grupos, variantes, esTalla })
+  const promoDe = (extra) => promoParaItem(promos, { producto_id: pid, ...extra, precio_unitario: extra.precio })
   const hasta = new Set()    // hasta cuándo van las promociones que salen en el texto
   const anotar = (r) => { if (r.promo) hasta.add(String(r.promo.fecha_fin).slice(0, 10)); return r.texto }
-  // La versión lleva su precio si las versiones valen distinto, o si ella
-  // sola tiene promoción (la de la 1.40 aunque todas valgan lo mismo).
-  const sufijo = (precio, extra) => {
-    const r = precioConPromo(precio, promoDe({ precio, ...extra }))
-    finales.push(r.final)
-    return (varian || r.promo) ? ` — ${anotar(r)}` : ''
+  const precioDe = (precio, extra = {}) => anotar(precioConPromo(precio, promoDe({ precio, ...extra })))
+
+  // La versión escogida (si se escogió una); si la clave ya no existe, todo.
+  let escogida = null
+  for (const g of versiones) {
+    const i = g.items.find(x => x.clave === eleccion)
+    if (i) escogida = { grupo: g.nombre, ...i }
   }
-
-  // Cada opción con su precio de verdad (0 = el del producto).
-  const gruposConPrecio = grupos
-    .filter(g => g.items?.length)
-    .map(g => ({
-      nombre: g.tipo?.nombre ?? 'Opciones',
-      items: g.items.map(o => ({
-        nombre: o.opcion_nombre,
-        precio: Number(o.precio_adicional) > 0 ? Number(o.precio_adicional) : base,
-        config_id: o.id,
-      })),
-    }))
-
-  // Tallas: cada una con su precio. Telas: los nombres (las combinaciones con
-  // una medida se repiten por cada medida: se cuentan una vez).
-  const tallas = esTalla
-    ? variantes.filter(v => v.medida).map(v => ({
-        nombre: v.medida,
-        precio: v.precio_variante != null && Number(v.precio_variante) > 0 ? Number(v.precio_variante) : base,
-        variante_id: v.id,
-      }))
-    : []
-
-  const precios = [base, ...gruposConPrecio.flatMap(g => g.items.map(i => i.precio)), ...tallas.map(t => t.precio)]
-  const varian  = new Set(precios).size > 1
-
-  const lineas = [`*${String(producto?.nombre ?? '').trim().toUpperCase()}*`]
+  const modo = escogida ? 'version' : (eleccion === 'general' ? 'general' : 'todo')
 
   const n = piezasPorJuego(producto)
+  const lineas = [`*${String(producto?.nombre ?? '').trim().toUpperCase()}*`]
 
-  // Un precio solo si todas las versiones valen lo mismo; si no, "desde" lo
-  // más barato (con promoción incluida), que se llena al final.
-  const filaDesde = lineas.length
-  if (varian) {
-    lineas.push('')
+  if (modo === 'version') {
+    lineas.push(`📌 ${escogida.grupo}: ${escogida.nombre}`)
+    lineas.push(`💰 ${precioDe(escogida.precio, escogida.extra)}${n ? ' el juego' : ''}`)
   } else {
-    lineas.push(`💰 ${anotar(precioConPromo(base, promoDe({ precio: base })))}${n ? ' el juego' : ''}`)
+    // El general siempre dice que es el general cuando hay versiones con
+    // otro precio, para que el cliente no lo confunda con el de una versión.
+    const hayOtros = versiones.some(g => g.items.some(i => i.precio !== base))
+    const etiqueta = modo === 'todo' && hayOtros ? 'Precio general: ' : ''
+    lineas.push(`💰 ${etiqueta}${precioDe(base)}${n ? ' el juego' : ''}`)
   }
 
   if (n) lineas.push(`🪑 Juego de ${n} piezas · pieza suelta ${plata(precioPieza(producto))}`)
@@ -106,18 +138,12 @@ export function textoDelProducto({ producto, grupos = [], variantes = [], esTall
   if (producto?.material?.trim())    lineas.push(`🪵 Material: ${producto.material.trim()}`)
   if (producto?.descripcion?.trim()) lineas.push('', producto.descripcion.trim())
 
-  // Cada versión; con su precio si valen distinto o si tiene promoción.
-  for (const g of gruposConPrecio) {
-    lineas.push('', `*${g.nombre}*`)
-    for (const o of g.items) {
-      lineas.push(`• ${o.nombre}${sufijo(o.precio, { _config_id: o.config_id })}`)
-    }
-  }
-
-  if (tallas.length) {
-    lineas.push('', '*Tallas*')
-    for (const t of tallas) {
-      lineas.push(`• ${t.nombre}${sufijo(t.precio, { variante_id: t.variante_id })}`)
+  // Con "todo", cada versión con su precio (siempre: así no hay que adivinar
+  // cuál vale qué).
+  if (modo === 'todo') {
+    for (const g of versiones) {
+      lineas.push('', `*${g.nombre}*`)
+      for (const o of g.items) lineas.push(`• ${o.nombre} — ${precioDe(o.precio, o.extra)}`)
     }
   }
 
@@ -140,8 +166,6 @@ export function textoDelProducto({ producto, grupos = [], variantes = [], esTall
       }
     }
   }
-
-  if (varian) lineas[filaDesde] = `💰 Desde ${plata(Math.min(...(finales.length ? finales : precios)))}`
 
   // Hasta cuándo va cada promoción que salió arriba.
   // El nombre de la promoción no se copia: lo pone el supervisor para

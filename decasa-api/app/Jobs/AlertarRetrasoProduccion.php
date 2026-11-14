@@ -44,7 +44,13 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             // Carbon 3 cambió el default de diffInDays() de absoluto a con
             // signo: sin el `true`, una fecha pasada da un número NEGATIVO
             // ("-9 días de retraso" en vez de "9"). Hay que pedirlo explícito.
-            $dias    = now()->diffInDays($prod->fecha_compromiso, true);
+            // Y en Carbon 3 devuelve días con decimales: comparar la hora de
+            // ahora (7 a. m.) con la medianoche del compromiso daba
+            // "1.2916666 día(s) de retraso". Se cuentan días enteros de
+            // calendario, como en la sección 4.
+            $dias    = (int) now()->startOfDay()->diffInDays(
+                \Carbon\Carbon::parse($prod->fecha_compromiso)->startOfDay(), true
+            );
 
             NotificacionService::crear(
                 'retrasado',
