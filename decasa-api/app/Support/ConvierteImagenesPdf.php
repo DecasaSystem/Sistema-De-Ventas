@@ -18,19 +18,17 @@ trait ConvierteImagenesPdf
         $ruta = strtolower(parse_url($url, PHP_URL_PATH) ?? '');
         if (str_ends_with($ruta, '.pdf') || str_contains($ruta, '/raw/upload/')) return null;
 
-        // Solo permitir URLs de dominios de almacenamiento confiables
-        $dominiosPermitidos = ['res.cloudinary.com', 'cloudinary.com', 'amazonaws.com', 's3.'];
-        $host = parse_url($url, PHP_URL_HOST) ?? '';
-        $esPermitida = collect($dominiosPermitidos)->contains(fn($d) => str_contains($host, $d));
-
-        if (! $esPermitida) {
+        // Solo https de Cloudinary o S3 (ver UrlsPermitidas).
+        if (! UrlsPermitidas::esFoto($url)) {
             \Log::warning('urlToBase64: URL de dominio no permitido', ['url' => $url]);
             return null;
         }
 
         try {
             $bytes = file_get_contents($url, false, stream_context_create([
-                'http' => ['timeout' => 5],
+                // Sin seguir redirecciones: un dominio permitido no puede
+                // mandar al servidor a otra parte.
+                'http' => ['timeout' => 5, 'follow_location' => 0],
                 'ssl'  => ['verify_peer' => true],
             ]));
             return $bytes ? 'data:image/png;base64,' . base64_encode($bytes) : null;

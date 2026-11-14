@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -18,7 +19,7 @@ class AnexoFirmado implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel("anexo.{$this->anexoId}")];
+        return [new PrivateChannel("anexo.{$this->anexoId}")];
     }
 
     public function broadcastAs(): string

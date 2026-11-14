@@ -1398,6 +1398,25 @@ Decisiones del dueño del 2026-10-08:
   estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
   "no le sale" a una persona, lo primero es preguntar si recargó.
 
+- **Revisión de seguridad** (2026-11-14, **subido a `main`** ese día, sin migración; tests en
+  `RevisionSeguridadTest`). Cerrado: (1) **todos los canales en tiempo real son privados**
+  (`new PrivateChannel`, reglas en `routes/channels.php`, permiso en `POST /api/broadcasting/auth`
+  con Sanctum, la app usa `Echo.private` con `authorizer` en `plugins/echo.js`). Antes eran
+  públicos y las reglas de channels.php no se aplicaban: con la clave de Reverb (va en la app)
+  cualquiera escuchaba avisos, chats de orden y conversaciones de WhatsApp. **Un evento nuevo
+  va por canal privado con su regla; un test falla si alguno usa `new Channel(`.** (2) Una cuenta
+  desactivada o sin programa ya no entra con su sesión (`Sanctum::authenticateAccessTokensUsing`
+  en AppServiceProvider); desactivar o cambiarle la contraseña cierra sus sesiones. (3) Asignar
+  fechas de entrega: solo supervisor (decía y no revisaba). (4) `PATCH /productos/{id}` (precio,
+  nombre, fotos): **solo supervisor** (dueño, mismo día); en Inventario → Gestionar esas secciones
+  solo las ve el supervisor. (5) Historial de órdenes del cliente con `visiblesPara`; editar
+  clientes solo supervisor, vendedor o facturador. (6) Redes (bandeja, tomar, terminar y el canal)
+  con `acceso_redes` o supervisor, como la pantalla. (7) Despacho por orden con `laPuedeVer`.
+  (8) Lo que el servidor descarga para un PDF: solo https de Cloudinary/S3, sin redirecciones
+  (`Support/UrlsPermitidas`); el correo de cotización no revisaba nada. (9) Push solo a servicios
+  de navegador. (10) Cabeceras en `decasa-app/vercel.json`. Pendiente del usuario: cerrar la
+  allowlist de Aiven. No cambiado: crear variantes con precio (`POST /productos/{id}/variantes`)
+  sigue para supervisor y vendedor.
 - **"Hoy" en UTC después de las 7 p. m.** (2026-11-14, **subido a `main`** ese día, commit c23f2216, sin migración). El servidor
   (`app.timezone = UTC`) y `new Date().toISOString()` en la app dan el día de mañana desde las 7 p. m.
   de Colombia. Se cambiaron ~38 sitios del servidor (fecha de despacho, pieza lista, inicio de

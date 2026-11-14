@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -15,7 +16,7 @@ class ConsultaMensajeEnviado implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel("consulta.{$this->consultaId}")];
+        return [new PrivateChannel("consulta.{$this->consultaId}")];
     }
 
     public function broadcastAs(): string

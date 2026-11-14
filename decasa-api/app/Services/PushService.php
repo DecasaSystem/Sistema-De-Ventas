@@ -41,6 +41,10 @@ class PushService
         $expiradas = [];
 
         foreach ($suscripciones as $sub) {
+            // Una dirección guardada antes de la revisión (2026-11-14) que no
+            // es un servicio push de navegador no recibe peticiones.
+            if (! \App\Support\UrlsPermitidas::esServicioPush((string) $sub->endpoint)) continue;
+
             $subscription = Subscription::create([
                 'endpoint'        => $sub->endpoint,
                 'keys'            => [

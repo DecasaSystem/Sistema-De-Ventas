@@ -217,7 +217,7 @@ let canal = null
 function conectar() {
   if (!window.Echo || canal) return
   canal = `orden.${props.ordenId}`
-  window.Echo.channel(canal)
+  window.Echo.private(canal)
     .stopListening('.orden.mensaje')
     .listen('.orden.mensaje', (m) => {
       // El propio ya se agregó al enviar; sin esto saldría dos veces

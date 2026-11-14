@@ -33,7 +33,7 @@ class OrdenMensajeController extends Controller
      * estricta (int contra lo que viniera de la base): a unos les salía y a
      * otros no.
      */
-    private function puedeParticipar(Usuario $u, Orden $orden): bool
+    public static function puedeParticipar(Usuario $u, Orden $orden): bool
     {
         return $u->rol === 'supervisor'
             || (bool) $u->gestiona_produccion

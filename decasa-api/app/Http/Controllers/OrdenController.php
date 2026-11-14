@@ -4021,6 +4021,14 @@ class OrdenController extends Controller
      */
     public function asignarFechas(Request $request, int $id)
     {
+        // Decía "solo supervisor" y no lo revisaba: cualquier sesión (un
+        // conductor, por la API) le cambiaba las fechas a cualquier orden y le
+        // llegaban avisos al vendedor (revisión de seguridad, 2026-11-14). La
+        // pantalla ya lo mostraba solo al supervisor.
+        if ($request->user()->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor asigna las fechas de entrega.'], 403);
+        }
+
         $data = $request->validate([
             'items'         => 'required|array|min:1',
             'items.*.id'    => 'required|integer|exists:orden_items,id',

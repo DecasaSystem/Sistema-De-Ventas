@@ -23,6 +23,21 @@ class AppServiceProvider extends ServiceProvider
         // Sin el UPDATE de last_used_at en cada petición (ver el modelo).
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
 
+        // Una sesión de una cuenta desactivada no sirve (revisión de
+        // seguridad, 2026-11-14). Antes, desactivar a alguien solo cerraba la
+        // puerta del login: las sesiones que ya tenía abiertas seguían
+        // entrando hasta que vencían (60 días). Se revisa en cada petición
+        // porque el token se carga con su usuario de todos modos.
+        Sanctum::authenticateAccessTokensUsing(function ($token, bool $esValido) {
+            if (! $esValido) return false;
+            $u = $token->tokenable;
+            if (! $u) return false;
+            // null = esquema de pruebas sin la columna: no se frena.
+            if ($u->activo !== null && ! $u->activo) return false;
+            if (! empty($u->no_usa_programa)) return false;
+            return true;
+        });
+
         // El trabajador de la cola vive horas: que un trabajo no herede lo que
         // el anterior dejó guardado (ver CachesDePeticion).
         Queue::before(fn () => CachesDePeticion::olvidarTodo());

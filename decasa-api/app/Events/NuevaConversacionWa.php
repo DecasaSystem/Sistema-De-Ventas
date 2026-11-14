@@ -4,6 +4,7 @@ namespace App\Events;
 
 use App\Models\ConversacionWa;
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -16,7 +17,7 @@ class NuevaConversacionWa implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel('redes')];
+        return [new PrivateChannel('redes')];
     }
 
     public function broadcastWith(): array

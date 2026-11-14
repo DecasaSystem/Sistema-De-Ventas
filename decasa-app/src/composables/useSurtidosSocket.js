@@ -18,7 +18,7 @@ export function useSurtidosSocket() {
     // en el momento ni se le actualizaba el contador.
     if (auth.usuario?.id) {
       const canal = `vendedor.${auth.usuario.id}`
-      window.Echo.channel(canal)
+      window.Echo.private(canal)
         .stopListening('.surtido.enviado')
         .listen('.surtido.enviado', (data) => {
           surtidos.incrementarPendientes()
@@ -30,7 +30,7 @@ export function useSurtidosSocket() {
 
     if (auth.isSupervisor) {
       const canal = `supervisor.${auth.usuario.id}`
-      window.Echo.channel(canal)
+      window.Echo.private(canal)
         .stopListening('.surtido.aceptado')
         .stopListening('.surtido.rechazado')
         .listen('.surtido.aceptado', (data) => {

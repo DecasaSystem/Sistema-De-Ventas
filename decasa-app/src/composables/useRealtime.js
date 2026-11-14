@@ -13,14 +13,14 @@ export function useRealtime() {
 
   function listen(channelName, eventName, callback) {
     if (!window.Echo) return
-    window.Echo.channel(channelName).listen('.' + eventName, callback)
+    window.Echo.private(channelName).listen('.' + eventName, callback)
     subs.push({ channelName, eventName })
   }
 
   onBeforeUnmount(() => {
     const canalesVistos = new Set()
     subs.forEach(({ channelName, eventName }) => {
-      window.Echo?.channel(channelName).stopListening('.' + eventName)
+      window.Echo?.private(channelName).stopListening('.' + eventName)
       canalesVistos.add(channelName)
     })
     canalesVistos.forEach(ch => window.Echo?.leave(ch))

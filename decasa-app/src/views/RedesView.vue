@@ -267,7 +267,7 @@ onMounted(() => {
   cargar()
 
   if (window.Echo) {
-    echoChannel = window.Echo.channel('redes')
+    echoChannel = window.Echo.private('redes')
       .listen('.conversacion.actualizada', (conv) => {
         if (perteneceAlUsuario(conv)) actualizarItem(conv)
       })
@@ -280,7 +280,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (echoChannel)  window.Echo.leaveChannel('redes')
+  if (echoChannel)  window.Echo.leave('redes')
   if (pollInterval) clearInterval(pollInterval)
 })
 </script>

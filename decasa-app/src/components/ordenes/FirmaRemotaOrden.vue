@@ -175,7 +175,7 @@ watch(() => [firma.value?.id, firma.value?.estado], ([id, estado]) => {
   if (!id || estado !== 'pendiente') return
   if (window.Echo) {
     canal = `anexo.${id}`
-    window.Echo.channel(canal).listen('.anexo.firmado', cargar)
+    window.Echo.private(canal).listen('.anexo.firmado', cargar)
   }
   sondeo = setInterval(() => { if (document.visibilityState === 'visible') cargar() }, 15000)
 })

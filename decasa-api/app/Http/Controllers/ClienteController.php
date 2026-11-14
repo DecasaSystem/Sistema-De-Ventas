@@ -74,6 +74,14 @@ class ClienteController extends Controller
      */
     public function update(Request $request, int $id)
     {
+        // Los datos del cliente los corrigen quienes le venden o le facturan.
+        // Antes cualquier sesión (taller, conductor) podía cambiarle el
+        // teléfono o la cédula a cualquiera (revisión de seguridad, 2026-11-14).
+        $u = $request->user();
+        if (! in_array($u->rol, ['supervisor', 'vendedor'], true) && ! $u->facturacion) {
+            return response()->json(['message' => 'Tu cuenta no puede editar clientes.'], 403);
+        }
+
         $cliente = Cliente::findOrFail($id);
 
         $data = $request->validate([
@@ -402,10 +410,14 @@ class ClienteController extends Controller
     {
         Cliente::findOrFail($id);
 
+        // Con la regla de siempre de qué órdenes ve cada quien (AGENT.md,
+        // regla 5): antes salían todas las del cliente, con su plata, a
+        // cualquier sesión (revisión de seguridad, 2026-11-14).
         $ordenes = Orden::with([
             'tienda:id,nombre',
             'vendedor:id,nombre',
         ])
+            ->visiblesPara($request->user())
             ->withSum('pagos', 'monto')
             ->where('cliente_id', $id)
             ->orderByDesc('created_at')

@@ -249,10 +249,10 @@ watch(() => auth.isAuthenticated, (isAuth) => {
 // immediate: true para que conecte aunque el ID ya esté en localStorage al cargar la página
 watch(() => auth.usuario?.id, (id, oldId) => {
   if (window.Echo && oldId && oldId !== id) {
-    window.Echo.leaveChannel(`notificaciones.${oldId}`)
+    window.Echo.leave(`notificaciones.${oldId}`)
   }
   if (!id || !window.Echo) return
-  window.Echo.channel(`notificaciones.${id}`)
+  window.Echo.private(`notificaciones.${id}`)
     .stopListening('.nueva.notificacion')
     .listen('.nueva.notificacion', n => {
       notif.agregarNueva(n)
@@ -299,12 +299,12 @@ function cargarRedesPendientes() {
 }
 watch(() => auth.usuario?.id, (id, oldId) => {
   if (window.Echo && oldId && oldId !== id) {
-    window.Echo.leaveChannel('redes')
+    window.Echo.leave('redes')
   }
   if (!id) return
   cargarRedesPendientes()
   if (!window.Echo || !auth.tieneAccesoRedes) return
-  window.Echo.channel('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
+  window.Echo.private('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
 }, { immediate: true })
 
 // Los módulos que la empresa creó a partir de Telas van donde va Telas, con

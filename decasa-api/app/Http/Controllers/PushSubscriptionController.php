@@ -15,6 +15,13 @@ class PushSubscriptionController extends Controller
             'auth_token' => 'required|string',
         ]);
 
+        // Solo el servicio push de un navegador (Chrome, Firefox, Edge,
+        // Safari): el servidor le hace peticiones a esta dirección con cada
+        // aviso (revisión de seguridad, 2026-11-14).
+        if (! \App\Support\UrlsPermitidas::esServicioPush($data['endpoint'])) {
+            return response()->json(['message' => 'Dirección de avisos no válida.'], 422);
+        }
+
         PushSubscription::updateOrCreate(
             ['usuario_id' => $request->user()->id, 'endpoint' => $data['endpoint']],
             ['p256dh' => $data['p256dh'], 'auth_token' => $data['auth_token']]

@@ -3521,6 +3521,12 @@ onMounted(async () => {
           <!-- Cuerpo scrollable -->
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
 
+            <!-- Precio, nombre, fotos y marcas del producto: solo supervisor (dueño,
+                 2026-11-14). El servidor también lo frena. -->
+            <p v-if="!auth.isSupervisor" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              El precio, el nombre y las fotos los cambia un supervisor.
+            </p>
+            <template v-if="auth.isSupervisor">
             <!-- Cambiar precio -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Precio base</label>
@@ -3771,6 +3777,7 @@ onMounted(async () => {
                 />
               </button>
             </div>
+            </template>
 
             <!-- Venta en juego (unas mesas de a 2). Cambia cómo se cuenta el
                  stock en todas las tiendas: solo el supervisor lo toca. -->

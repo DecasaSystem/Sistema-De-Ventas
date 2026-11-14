@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -21,7 +22,7 @@ class OrdenMensajeEnviado implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel("orden.{$this->ordenId}")];
+        return [new PrivateChannel("orden.{$this->ordenId}")];
     }
 
     public function broadcastAs(): string

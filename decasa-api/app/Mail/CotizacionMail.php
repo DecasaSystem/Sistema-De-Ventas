@@ -96,10 +96,15 @@ class CotizacionMail extends Mailable
     private function urlToBase64(?string $url): ?string
     {
         if (! $url) return null;
+        // Misma lista que el resto de PDFs. Aquí no había ninguna y la firma
+        // llega escrita por el vendedor: con cualquier texto el servidor leía
+        // direcciones internas o archivos propios (revisión de seguridad,
+        // 2026-11-14). Y con el certificado revisado.
+        if (! \App\Support\UrlsPermitidas::esFoto($url)) return null;
         try {
             $bytes = file_get_contents($url, false, stream_context_create([
-                'http' => ['timeout' => 5],
-                'ssl'  => ['verify_peer' => false],
+                'http' => ['timeout' => 5, 'follow_location' => 0],
+                'ssl'  => ['verify_peer' => true],
             ]));
             return $bytes ? 'data:image/png;base64,' . base64_encode($bytes) : null;
         } catch (\Throwable) {

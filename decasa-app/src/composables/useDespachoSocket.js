@@ -13,7 +13,7 @@ export function useDespachoSocket() {
     if (!window.Echo) return
 
     // Canal público de despacho — nuevas órdenes listas (supervisor)
-    window.Echo.channel('despacho')
+    window.Echo.private('despacho')
       .stopListening('.orden.lista_entrega')
       .listen('.orden.lista_entrega', (data) => {
         despacho.agregarACola(data)
@@ -23,7 +23,7 @@ export function useDespachoSocket() {
 
     // Canal del conductor — nuevas entregas asignadas
     if (auth.usuario?.rol === 'conductor') {
-      window.Echo.channel(`conductor.${auth.usuario.id}`)
+      window.Echo.private(`conductor.${auth.usuario.id}`)
         .stopListening('.despacho.asignado')
         .listen('.despacho.asignado', (data) => {
           despacho.cargarCola()
@@ -34,7 +34,7 @@ export function useDespachoSocket() {
 
     // Canal del supervisor — notificación de entregas completadas
     if (auth.usuario?.rol === 'supervisor') {
-      window.Echo.channel('supervisor')
+      window.Echo.private('supervisor')
         .stopListening('.orden.entregada')
         .listen('.orden.entregada', (data) => {
           // numero_orden llega ya formateado ("#4261" o "FV2-3"): las órdenes de

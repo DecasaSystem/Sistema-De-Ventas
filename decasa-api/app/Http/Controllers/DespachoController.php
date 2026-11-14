@@ -671,8 +671,16 @@ class DespachoController extends Controller
      * Devuelve los datos del despacho_item y despacho para una orden entregada.
      * Accesible por supervisor, vendedor y conductor.
      */
-    public function porOrden(int $ordenId)
+    public function porOrden(Request $request, int $ordenId)
     {
+        // El despacho de una orden lo ve quien puede ver la orden (regla 5).
+        // Antes cualquier sesión lo pedía por número (revisión de seguridad,
+        // 2026-11-14).
+        $orden = Orden::find($ordenId);
+        if (! $orden || ! $orden->laPuedeVer($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $item = DespachoItem::with([
             'despacho.conductor:id,nombre',
             'despacho.entregadoPor:id,nombre',

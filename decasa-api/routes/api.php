@@ -407,7 +407,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/productos/unicos',      [ProductoController::class, 'unicosVendidos']);
     Route::post('/productos',            [ProductoController::class, 'store']);
     Route::get('/productos/{id}',        [ProductoController::class, 'show']);
-    Route::patch('/productos/{id}',      [ProductoController::class, 'update']);
+    // Precio, nombre, fotos y descripción: solo supervisor (dueño, 2026-11-14:
+    // "lo pueden cambiar los supervisores"). Antes cualquier sesión, y el
+    // precio es lo que cobra Nueva orden y lo que Elena le dice al cliente.
+    Route::patch('/productos/{id}',      [ProductoController::class, 'update'])->middleware('role:supervisor');
     Route::delete('/productos/{id}',     [ProductoController::class, 'destroy'])->middleware('role:supervisor');
     // Cambia cómo se cuenta el stock en todas las tiendas: solo supervisor.
     Route::post('/productos/{id}/venta-por-juego', [ProductoController::class, 'ventaPorJuego'])->middleware('role:supervisor');
@@ -990,9 +993,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Redes (módulo WhatsApp centralizado)
-    Route::get('/redes/conversaciones',                       [RedesController::class, 'index']);
-    Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar']);
-    Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar']);
+    // Con el permiso de Redes, como la pantalla. Antes cualquier sesión (un
+    // conductor) veía todas las conversaciones con el teléfono del cliente y
+    // podía tomarlas, lo que silencia a Elena (revisión de seguridad, 2026-11-14).
+    Route::get('/redes/conversaciones',                       [RedesController::class, 'index'])->middleware('permiso:acceso_redes,supervisor');
+    Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar'])->middleware('permiso:acceso_redes,supervisor');
+    Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar'])->middleware('permiso:acceso_redes,supervisor');
     Route::delete('/redes/conversaciones/terminadas',         [RedesController::class, 'limpiarTerminadas'])->middleware('role:supervisor');
     // Métricas no es un módulo aparte: va junto con Redes.
     Route::get('/redes/metricas',                             [RedesController::class, 'metricas'])->middleware('permiso:acceso_redes');

@@ -4,6 +4,7 @@ namespace App\Events;
 
 use App\Models\Notificacion;
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -18,7 +19,7 @@ class NuevaNotificacion implements ShouldBroadcastNow
     {
         $uid   = $this->notificacion->usuario_id;
         $canal = $uid ? "notificaciones.{$uid}" : 'notificaciones';
-        return [new Channel($canal)];
+        return [new PrivateChannel($canal)];
     }
 
     public function broadcastWith(): array

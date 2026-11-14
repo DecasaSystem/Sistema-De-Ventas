@@ -2491,7 +2491,7 @@ watch(() => [anexo.value?.id, anexo.value?.estado, esperandoOrdenSola.value], ([
   if (!id || (estado !== 'pendiente' && !creandose)) return
   if (window.Echo) {
     _canalAnexo = `anexo.${id}`
-    window.Echo.channel(_canalAnexo).listen('.anexo.firmado', refrescarAnexo)
+    window.Echo.private(_canalAnexo).listen('.anexo.firmado', refrescarAnexo)
   }
   _sondeoAnexo = setInterval(() => {
     if (document.visibilityState === 'visible') refrescarAnexo()

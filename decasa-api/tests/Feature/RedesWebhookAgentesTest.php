@@ -62,6 +62,18 @@ class RedesWebhookAgentesTest extends TestCase
         $this->vendedora = Usuario::forceCreate(['nombre' => 'Paola', 'rol' => 'vendedor', 'activo' => true]);
     }
 
+    /**
+     * Para tomar una tarjeta hace falta el permiso de Redes (pantalla y, desde
+     * la revisión de seguridad del 2026-11-14, también el servidor). Se le da
+     * después del aviso del agente para no mandarle notificaciones aquí.
+     */
+    private function conPermisoDeRedes(): Usuario
+    {
+        $this->vendedora->forceFill(['acceso_redes' => true])->save();
+
+        return $this->vendedora;
+    }
+
     private function avisar(array $datos)
     {
         return $this->withHeader('X-Agent-Token', 'secreto-de-prueba')
@@ -127,7 +139,7 @@ class RedesWebhookAgentesTest extends TestCase
             'datos_cita' => ['cancelada' => true, 'dia' => 'Jueves 9 de octubre', 'hora' => '10:00 am'],
         ])->json();
 
-        $this->actingAs($this->vendedora)
+        $this->actingAs($this->conPermisoDeRedes())
             ->postJson("/api/redes/conversaciones/{$conv['id']}/tomar")
             ->assertOk()
             ->assertJson(['cita_creada' => false]);
@@ -147,7 +159,7 @@ class RedesWebhookAgentesTest extends TestCase
             'datos_cita' => ['cancelada' => true, 'dia' => 'Jueves 9 de octubre', 'hora' => '10:00 am'],
         ]);
 
-        $this->actingAs($this->vendedora)
+        $this->actingAs($this->conPermisoDeRedes())
             ->postJson("/api/redes/conversaciones/{$agendada['id']}/tomar")
             ->assertOk()
             ->assertJson(['cita_creada' => false]);
@@ -162,7 +174,7 @@ class RedesWebhookAgentesTest extends TestCase
             'datos_cita' => ['dia' => 'Jueves 9 de octubre', 'hora' => '10:00 am'],
         ])->json();
 
-        $this->actingAs($this->vendedora)
+        $this->actingAs($this->conPermisoDeRedes())
             ->postJson("/api/redes/conversaciones/{$agendada['id']}/tomar")
             ->assertOk()
             ->assertJson(['cita_creada' => true]);
@@ -178,7 +190,7 @@ class RedesWebhookAgentesTest extends TestCase
             'datos_cita' => ['dia' => 'El jueves que viene', 'fecha' => '2026-10-09', 'hora' => '10:00 am', 'cita_agente_id' => 41],
         ])->json();
 
-        $this->actingAs($this->vendedora)->postJson("/api/redes/conversaciones/{$agendada['id']}/tomar")->assertOk();
+        $this->actingAs($this->conPermisoDeRedes())->postJson("/api/redes/conversaciones/{$agendada['id']}/tomar")->assertOk();
 
         $cita = Cita::firstOrFail();
         $this->assertSame(41, (int) $cita->cita_agente_id);

@@ -537,6 +537,12 @@ class UsuarioController extends Controller
         $usuario->activo = !$usuario->activo;
         $usuario->save();
 
+        // Desactivado: se le cierran las sesiones abiertas en todos sus
+        // aparatos (antes seguían sirviendo hasta 60 días).
+        if (! $usuario->activo) {
+            $usuario->tokens()->delete();
+        }
+
         return response()->json([
             'id'     => $usuario->id,
             'activo' => $usuario->activo,
@@ -558,7 +564,11 @@ class UsuarioController extends Controller
             'password' => Hash::make($data['password']),
         ]);
 
-        return response()->json(['message' => 'Contraseña actualizada.']);
+        // Si se le cambia la contraseña porque alguien más la sabía, la
+        // sesión de ese otro tiene que caer también: se cierran todas.
+        $usuario->tokens()->delete();
+
+        return response()->json(['message' => 'Contraseña actualizada. Se cerraron sus sesiones abiertas.']);
     }
 
     // GET /api/asesores — lista liviana de vendedores/supervisores activos (para co-vendedor)
