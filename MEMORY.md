@@ -1398,7 +1398,7 @@ Decisiones del dueño del 2026-10-08:
   estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
   "no le sale" a una persona, lo primero es preguntar si recargó.
 
-- **"Hoy" en UTC después de las 7 p. m.** (2026-11-14, **sin subir**, sin migración). El servidor
+- **"Hoy" en UTC después de las 7 p. m.** (2026-11-14, **subido a `main`** ese día, commit c23f2216, sin migración). El servidor
   (`app.timezone = UTC`) y `new Date().toISOString()` en la app dan el día de mañana desde las 7 p. m.
   de Colombia. Se cambiaron ~38 sitios del servidor (fecha de despacho, pieza lista, inicio de
   producción, daños, nómina, "aún no puedes iniciar la ruta", atrasadas) y 26 de la app (fecha mínima

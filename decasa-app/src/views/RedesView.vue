@@ -105,7 +105,7 @@ async function terminar(id) {
     const { data } = await api.post(`/redes/conversaciones/${id}/terminar`)
     actualizarItem(data)
   } catch (e) {
-    alert(e.response?.data?.error || 'Error al terminar')
+    toast.error(e.response?.data?.error || 'Error al terminar')
   } finally {
     terminando.value = null
   }

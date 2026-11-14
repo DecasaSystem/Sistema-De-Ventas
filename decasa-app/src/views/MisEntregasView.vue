@@ -15,6 +15,7 @@ function nombresDeEntrega(item) {
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { hoyBogota } from '@/utils/fechas'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
+import { useToast } from '@/composables/useToast'
 import { misEntregas, historialMisEntregas, iniciarRuta as apiIniciarRuta } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -24,6 +25,7 @@ import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
 import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon, ChevronRightIcon, ArrowLeftIcon, PlayIcon } from '@heroicons/vue/24/outline'
 
 const socket = useDespachoSocket()
+const toast  = useToast()
 
 const tab        = ref('activas')
 const entregas   = ref([])
@@ -123,7 +125,7 @@ async function iniciarRuta(grupo) {
     // Actualizar estado local sin recargar todo
     if (grupo.despacho) grupo.despacho.estado = 'en_ruta'
   } catch (e) {
-    alert(e.response?.data?.message || 'No se pudo iniciar la ruta')
+    toast.error(e.response?.data?.message || 'No se pudo iniciar la ruta')
   } finally {
     iniciando.value = false
   }

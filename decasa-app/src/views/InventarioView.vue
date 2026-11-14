@@ -1428,7 +1428,7 @@ async function eliminarProducto() {
     mostrarGestionar.value = false
     eliminarConfirm.value  = false
   } catch (e) {
-    alert(e.response?.data?.message ?? 'Error al eliminar el producto.')
+    toast.error(e.response?.data?.message ?? 'Error al eliminar el producto.')
   } finally {
     eliminarLoading.value = false
   }
