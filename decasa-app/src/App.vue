@@ -365,8 +365,9 @@ const navItems = computed(() => {
   if (auth.isFacturador) {
     return modulos.soloVisibles([
       { name: 'dashboard',    modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
-      { name: 'facturacion',  modulo: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
-      { name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon },
+      // La "Facturación" vieja (lista de órdenes con saldo) se quitó el 2026-11-14:
+      // la reemplaza Facturación electrónica. El aviso de abonos va ahí.
+      { name: 'facturacion-electronica', label: 'Fact. electrónica', icon: DocumentCheckIcon, badge: abonosNoLeidos.value },
       { name: 'ordenes',      modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'clientes',     modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
       { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },

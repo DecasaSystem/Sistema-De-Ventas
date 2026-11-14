@@ -405,7 +405,7 @@ async function submit() {
         />
         <div>
           <label for="facturacion" class="text-sm font-medium text-gray-700 cursor-pointer">Facturación</label>
-          <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
+          <p class="text-xs text-gray-500 mt-0.5">Entra a Facturación electrónica (Alegra): revisa y factura lo entregado, y cambia los Ajustes del módulo.</p>
         </div>
       </div>
 

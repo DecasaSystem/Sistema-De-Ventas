@@ -22,7 +22,6 @@ import {
   ChartPieIcon,
   PresentationChartLineIcon,
   TruckIcon,
-  DocumentCurrencyDollarIcon,
   DocumentCheckIcon,
   DocumentTextIcon,
   CalculatorIcon,
@@ -189,12 +188,10 @@ const accesos = computed(() => {
   // abajo). Por el medio, no de primera: primero lo del día (Nueva orden,
   // Órdenes, Clientes…). Va justo después de Cotizaciones.
   if (auth.puedeFacturarElectronica) {
-    const fe = { label: 'Fact. electrónica', icon: DocumentCheckIcon, to: { name: 'facturacion-electronica' } }
+    // Lleva el aviso de abonos que tenía la "Facturación" vieja (quitada el 2026-11-14).
+    const fe = { label: 'Fact. electrónica', icon: DocumentCheckIcon, to: { name: 'facturacion-electronica' }, badge: auth.isFacturador ? abonosNoLeidos.value : 0 }
     const despues = items.findIndex(i => i.modulo === 'cotizaciones')
     despues >= 0 ? items.splice(despues + 1, 0, fe) : items.push(fe)
-  }
-  if (auth.isFacturador) {
-    items.unshift({ modulo: 'facturacion', label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' }, badge: abonosNoLeidos.value })
   }
 
   return modulos.soloVisibles(items)

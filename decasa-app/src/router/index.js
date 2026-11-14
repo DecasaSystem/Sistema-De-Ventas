@@ -53,7 +53,9 @@ const routes = [
   { path: '/mis-pasos', name: 'mis-pasos', component: () => import('@/views/EbanistaView.vue'), meta: { requiresAuth: true, requiresProduccionWorker: true } },
   { path: '/stats/vendedor/:id', name: 'stats-vendedor', component: () => import('@/views/StatsVendedorDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/costos', name: 'costos', component: () => import('@/views/CostosView.vue'), meta: { requiresAuth: true, requiresCostos: true } },
-  { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
+  // La "Facturación" vieja se quitó el 2026-11-14 (la reemplaza Facturación
+  // electrónica): un enlace o acceso guardado a /facturacion llega a la nueva.
+  { path: '/facturacion', redirect: { name: 'facturacion-electronica' } },
   // Facturación electrónica con Alegra: lista, revisión de cada orden y Ajustes.
   { path: '/facturacion-electronica', name: 'facturacion-electronica', component: () => import('@/views/FacturacionElectronicaView.vue'), meta: { requiresAuth: true, requiresFacturaElectronica: true } },
   { path: '/facturacion-electronica/ordenes/:id', name: 'factura-orden', component: () => import('@/views/FacturaOrdenView.vue'), meta: { requiresAuth: true, requiresFacturaElectronica: true } },

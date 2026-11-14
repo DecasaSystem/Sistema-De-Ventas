@@ -319,7 +319,7 @@ onMounted(async () => {
           <BanknotesIcon class="w-5 h-5 text-green-500 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Función especial</p>
-            <p class="font-medium text-green-700">Facturación habilitada</p>
+            <p class="font-medium text-green-700">Facturación electrónica habilitada</p>
           </div>
         </div>
         <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
@@ -702,7 +702,7 @@ onMounted(async () => {
               />
               <div>
                 <label for="edit-facturacion" class="text-sm font-medium text-gray-700 cursor-pointer">Facturación</label>
-                <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
+                <p class="text-xs text-gray-500 mt-0.5">Entra a Facturación electrónica (Alegra): revisa y factura lo entregado, y cambia los Ajustes del módulo.</p>
               </div>
             </div>
             <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">

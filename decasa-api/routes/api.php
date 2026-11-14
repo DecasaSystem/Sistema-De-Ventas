@@ -43,7 +43,6 @@ use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\PrecisionCotizadorController;
-use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
@@ -870,8 +869,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/materiales/{material}',  [MaterialController::class, 'destroy']);
     });
 
-    // Facturación (vendedores con facturacion=true)
-    Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
+    // La "Facturación" vieja (GET /facturacion/ordenes, FacturacionController) se
+    // quitó el 2026-11-14: la reemplaza Facturación electrónica (usuario).
 
     // Facturación electrónica con Alegra (docs/plan-facturacion-alegra.md). El
     // permiso (facturador o supervisor, también para Ajustes) se revisa en el
