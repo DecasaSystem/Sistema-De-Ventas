@@ -1283,7 +1283,7 @@ class ProduccionController extends Controller
         if ($p->fecha_compromiso) {
             $hoy        = now()->startOfDay();
             $compromiso = \Carbon\Carbon::parse($p->fecha_compromiso)->startOfDay();
-            $p->dias_restantes = $hoy->diffInDays($compromiso, false);
+            $p->dias_restantes = (int) $hoy->diffInDays($compromiso, false);
         } else {
             $p->dias_restantes = null;
         }

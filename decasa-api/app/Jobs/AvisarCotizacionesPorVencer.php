@@ -49,7 +49,9 @@ class AvisarCotizacionesPorVencer implements ShouldQueue, ShouldBeUnique
             ->get();
 
         foreach ($porVencer as $cot) {
-            $dias = $hoy->diffInDays($cot->cotizacion_valida_hasta);
+            // (int): en Carbon 3 diffInDays devuelve float, y 0.0 === 0 es
+            // falso ("vence en 0 día(s)" en vez de "vence hoy").
+            $dias = (int) $hoy->diffInDays(\Carbon\Carbon::parse($cot->cotizacion_valida_hasta)->startOfDay());
 
             NotificacionService::crear(
                 'cotizacion_por_vencer',

@@ -148,6 +148,34 @@ class AlertarRetrasoNoSeRepiteTest extends TestCase
         Carbon::setTestNow();
     }
 
+    /**
+     * Queja del usuario (2026-11-14): "atrasado por 1.567687878 días". El job
+     * corre a las 7 a. m. y Carbon 3 da los días con decimales al comparar la
+     * hora de ahora con la medianoche de la fecha de compromiso.
+     */
+    public function test_produccion_retrasada_cuenta_dias_enteros(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-15 12:00:00')); // 7 a. m. en Bogotá
+        $item = $this->itemAtrasado(0);
+        DB::table('produccion')->where('orden_item_id', $item->id)->update([
+            'estado' => 'en_proceso',
+            'fecha_compromiso' => '2026-09-14',
+        ]);
+
+        (new AlertarRetrasoProduccion())->handle();
+
+        $mensajes = DB::table('notificaciones')->where('titulo', 'Producción retrasada')
+            ->orWhere('titulo', 'Tu pedido está atrasado')->pluck('mensaje');
+
+        $this->assertCount(2, $mensajes);
+        foreach ($mensajes as $m) {
+            $this->assertStringContainsString('· 1 día(s) de retraso', $m);
+            $this->assertDoesNotMatchRegularExpression('/\d[.,]\d/', $m);
+        }
+
+        Carbon::setTestNow();
+    }
+
     public function test_un_atrasado_viejo_si_se_recuerda_los_lunes(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-09-15')); // martes
