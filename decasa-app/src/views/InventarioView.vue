@@ -28,7 +28,7 @@ import {
   RectangleStackIcon,
   DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
-import { textoDelProducto } from '@/utils/textoProducto'
+import { textoDelProducto, opcionesParaCopiar } from '@/utils/textoProducto'
 import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
 import CategoriasModal from '@/components/inventario/CategoriasModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
@@ -223,6 +223,20 @@ async function copiarLinkSeccion() {
  * tiene las suyas y el cliente compraría en una sola.
  */
 const productoCopiado = ref(null)
+// Si el producto tiene versiones con precio, antes de copiar se pregunta
+// cuál precio va: el general, una versión o todo (usuario, 2026-11-14).
+const eligiendoCopia = ref(null) // { item, opciones }
+
+function datosParaCopiar(item) {
+  const pid = item.producto_id
+  return {
+    producto:  { ...item.producto, id: pid },
+    grupos:    vcConfigsCard.value[pid] ?? [],
+    variantes: (esTapizado(item) || esTalla(item)) ? (variantesData.value[pid] ?? []) : [],
+    esTalla:   esTalla(item),
+  }
+}
+
 async function copiarProducto(item) {
   const pid = item.producto_id
   // Lo normal es que la tarjeta ya tenga sus medidas y telas; si todavía no
@@ -230,13 +244,19 @@ async function copiarProducto(item) {
   if (vcConfigsCard.value[pid] === undefined) await cargarVCConfigsCard(item)
   if ((esTapizado(item) || esTalla(item)) && variantesData.value[pid] === undefined) await cargarVariantes(item)
 
-  const texto = textoDelProducto({
-    producto:  { ...item.producto, id: pid },
-    grupos:    vcConfigsCard.value[pid] ?? [],
-    variantes: (esTapizado(item) || esTalla(item)) ? (variantesData.value[pid] ?? []) : [],
-    esTalla:   esTalla(item),
-    promos:    promosTienda.value,
-  })
+  const opciones = opcionesParaCopiar(datosParaCopiar(item))
+  if (opciones.preguntar) {
+    eligiendoCopia.value = { item, opciones }
+    return
+  }
+  await copiarTextoDe(item, 'general')
+}
+
+/** Copia con lo que se escogió; se llama desde el toque (el portapapeles lo pide). */
+async function copiarTextoDe(item, eleccion) {
+  const pid = item.producto_id
+  eligiendoCopia.value = null
+  const texto = textoDelProducto({ ...datosParaCopiar(item), promos: promosTienda.value, eleccion })
 
   let ok = false
   try {
@@ -2836,6 +2856,56 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- Copiar: qué precio se le manda al cliente -->
+    <Transition name="fade">
+      <div
+        v-if="eligiendoCopia"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+        @click.self="eligiendoCopia = null"
+      >
+        <div class="absolute inset-0 bg-black/40" @click="eligiendoCopia = null" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[85vh] flex flex-col">
+          <div class="flex items-center justify-between flex-shrink-0">
+            <div class="min-w-0">
+              <h3 class="text-base font-bold text-gray-800">¿Qué precio copias?</h3>
+              <p class="text-xs text-gray-500 truncate">{{ eligiendoCopia.item.producto?.nombre }}</p>
+            </div>
+            <button @click="eligiendoCopia = null" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <div class="overflow-y-auto flex-1 space-y-2">
+            <button
+              type="button"
+              @click="copiarTextoDe(eligiendoCopia.item, 'general')"
+              class="w-full flex items-center justify-between gap-3 bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2.5 text-left"
+            >
+              <span class="text-sm font-medium text-gray-800">Precio general</span>
+              <span class="text-sm font-bold text-gray-700">{{ pesos(eligiendoCopia.opciones.base) }}</span>
+            </button>
+            <div v-for="g in eligiendoCopia.opciones.grupos" :key="g.nombre" class="space-y-1.5">
+              <p class="text-xs font-semibold text-gray-400 pt-1">{{ g.nombre }}</p>
+              <button
+                v-for="o in g.items"
+                :key="o.clave"
+                type="button"
+                @click="copiarTextoDe(eligiendoCopia.item, o.clave)"
+                class="w-full flex items-center justify-between gap-3 bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2.5 text-left"
+              >
+                <span class="text-sm font-medium text-gray-800 truncate">{{ o.nombre }}</span>
+                <span class="text-sm font-bold text-gray-700 flex-shrink-0">{{ pesos(o.precio) }}</span>
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="copiarTextoDe(eligiendoCopia.item, 'todo')"
+            class="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 flex-shrink-0"
+          >
+            Copiar todo: general y cada versión
+          </button>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal confirmar recepción de traslado (por item) -->
     <Transition name="fade">
