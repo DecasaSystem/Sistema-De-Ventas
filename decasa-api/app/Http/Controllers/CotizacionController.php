@@ -75,7 +75,7 @@ class CotizacionController extends Controller
 
         // Vencidas se filtra por fecha, no por estado guardado.
         if ($request->boolean('vencidas')) {
-            $query->whereDate('cotizacion_valida_hasta', '<', now()->toDateString())
+            $query->whereDate('cotizacion_valida_hasta', '<', \App\Services\RangoFechas::hoyTexto())
                   ->whereNotIn('cotizacion_estado', ['convertida', 'perdida']);
         }
 
@@ -557,7 +557,7 @@ class CotizacionController extends Controller
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
-                        'fecha_inicio'     => now()->toDateString(),
+                        'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                         'fecha_compromiso' => $fechaPrometida,
                         'estado'           => 'pendiente',
                     ]);

@@ -50,7 +50,7 @@ class EntregaService
             'entregado_por_id' => $quien->id,
             'supervisor_id'    => $quien->id,
             'estado'           => $estadoDespacho,
-            'fecha_despacho'   => now()->toDateString(),
+            'fecha_despacho'   => \App\Services\RangoFechas::hoyTexto(),
         ]);
 
         return DespachoItem::create([

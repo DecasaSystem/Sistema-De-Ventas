@@ -1,6 +1,7 @@
 <script setup>
 // Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
 import { useReglasComision } from '@/composables/useReglasComision'
+import { hoyBogota } from '@/utils/fechas'
 import { num } from '@/utils/reglasComision'
 const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
@@ -573,7 +574,7 @@ async function guardarDano() {
       cantidad: Number(danoCantidad.value) || 1,
       motivo: danoMotivo.value.trim(),
       foto_url: fotoUrl,
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: hoyBogota(),
       preferencia_cliente: danoPreferencia.value || undefined,
     })
     toast.success('Registrado. Producción decide si se arregla o se cambia.')

@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import { mesBogota } from '@/utils/fechas'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
@@ -44,7 +45,7 @@ const comisiones   = ref([])
 const vendedores   = ref([])
 const resumenData  = ref([])
 const cargandoRes  = ref(false)
-const mesActual    = ref(new Date().toISOString().slice(0, 7))
+const mesActual    = ref(mesBogota())
 const expandidos   = ref(new Set())
 const expandidosRes = ref(new Set())
 const pagando      = ref(null)

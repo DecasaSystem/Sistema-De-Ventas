@@ -1,3 +1,4 @@
+import { hoyBogota } from '@/utils/fechas'
 import * as XLSX from 'xlsx'
 
 /**
@@ -20,7 +21,7 @@ export function exportarExcel(filas, { nombreArchivo, hoja = 'Datos', anchos } =
 
   worksheet['!cols'] = anchos ?? autoAnchos(datos)
 
-  const fecha = new Date().toISOString().slice(0, 10)
+  const fecha = hoyBogota()
   XLSX.writeFile(libro, `${nombreArchivo}_${fecha}.xlsx`)
 }
 
@@ -42,7 +43,7 @@ export function exportarExcelHojas(hojas, { nombreArchivo } = {}) {
     XLSX.utils.book_append_sheet(libro, hoja, nombreHojaValido(nombre, usados))
   }
 
-  const fecha = new Date().toISOString().slice(0, 10)
+  const fecha = hoyBogota()
   XLSX.writeFile(libro, `${nombreArchivo}_${fecha}.xlsx`)
 }
 

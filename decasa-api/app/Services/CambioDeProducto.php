@@ -569,7 +569,7 @@ class CambioDeProducto
     {
         Produccion::create([
             'orden_item_id'    => $nuevo->id,
-            'fecha_inicio'     => now()->toDateString(),
+            'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
             'fecha_compromiso' => $fecha,
             'estado'           => 'pendiente',
             'motivo_retraso'   => 'Cambio de producto: ' . $motivo,

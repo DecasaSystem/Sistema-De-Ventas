@@ -1,3 +1,4 @@
+import { hoyBogota } from '@/utils/fechas'
 import api from './index'
 
 export const getClientes = (params = {}) => api.get('/clientes', { params })
@@ -17,7 +18,7 @@ export async function exportarClientes({ tipo = '', search = '' } = {}) {
   const a   = document.createElement('a')
   const label = tipo === 'oficial' ? 'oficiales' : tipo === 'interesado' ? 'interesados' : 'todos'
   a.href     = url
-  a.download = `clientes_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  a.download = `clientes_${label}_${hoyBogota()}.xlsx`
   document.body.appendChild(a)
   a.click()
   a.remove()

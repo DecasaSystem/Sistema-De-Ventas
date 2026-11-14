@@ -1,3 +1,4 @@
+import { hoyBogota } from '@/utils/fechas'
 /**
  * El Excel de Comisiones → Listas: todo lo que se va a pagar, explicado.
  *
@@ -815,7 +816,7 @@ export async function exportarListasExcel(datos) {
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = hoyBogota()
   a.href = url
   a.download = `bonificaciones_por_pagar_${datos.porPagar.solo_mes ?? hoy}.xlsx`
   document.body.appendChild(a)

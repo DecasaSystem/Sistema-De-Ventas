@@ -159,7 +159,7 @@ class Produccion extends Model
     {
         // Días enteros de calendario: en Carbon 3 diffInDays da decimales
         // (la hora de ahora contra la medianoche del compromiso).
-        return (int) now()->startOfDay()->diffInDays(
+        return (int) \App\Services\RangoFechas::hoy()->diffInDays(
             \Carbon\Carbon::parse($this->fecha_compromiso)->startOfDay(), false
         );
     }

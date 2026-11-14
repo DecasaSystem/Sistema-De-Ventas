@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { hoyBogota } from '@/utils/fechas'
 import { camiones as getCamiones } from '@/api/despacho'
 import { TruckIcon, UserIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
 
@@ -17,7 +18,7 @@ const nombreRuta   = ref('')
 const instrucciones = ref('')
 
 function hoy() {
-  return new Date().toISOString().slice(0, 10)
+  return hoyBogota()
 }
 
 onMounted(async () => {

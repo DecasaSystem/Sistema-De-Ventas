@@ -26,6 +26,33 @@ class RangoFechas
     public const TZ_NEGOCIO = 'America/Bogota';
 
     /**
+     * Hoy en Colombia, como día de calendario (medianoche, en la zona del
+     * servidor, para compararlo con columnas `date`, que Laravel lee así).
+     *
+     * `now()->toDateString()` / `today()` dan el día en UTC: de 7 p. m. a
+     * medianoche ya es "mañana". Así quedaban con fecha de mañana el
+     * despacho, la pieza lista o el inicio de producción de lo que se hacía
+     * en la noche, y lo de hoy salía "atrasado" o "aún no puedes iniciarla"
+     * (revisado 2026-11-14). Para un "hoy" de negocio, usar esto.
+     */
+    public static function hoy(): Carbon
+    {
+        return Carbon::parse(self::hoyTexto());
+    }
+
+    /** Hoy en Colombia, 'Y-m-d'. */
+    public static function hoyTexto(): string
+    {
+        return Carbon::now(self::TZ_NEGOCIO)->toDateString();
+    }
+
+    /** El mes en curso en Colombia, 'Y-m'. */
+    public static function mesActual(): string
+    {
+        return Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
+    }
+
+    /**
      * El rango que pide la pantalla, en días del negocio.
      *
      * @return array{0:string,1:string} [desde, hasta] en Y-m-d

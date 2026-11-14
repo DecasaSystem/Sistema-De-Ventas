@@ -1398,6 +1398,17 @@ Decisiones del dueño del 2026-10-08:
   estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
   "no le sale" a una persona, lo primero es preguntar si recargó.
 
+- **"Hoy" en UTC después de las 7 p. m.** (2026-11-14, **sin subir**, sin migración). El servidor
+  (`app.timezone = UTC`) y `new Date().toISOString()` en la app dan el día de mañana desde las 7 p. m.
+  de Colombia. Se cambiaron ~38 sitios del servidor (fecha de despacho, pieza lista, inicio de
+  producción, daños, nómina, "aún no puedes iniciar la ruta", atrasadas) y 26 de la app (fecha mínima
+  de Nueva orden, mes de Bonificaciones, Despacho, Reportes, mínimo de Surtir programado, que estaba
+  5 h corrido). **Para un día de negocio: `RangoFechas::hoy()` / `hoyTexto()` / `mesActual()` en el
+  servidor y `utils/fechas.js` (`hoyBogota`, `fechaBogota`, `mesBogota`, `fechaHoraBogota`) en la
+  app.** Las tareas programadas de la mañana (7 a. m. = 12 UTC) no se tocaron: ahí UTC y Bogotá
+  coinciden. Quedan otros "hoy" repetidos (`ComisionController::hoy`, `CicloNomina::hoy`,
+  `Periodo::hoy`, `Promocion::hoy`) que ya estaban bien. Carbon 3: `diffInDays` da decimales;
+  contar días con `startOfDay()` en los dos lados y `(int)`.
 - Basura versionada por accidente (comandos de tinker mal escritos):
   `decasa-api/count())`, `decasa-api/get()`, `decasa-api/pluck('categoria')`,
   `decasa-api/pluck('tarifa'`, y en la raíz `C:UsersLenovoDesktopconfiguracion_export.sql`.

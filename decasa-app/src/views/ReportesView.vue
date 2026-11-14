@@ -1,6 +1,7 @@
 ﻿<script setup>
 // Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
 import { useReglasComision } from '@/composables/useReglasComision'
+import { fechaBogota } from '@/utils/fechas'
 import { partePagada, laParte } from '@/utils/reglasComision'
 const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
@@ -506,8 +507,8 @@ function resuelveFechas() {
       const primerDiaMesAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
       const ultimoDiaMesAnt = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
       return {
-        desde: primerDiaMesAnt.toISOString().split('T')[0],
-        hasta: ultimoDiaMesAnt.toISOString().split('T')[0],
+        desde: fechaBogota(primerDiaMesAnt),
+        hasta: fechaBogota(ultimoDiaMesAnt),
       }
     }
     case 'anio':
@@ -517,7 +518,7 @@ function resuelveFechas() {
       desde = new Date(hoy)
       desde.setDate(hoy.getDate() - 30)
   }
-  return { desde: desde.toISOString().split('T')[0], hasta: hoy.toISOString().split('T')[0] }
+  return { desde: fechaBogota(desde), hasta: fechaBogota(hoy) }
 }
 
 // Guarda qué reporte se está exportando: hay cinco botones "Exportar" en la

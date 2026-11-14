@@ -8,6 +8,7 @@
  * que se descarga es lo que se ve.
  */
 import { computed, ref } from 'vue'
+import { hoyBogota } from '@/utils/fechas'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
@@ -48,7 +49,7 @@ async function descargarExcel() {
     const url = window.URL.createObjectURL(new Blob([res.data]))
     const a   = document.createElement('a')
     a.href     = url
-    a.download = `cartera_por_cobrar_${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.download = `cartera_por_cobrar_${hoyBogota()}.xlsx`
     document.body.appendChild(a)
     a.click()
     a.remove()

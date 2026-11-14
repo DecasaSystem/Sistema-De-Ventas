@@ -149,7 +149,7 @@ class EmpleadoController extends Controller
         // esto, los ciclos ya cerrados le saldrían como pagos atrasados.
         if (! empty($data['nomina_sueldo_id']) && ! $trabajador->nomina_desde
             && ! array_key_exists('nomina_desde', $data)) {
-            $data['nomina_desde'] = now()->toDateString();
+            $data['nomina_desde'] = \App\Services\RangoFechas::hoyTexto();
         }
 
         DB::transaction(function () use ($trabajador, $data, $conceptos) {
@@ -219,7 +219,7 @@ class EmpleadoController extends Controller
         if (isset($cambios['nomina_sueldo_id'])) {
             Usuario::whereIn('id', $data['usuarios'])
                 ->whereNull('nomina_desde')
-                ->update(['nomina_desde' => now()->toDateString()]);
+                ->update(['nomina_desde' => \App\Services\RangoFechas::hoyTexto()]);
         }
 
         $n = Usuario::whereIn('id', $data['usuarios'])->update($cambios);

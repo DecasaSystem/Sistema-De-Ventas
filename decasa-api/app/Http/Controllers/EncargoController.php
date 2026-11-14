@@ -129,7 +129,7 @@ class EncargoController extends Controller
      */
     public function trabajadores(Request $request)
     {
-        $hoy = Carbon::today();
+        $hoy = \App\Services\RangoFechas::hoy();
 
         $q = Usuario::where('lleva_encargos', true)
             ->with(['rolAsignado:id,nombre', 'encargos']);
@@ -350,7 +350,7 @@ class EncargoController extends Controller
 
         $encargo->update([
             'estado'     => $data['estado'],
-            'cerrado_en' => $data['fecha'] ?? Carbon::today()->toDateString(),
+            'cerrado_en' => $data['fecha'] ?? \App\Services\RangoFechas::hoyTexto(),
             'notas'      => $data['notas'] ?? $encargo->notas,
         ]);
 

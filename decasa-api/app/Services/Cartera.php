@@ -63,7 +63,7 @@ class Cartera
             $q->where('o.tienda_id', $tiendaId);
         }
 
-        $hoy = Carbon::today();
+        $hoy = \App\Services\RangoFechas::hoy();
 
         return $q->get()
             ->map(function ($o) use ($hoy) {

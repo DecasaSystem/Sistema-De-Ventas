@@ -114,7 +114,7 @@ class RestauracionController extends Controller
 
                 Produccion::create([
                     'orden_item_id' => $item->id,
-                    'fecha_inicio'  => now()->toDateString(),
+                    'fecha_inicio'  => \App\Services\RangoFechas::hoyTexto(),
                     'estado'        => 'pendiente',
                 ]);
             }

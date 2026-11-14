@@ -2616,7 +2616,7 @@ class AgentService
     {
         $mes = preg_match('/^\d{4}-\d{2}$/', (string) ($args['mes'] ?? ''))
             ? $args['mes']
-            : now()->format('Y-m');
+            : \App\Services\RangoFechas::mesActual();
 
         // Quién puede ver comisiones de otros. Un vendedor solo ve las suyas,
         // aunque pregunte por otro nombre: es plata de un compañero.

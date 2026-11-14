@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import { hoyBogota } from '@/utils/fechas'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
@@ -245,7 +246,7 @@ const guardandoFecha   = ref(false)
 function abrirReprogramar(grupo) {
   reprogramando.value = {
     despacho_id: grupo.despacho_id,
-    nueva_fecha: new Date().toISOString().slice(0, 10),
+    nueva_fecha: hoyBogota(),
   }
 }
 
@@ -267,7 +268,7 @@ async function confirmarReprogramar() {
 function esAtrasada(grupo) {
   const fecha = grupo[0]?.despacho?.fecha_despacho
   if (!fecha) return false
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = hoyBogota()
   return String(fecha).slice(0, 10) < hoy && grupo[0]?.despacho?.estado === 'asignado'
 }
 

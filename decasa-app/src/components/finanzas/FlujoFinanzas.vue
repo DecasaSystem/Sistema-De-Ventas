@@ -3,6 +3,7 @@
 // quincena?". Se puede ganar plata y quedarse sin caja si los clientes deben
 // mucho; por eso va aparte del estado de resultados.
 import { ref, computed, watch } from 'vue'
+import { fechaBogota } from '@/utils/fechas'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { getFlujoCaja, getCalendario, getAjustes, guardarAjustes, getFoto } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, mesActual, sumarMeses, nombreMes, fechaCorta } from '@/utils/finanzas'
@@ -144,7 +145,7 @@ const porSemana = computed(() => {
   for (const p of calendario.value) {
     const d = new Date(p.fecha + 'T00:00:00')
     const lunes = new Date(d); lunes.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-    const clave = p.vencido ? 'vencido' : lunes.toISOString().slice(0, 10)
+    const clave = p.vencido ? 'vencido' : fechaBogota(lunes)
     let g = grupos.find(x => x.clave === clave)
     if (!g) grupos.push(g = { clave, titulo: p.vencido ? 'Atrasado' : `Semana del ${fechaCorta(clave)}`, items: [], total: 0 })
     g.items.push(p); g.total += p.monto

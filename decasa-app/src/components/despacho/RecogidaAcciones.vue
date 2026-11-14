@@ -13,6 +13,7 @@ let pedirDestinos = null
  * cuando le lleven el nuevo. Se usa en el detalle de la orden y en Despacho.
  */
 import { ref, computed } from 'vue'
+import { hoyBogota } from '@/utils/fechas'
 import { useToast } from '@/composables/useToast'
 import { getDestinosDevolucion, recibirDevolucion, reprogramarRecogida } from '@/api/devoluciones'
 import { TruckIcon, CalendarIcon } from '@heroicons/vue/24/outline'
@@ -22,7 +23,7 @@ const emit  = defineEmits(['cambio'])
 const toast = useToast()
 const d     = computed(() => props.devolucion)
 
-const hoy = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const hoy = hoyBogota()
 
 function fechaBonita(iso) {
   if (!iso) return ''

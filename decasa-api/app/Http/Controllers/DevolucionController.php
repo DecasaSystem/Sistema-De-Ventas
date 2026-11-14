@@ -350,7 +350,7 @@ class DevolucionController extends Controller
             // el tablero del taller.
             Produccion::create([
                 'orden_item_id'    => $devolucion->orden_item_id,
-                'fecha_inicio'     => now()->toDateString(),
+                'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                 'fecha_compromiso' => null,
                 'estado'           => 'pendiente',
                 'motivo_retraso'   => 'Devuelto: ' . $devolucion->motivo,
@@ -393,7 +393,7 @@ class DevolucionController extends Controller
             } else {
                 Produccion::create([
                     'orden_item_id'    => $item->id,
-                    'fecha_inicio'     => now()->toDateString(),
+                    'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                     'fecha_compromiso' => null,
                     'estado'           => 'pendiente',
                     'motivo_retraso'   => 'Se hace de nuevo: ' . $devolucion->motivo,

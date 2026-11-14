@@ -3,6 +3,7 @@
 // factura y la plata sale cuando se paga, en uno o varios abonos. Salen en el
 // calendario de pagos con su vencimiento.
 import { ref, computed, onMounted } from 'vue'
+import { fechaBogota } from '@/utils/fechas'
 import { PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import api from '@/api'
@@ -31,7 +32,7 @@ const totalDebe = computed(() => facturas.value.reduce((s, f) => s + f.saldo, 0)
 
 function sumarDias(fecha, dias) {
   const d = new Date(fecha + 'T00:00:00'); d.setDate(d.getDate() + dias)
-  return d.toISOString().slice(0, 10)
+  return fechaBogota(d)
 }
 
 async function abrirNueva() {

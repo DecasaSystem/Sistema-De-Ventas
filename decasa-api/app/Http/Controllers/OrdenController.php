@@ -253,7 +253,7 @@ class OrdenController extends Controller
         // en el estado que esté: en producción, lista, esperando anticipo...
         if ($request->boolean('atrasados')) {
             $query->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto'])
-                  ->whereHas('items', fn ($q) => $q->whereDate('fecha_entrega_prom', '<', now()->toDateString()));
+                  ->whereHas('items', fn ($q) => $q->whereDate('fecha_entrega_prom', '<', \App\Services\RangoFechas::hoyTexto()));
         }
         if ($search = $request->query('search')) {
             $this->buscarPorClienteONumero($query, (string) $search);
@@ -304,7 +304,7 @@ class OrdenController extends Controller
             // le devolvieran solo las primeras 20, perdería el sitio donde iba.
             ->paginate(min((int) $request->query('per_page', 20) ?: 20, 200));
 
-        $hoy = now()->startOfDay();
+        $hoy = \App\Services\RangoFechas::hoy();
 
         OrdenItem::precargarVariantes($ordenes->getCollection()->pluck('items')->flatten());
 
@@ -1020,7 +1020,7 @@ class OrdenController extends Controller
                 if ($vaAlTaller && ! $guardarBorrador) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
-                        'fecha_inicio'     => now()->toDateString(),
+                        'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                         // El taller trabaja contra la misma fecha que se le
                         // prometió al cliente, no contra una en blanco.
                         'fecha_compromiso' => $fechaEntregaInicial,
@@ -1560,7 +1560,7 @@ class OrdenController extends Controller
         $orden->atrasado        = !in_array($orden->estado, ['entregado', 'cancelado', 'devuelto']) &&
             $orden->items->some(fn($item) =>
                 $item->fecha_entrega_prom &&
-                $item->fecha_entrega_prom->lt(now()->startOfDay())
+                $item->fecha_entrega_prom->lt(\App\Services\RangoFechas::hoy())
             );
 
         // ¿Puede este usuario entregarla él mismo, sin conductor? (permiso
@@ -2308,7 +2308,7 @@ class OrdenController extends Controller
                             if ($orden->estado !== 'borrador' && ! $item->produccion()->whereNotIn('estado', ['cancelado'])->exists()) {
                                 Produccion::create([
                                     'orden_item_id'    => $item->id,
-                                    'fecha_inicio'     => now()->toDateString(),
+                                    'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                                     'fecha_compromiso' => $item->fecha_entrega_prom?->toDateString(),
                                     'estado'           => 'pendiente',
                                 ]);
@@ -2658,7 +2658,7 @@ class OrdenController extends Controller
                     if ($retapizar && $orden->estado !== 'borrador') {
                         Produccion::create([
                             'orden_item_id'    => $nuevoItem->id,
-                            'fecha_inicio'     => now()->toDateString(),
+                            'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                             'fecha_compromiso' => $nuevoData['fecha_entrega_prom'] ?? null,
                             'estado'           => 'pendiente',
                         ]);
@@ -2671,7 +2671,7 @@ class OrdenController extends Controller
                         // Ítem a producción: crear su registro (supervisor asigna fecha después).
                         Produccion::create([
                             'orden_item_id'    => $nuevoItem->id,
-                            'fecha_inicio'     => now()->toDateString(),
+                            'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                             'fecha_compromiso' => null,
                             'estado'           => 'pendiente',
                         ]);
@@ -3201,7 +3201,7 @@ class OrdenController extends Controller
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
-                        'fecha_inicio'     => now()->toDateString(),
+                        'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                         'fecha_compromiso' => $fechaBorrador,
                         'estado'           => 'pendiente',
                     ]);
@@ -3854,7 +3854,7 @@ class OrdenController extends Controller
                 // se podía entregar, porque cada uno mira su propia producción.
                 foreach ($orden->items as $item) {
                     if ($item->produccion && in_array($item->produccion->estado, ['pendiente', 'en_proceso', 'retrasado', 'pendiente_despachador'], true)) {
-                        $item->produccion->update(['estado' => 'listo', 'fecha_real' => now()->toDateString()]);
+                        $item->produccion->update(['estado' => 'listo', 'fecha_real' => \App\Services\RangoFechas::hoyTexto()]);
                     }
                 }
             }

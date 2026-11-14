@@ -64,7 +64,7 @@ class NominaPrestamoController extends Controller
             'monto'       => $monto,
             'cuotas'      => $cuotas,
             'valor_cuota' => $valorCuota,
-            'fecha'       => $data['fecha'] ?? now()->toDateString(),
+            'fecha'       => $data['fecha'] ?? \App\Services\RangoFechas::hoyTexto(),
             'creado_por'  => $request->user()->id,
             'activo'      => true,
         ]);

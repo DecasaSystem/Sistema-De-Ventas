@@ -343,7 +343,7 @@ class NominaPagoController extends Controller
                 'prestamo_id'    => $prestamo->id,
                 'nomina_pago_id' => $pago->id,
                 'monto'          => $cuota,
-                'fecha'          => $pago->fecha ?? now()->toDateString(),
+                'fecha'          => $pago->fecha ?? \App\Services\RangoFechas::hoyTexto(),
             ]);
         }
 

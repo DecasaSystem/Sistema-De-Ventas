@@ -1,6 +1,7 @@
 <script setup>
 // Las cifras de comisión de los textos salen de las reglas (Comisiones → Reglas).
 import { useReglasComision } from '@/composables/useReglasComision'
+import { hoyBogota } from '@/utils/fechas'
 import { divisor } from '@/utils/reglasComision'
 const reglasCom = useReglasComision()
 import IconoS from '@/components/common/IconoS.vue'
@@ -2555,7 +2556,7 @@ const ciudadEnvio          = ref('')
 const direccionEnvio       = ref('')
 
 // Fecha mínima = hoy (para el date-picker de los ítems)
-const hoy = new Date().toISOString().split('T')[0]
+const hoy = hoyBogota()
 
 // Visor único: foto en grande con Descargar (JPG) y Compartir.
 const { abrirFoto } = useVisorFoto()

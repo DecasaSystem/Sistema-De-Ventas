@@ -10,6 +10,7 @@
  * supervisor, y el precio lo pone él (por defecto el de lista).
  */
 import { ref, computed, watch, onMounted } from 'vue'
+import { fechaBogota } from '@/utils/fechas'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -52,7 +53,7 @@ const decision  = ref('')
 const notas     = ref('')
 const procesos  = ref([])
 const visitaPor = ref('')
-const visitaFecha = ref(new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+const visitaFecha = ref(fechaBogota(Date.now() + 86400000))
 const causal    = ref('')
 const montoReembolso = ref(0)
 const guardando = ref(false)

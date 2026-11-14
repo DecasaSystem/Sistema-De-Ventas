@@ -704,7 +704,7 @@ class GarantiaService
         } else {
             $produccion = Produccion::create([
                 'orden_item_id'    => $item->id,
-                'fecha_inicio'     => now()->toDateString(),
+                'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                 'fecha_compromiso' => null,
                 'estado'           => 'pendiente',
                 'motivo_retraso'   => $motivo,
@@ -830,7 +830,7 @@ class GarantiaService
         if ($fabricar) {
             Produccion::create([
                 'orden_item_id'    => $nuevo->id,
-                'fecha_inicio'     => now()->toDateString(),
+                'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                 'fecha_compromiso' => null,
                 'estado'           => 'pendiente',
                 'motivo_retraso'   => 'Reposición por garantía: ' . $g->motivo,

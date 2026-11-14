@@ -60,7 +60,7 @@ class RevisionEncargos
      */
     public static function estadoDe(Usuario $trabajador, ?Carbon $hoy = null): array
     {
-        $hoy  = ($hoy ?? Carbon::today())->copy()->startOfDay();
+        $hoy  = ($hoy ?? \App\Services\RangoFechas::hoy())->copy()->startOfDay();
         $dias = self::diasDe($trabajador);
 
         $ultima = EncargoRevision::where('usuario_id', $trabajador->id)

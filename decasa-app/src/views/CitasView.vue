@@ -1,5 +1,6 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import { hoyBogota } from '@/utils/fechas'
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -69,7 +70,7 @@ async function crearCita() {
   }
 }
 
-const fechaMinima = new Date().toISOString().split('T')[0]
+const fechaMinima = hoyBogota()
 
 // Vista
 const vista            = ref('lista') // 'lista' | 'calendario'

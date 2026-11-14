@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import { fechaHoraBogota } from '@/utils/fechas'
 import { ref, computed, watch, onMounted, markRaw } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -481,7 +482,7 @@ const programadoPara  = ref('')
 
 const minDatetime = computed(() => {
   const d = new Date(Date.now() + 5 * 60 * 1000)
-  return d.toISOString().slice(0, 16)
+  return fechaHoraBogota(d)
 })
 
 function itemsPorTienda(tid) {

@@ -1010,7 +1010,7 @@ class DespachoController extends Controller
         }
 
         // Solo puede iniciar si ya llegó o pasó la fecha de despacho
-        if ($despacho->fecha_despacho && $despacho->fecha_despacho->gt(now()->startOfDay())) {
+        if ($despacho->fecha_despacho && $despacho->fecha_despacho->gt(\App\Services\RangoFechas::hoy())) {
             $fechaFmt = $despacho->fecha_despacho->locale('es')->isoFormat('dddd D [de] MMMM');
             return response()->json([
                 'message' => "Esta ruta está programada para el {$fechaFmt}. Aún no puedes iniciarla.",
@@ -1460,7 +1460,7 @@ class DespachoController extends Controller
                     'motivo'           => $d['motivo'],
                     'preferencia_cliente' => $d['preferencia'] ?? null,
                     'foto_url'         => $fotoDevolucion,
-                    'fecha'            => now()->toDateString(),
+                    'fecha'            => \App\Services\RangoFechas::hoyTexto(),
                     'reportado_por_id' => $usuario->id,
                     'estado'           => 'pendiente',
                 ]);

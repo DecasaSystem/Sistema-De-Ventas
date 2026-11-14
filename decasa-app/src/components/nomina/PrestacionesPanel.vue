@@ -5,6 +5,7 @@
 // lo que se fue provisionando en cada pago de nómina: si cambian los
 // porcentajes o a alguien se le quita un concepto, cambia solo.
 import { ref, computed, watch } from 'vue'
+import { fechaBogota } from '@/utils/fechas'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowDownTrayIcon, PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import {
   getPrestaciones, pagarPrestacion, getVacaciones, registrarVacaciones, getFechasVacaciones,
@@ -43,7 +44,7 @@ function moverPeriodo(n) {
   const d = new Date(ref_.value + 'T00:00:00')
   if (sub.value === 'prima') d.setMonth(d.getMonth() + 6 * n)
   else d.setFullYear(d.getFullYear() + n)
-  ref_.value = d.toISOString().slice(0, 10)
+  ref_.value = fechaBogota(d)
 }
 
 const nombrePeriodo = computed(() => {

@@ -13,6 +13,7 @@ function nombresDeEntrega(item) {
     : lista
 }
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { hoyBogota } from '@/utils/fechas'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
 import { misEntregas, historialMisEntregas, iniciarRuta as apiIniciarRuta } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
@@ -111,7 +112,7 @@ function puedeIniciar(grupo) {
   if (grupo?.despacho?.estado !== 'asignado') return false
   const fecha = grupo.despacho?.fecha_despacho
   if (!fecha) return true
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = hoyBogota()
   return String(fecha).slice(0, 10) <= hoy
 }
 

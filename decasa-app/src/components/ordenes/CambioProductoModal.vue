@@ -15,6 +15,7 @@
  * diferencia; si vale menos, le queda a favor. Lo hace un supervisor.
  */
 import { ref, computed, watch, onMounted } from 'vue'
+import { hoyBogota } from '@/utils/fechas'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
@@ -156,7 +157,7 @@ async function agregarBoceto(e) {
 const destinos   = ref([])
 const destinoSel = ref('')          // id de tienda (texto) o 'merma'
 const recogida   = ref('ya')        // 'ya' | 'programada' | 'con_entrega'
-const hoy = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const hoy = hoyBogota()
 const fechaRecogida = ref('')
 
 function ponerDestinoPorDefecto() {

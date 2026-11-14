@@ -630,7 +630,7 @@ class ProduccionController extends Controller
         DB::transaction(function () use ($produccion, $usuario, $orden) {
             $produccion->update([
                 'estado'         => 'listo',
-                'fecha_real'     => now()->toDateString(),
+                'fecha_real'     => \App\Services\RangoFechas::hoyTexto(),
                 'despachado_por' => $usuario->id,
             ]);
 
@@ -695,7 +695,7 @@ class ProduccionController extends Controller
 
         $produccion->update([
             'estado'        => 'en_reserva',
-            'fecha_real'    => now()->toDateString(),
+            'fecha_real'    => \App\Services\RangoFechas::hoyTexto(),
             'depositado_at' => now(),
         ]);
 
@@ -763,7 +763,7 @@ class ProduccionController extends Controller
     {
         $produccion->update([
             'estado'         => 'listo',
-            'fecha_real'     => now()->toDateString(),
+            'fecha_real'     => \App\Services\RangoFechas::hoyTexto(),
             'despachado_por' => $usuario->id,
         ]);
 
@@ -855,7 +855,7 @@ class ProduccionController extends Controller
         }
 
         if (in_array($data['estado'], ['listo', 'entregado'])) {
-            $updates['fecha_real'] = now()->toDateString();
+            $updates['fecha_real'] = \App\Services\RangoFechas::hoyTexto();
         }
 
         // Ponerla lista a mano quiere decir que ya pasó por todo el taller y
@@ -1113,7 +1113,7 @@ class ProduccionController extends Controller
                 'cantidad'         => $data['cantidad'],
                 'specs'            => ! empty($data['specs']) ? $data['specs'] : null,
                 'creado_por'       => $usuario->id,
-                'fecha_inicio'     => now()->toDateString(),
+                'fecha_inicio'     => \App\Services\RangoFechas::hoyTexto(),
                 'fecha_compromiso' => $data['fecha_compromiso'] ?? null,
                 'estado'           => $conPasos ? 'en_proceso' : 'pendiente',
             ]);
@@ -1281,7 +1281,7 @@ class ProduccionController extends Controller
     private function conDiasRestantes(Produccion $p): Produccion
     {
         if ($p->fecha_compromiso) {
-            $hoy        = now()->startOfDay();
+            $hoy        = \App\Services\RangoFechas::hoy();
             $compromiso = \Carbon\Carbon::parse($p->fecha_compromiso)->startOfDay();
             $p->dias_restantes = (int) $hoy->diffInDays($compromiso, false);
         } else {

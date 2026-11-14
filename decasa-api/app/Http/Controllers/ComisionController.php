@@ -5737,7 +5737,7 @@ class ComisionController extends Controller
         // para cada uno rige la ultima meta cargada hasta ese mes.
         $meses = DB::table('comisiones')->distinct()->pluck('mes_venta')
             ->merge(DB::table('metas_tienda')->distinct()->pluck('mes'))
-            ->merge([now()->format('Y-m')])
+            ->merge([\App\Services\RangoFechas::mesActual()])
             ->unique()->values()->all();
         // Las tiendas trimestrales miran los tres meses del trimestre, que
         // pueden no tener comisiones todavia. Sin esto, un mes sin ventas
