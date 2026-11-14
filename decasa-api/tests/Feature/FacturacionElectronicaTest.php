@@ -472,7 +472,19 @@ class FacturacionElectronicaTest extends TestCase
         $this->assertSame(['Ana María', 'Gómez Ruiz'], ArmarFactura::partirNombre('Ana María Gómez Ruiz'));
         $this->assertSame(['Pedro', 'Arias Bastidas'], ArmarFactura::partirNombre('Pedro Arias Bastidas'));
         $this->assertSame(['Pedro', 'Arias'], ArmarFactura::partirNombre('  Pedro   Arias '));
-    }
+
+        // Al contacto de Alegra van las cuatro partes, en mayúscula, también las vacías
+        // (para borrar un segundo apellido viejo que ya tuviera allá).
+        $this->prender();
+        $id = $this->ordenEntregada(cliente: ['nombre' => 'Cristian osorio gomez']);
+        $armado = ArmarFactura::de(\App\Models\Orden::find($id));
+        $this->assertSame(['firstName' => 'CRISTIAN', 'secondName' => '', 'lastName' => 'OSORIO', 'secondLastName' => 'GOMEZ'],
+            $armado['contacto']['nameObject']);
+
+        // Las cuatro partes que van a Alegra (2026-11-14: "Cristian osorio gomez GOMEZ").
+        $this->assertSame(['Cristian', '', 'osorio', 'gomez'], ArmarFactura::partesDelNombre('Cristian osorio gomez'));
+        $this->assertSame(['Ana', 'María', 'Gómez', 'Ruiz'], ArmarFactura::partesDelNombre('Ana María Gómez Ruiz'));
+        $this->assertSame(['Pedro', '', 'Arias', ''], ArmarFactura::partesDelNombre('Pedro Arias'));    }
 
     // ── Facturar ────────────────────────────────────────────────────────────
 

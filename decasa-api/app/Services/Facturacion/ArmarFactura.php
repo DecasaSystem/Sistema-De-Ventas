@@ -620,10 +620,17 @@ class ArmarFactura
             'mobile'       => $c?->telefono ?: null,
             'type'         => ['client'],
         ];
+        // En MAYÚSCULA y con las cuatro partes, como los crea Decasa a mano
+        // (FEN1918: "ANDREA STEFANIE ANGEL DUQUE"). Las cuatro van siempre,
+        // vacías si no hay: el primer borrador (2026-11-14, #4433) salió como
+        // "Cristian osorio gomez GOMEZ" porque el contacto ya existía en Alegra
+        // con segundo apellido "GOMEZ" y solo se mandaron nombre y apellido: lo
+        // viejo que no se mandó se quedó pegado.
         if ($persona === 'juridica') {
-            $contacto['name'] = trim((string) $c?->nombre);
+            $contacto['name'] = mb_strtoupper(trim((string) $c?->nombre));
         } else {
-            $contacto['nameObject'] = ['firstName' => $primero, 'lastName' => $apellidos];
+            [$n1, $n2, $a1, $a2] = array_map('mb_strtoupper', self::partesDelNombre((string) $c?->nombre));
+            $contacto['nameObject'] = ['firstName' => $n1, 'secondName' => $n2, 'lastName' => $a1, 'secondLastName' => $a2];
         }
 
         return [
@@ -662,6 +669,24 @@ class ArmarFactura
         if ($n <= 3)  return [$p[0], implode(' ', array_slice($p, 1))];
 
         return [implode(' ', array_slice($p, 0, 2)), implode(' ', array_slice($p, 2))];
+    }
+
+    /**
+     * [primer nombre, segundo nombre, primer apellido, segundo apellido], con
+     * la misma lectura de partirNombre: "Cristian Osorio Gómez" → Cristian · ·
+     * Osorio · Gómez; "Ana María Gómez Ruiz" → Ana · María · Gómez · Ruiz. Con
+     * más de cuatro palabras, lo que sobra va en el segundo apellido.
+     */
+    public static function partesDelNombre(string $nombre): array
+    {
+        $p = preg_split('/\s+/', trim($nombre), -1, PREG_SPLIT_NO_EMPTY);
+        return match (count($p)) {
+            0       => ['', '', '', ''],
+            1       => [$p[0], '', $p[0], ''],
+            2       => [$p[0], '', $p[1], ''],
+            3       => [$p[0], '', $p[1], $p[2]],
+            default => [$p[0], $p[1], $p[2], implode(' ', array_slice($p, 3))],
+        };
     }
 
     /** Dígito de verificación del NIT (algoritmo de la DIAN, módulo 11). */
