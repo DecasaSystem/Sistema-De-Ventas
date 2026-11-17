@@ -64,6 +64,9 @@ import {
   Cog6ToothIcon,
   ArrowsRightLeftIcon,
   AdjustmentsHorizontalIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -436,21 +439,47 @@ const guardandoNav         = ref(false)
 
 function abrirPersonalizar() {
   navSeleccion.value = navPrimarios.value.map(i => i.name)
+  cambiandoNav.value = null
   abrirMas.value = false
   abrirPersonalizarNav.value = true
 }
 
-function toggleNavItem(name) {
-  const i = navSeleccion.value.indexOf(name)
-  if (i !== -1) {
-    navSeleccion.value.splice(i, 1)
-  } else if (navSeleccion.value.length < NAV_MAX_FIJOS) {
+/*
+ * Antes la lista era una sola: al abrir ya venían los 4 de la barra marcados y
+ * todos los de "Más" salían apagados (no se podían tocar sin antes quitar uno,
+ * y eso no se entendía: "solo puedo quitar y poner los de abajo", usuario,
+ * 2026-11-17). Ahora son dos partes: "En la barra" (quitar y mover) y "En Más"
+ * (agregar). Con la barra llena, tocar uno de "Más" pregunta por cuál
+ * cambiarlo y se toca ese en la barra.
+ */
+const cambiandoNav = ref(null)   // el de "Más" que va a entrar por uno de la barra
+const navItem      = (name) => navItems.value.find(i => i.name === name)
+const navEnBarra   = computed(() => navSeleccion.value.map(navItem).filter(Boolean))
+const navEnMas     = computed(() => navItems.value.filter(i => !navSeleccion.value.includes(i.name)))
+
+function agregarNav(name) {
+  if (navSeleccion.value.length < NAV_MAX_FIJOS) {
     navSeleccion.value.push(name)
+    cambiandoNav.value = null
+  } else {
+    // Llena: que escoja cuál sale (tocar el mismo otra vez lo cancela).
+    cambiandoNav.value = cambiandoNav.value === name ? null : name
   }
 }
-const posicionNav = (name) => {
-  const i = navSeleccion.value.indexOf(name)
-  return i === -1 ? null : i + 1
+function tocarEnBarra(i) {
+  if (!cambiandoNav.value) return
+  navSeleccion.value.splice(i, 1, cambiandoNav.value)
+  cambiandoNav.value = null
+}
+function quitarNav(i) {
+  navSeleccion.value.splice(i, 1)
+  cambiandoNav.value = null
+}
+function moverNav(i, paso) {
+  const j = i + paso
+  if (j < 0 || j >= navSeleccion.value.length) return
+  const l = navSeleccion.value
+  ;[l[i], l[j]] = [l[j], l[i]]
 }
 
 async function guardarNav(restablecer = false) {
@@ -916,7 +945,7 @@ function formatFecha(iso) {
             <div>
               <h3 class="text-lg font-bold text-gray-800">Personalizar barra</h3>
               <p class="text-xs text-gray-500 mt-0.5">
-                Toca hasta <strong>{{ NAV_MAX_FIJOS }}</strong> módulos en el orden en que los quieres abajo. El resto queda en "Más".
+                Escoge hasta <strong>{{ NAV_MAX_FIJOS }}</strong> módulos para la barra de abajo. Los demás quedan en "Más".
               </p>
             </div>
             <button @click="abrirPersonalizarNav = false" class="text-gray-400 text-2xl leading-none">&times;</button>
@@ -943,20 +972,55 @@ function formatFecha(iso) {
             </div>
           </div>
 
+          <!-- Con la barra llena: escoger cuál sale para que entre el de "Más" -->
+          <div v-if="cambiandoNav" class="flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-xs text-amber-800">
+            <span class="flex-1">
+              La barra está llena. Toca abajo en <strong>En la barra</strong> el módulo que quieres cambiar por
+              <strong>{{ navItem(cambiandoNav)?.label }}</strong>.
+            </span>
+            <button type="button" @click="cambiandoNav = null" class="font-semibold text-amber-700">Cancelar</button>
+          </div>
+
+          <!-- Lo que va en la barra: en orden, se mueve y se quita -->
           <div class="space-y-1.5">
-            <button
-              v-for="item in navItems" :key="item.name" type="button"
-              @click="toggleNavItem(item.name)"
-              :disabled="!posicionNav(item.name) && navSeleccion.length >= NAV_MAX_FIJOS"
-              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left transition-all disabled:opacity-40',
-                posicionNav(item.name) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300']"
+            <p class="text-xs font-semibold text-gray-500">En la barra ({{ navSeleccion.length }}/{{ NAV_MAX_FIJOS }})</p>
+            <p v-if="!navEnBarra.length" class="text-xs text-gray-400">Vacía: toca un módulo de "En Más" para agregarlo.</p>
+            <div
+              v-for="(item, i) in navEnBarra" :key="item.name"
+              @click="tocarEnBarra(i)"
+              :class="['flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all',
+                cambiandoNav ? 'border-amber-400 bg-white cursor-pointer hover:bg-amber-50' : 'border-blue-500 bg-white']"
             >
-              <span :class="['w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0',
-                posicionNav(item.name) ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-400']">
-                {{ posicionNav(item.name) ?? '+' }}
-              </span>
+              <span class="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">{{ i + 1 }}</span>
               <component :is="item.icon" class="w-5 h-5 text-gray-500 flex-shrink-0" />
-              <span class="text-sm font-medium text-gray-800">{{ item.label }}</span>
+              <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">{{ item.label }}</span>
+              <template v-if="!cambiandoNav">
+                <button type="button" @click.stop="moverNav(i, -1)" :disabled="i === 0" aria-label="Subir"
+                  class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronUpIcon class="w-4 h-4" /></button>
+                <button type="button" @click.stop="moverNav(i, 1)" :disabled="i === navEnBarra.length - 1" aria-label="Bajar"
+                  class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronDownIcon class="w-4 h-4" /></button>
+                <button type="button" @click.stop="quitarNav(i)" aria-label="Quitar de la barra"
+                  class="p-1.5 rounded-lg text-red-500 hover:bg-gray-100"><XMarkIcon class="w-4 h-4" /></button>
+              </template>
+              <span v-else class="text-xs font-semibold text-amber-700 flex-shrink-0">Cambiar</span>
+            </div>
+          </div>
+
+          <!-- Lo que queda en "Más": tocar lo agrega (o lo cambia, si está llena) -->
+          <div v-if="navEnMas.length" class="space-y-1.5">
+            <p class="text-xs font-semibold text-gray-500">En "Más"</p>
+            <button
+              v-for="item in navEnMas" :key="item.name" type="button"
+              @click="agregarNav(item.name)"
+              :class="['w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 text-left transition-all',
+                cambiandoNav === item.name ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white hover:border-gray-300']"
+            >
+              <span class="w-6 h-6 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm font-bold flex-shrink-0">+</span>
+              <component :is="item.icon" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+              <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">{{ item.label }}</span>
+              <span class="text-xs text-gray-400 flex-shrink-0">
+                {{ navSeleccion.length < NAV_MAX_FIJOS ? 'Agregar' : (cambiandoNav === item.name ? 'Escoge cuál sale' : 'Cambiar por uno') }}
+              </span>
             </button>
           </div>
 
