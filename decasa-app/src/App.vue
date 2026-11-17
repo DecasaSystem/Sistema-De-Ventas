@@ -67,7 +67,13 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
   XMarkIcon,
+  PlusIcon,
+  QueueListIcon,
+  ChartPieIcon,
+  PresentationChartBarIcon,
+  BriefcaseIcon,
 } from '@heroicons/vue/24/outline'
+import { puedeAbrir } from '@/router'
 
 const route  = useRoute()
 const router = useRouter()
@@ -402,9 +408,70 @@ const navItems = computed(() => {
 // texto de "Consultar costo" ya no cabe en un celular angosto.
 const NAV_MAX_FIJOS = 4
 
+/**
+ * Todos los módulos que se pueden poner en la barra o en "Más" (2026-11-17,
+ * pedido del usuario: que "Más" también se pueda armar, quitando o con otros
+ * módulos). Son los de la barra del rol y, además, los del Inicio. Cada uno
+ * se ofrece solo si la persona lo puede abrir: la misma regla del router
+ * (`puedeAbrir`) y los módulos apagados o renombrados por la empresa
+ * (`soloVisibles`). Al conductor y a quien solo ve Telas no se les agregan
+ * otros: su barra es la suya y nada más.
+ */
+const NAV_EXTRAS = [
+  { name: 'nueva-orden',  modulo: 'nueva-orden',  label: 'Nueva orden',      icon: PlusIcon },
+  { name: 'ordenes',      modulo: 'ordenes',      label: 'Órdenes',          icon: ClipboardDocumentListIcon },
+  { name: 'clientes',     modulo: 'clientes',     label: 'Clientes',         icon: UserGroupIcon },
+  { name: 'inventario',   modulo: 'inventario',   label: 'Inventario',       icon: ArchiveBoxIcon },
+  { name: 'reserva',      modulo: 'reserva',      label: 'Reserva',          icon: BuildingOffice2Icon },
+  { name: 'surtir',       modulo: 'surtir',       label: 'Surtir',           icon: ArrowPathIcon },
+  { name: 'produccion',   modulo: 'produccion',   label: 'Producción',       icon: WrenchScrewdriverIcon },
+  { name: 'carga-trabajo',                        label: 'Carga de trabajo', icon: QueueListIcon },
+  { name: 'despacho',     modulo: 'despacho',     label: 'Despacho',         icon: TruckIcon },
+  { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones',     icon: DocumentTextIcon },
+  { name: 'consultas',    modulo: 'consultas',    label: 'Consultar costo',  icon: CurrencyDollarIcon },
+  { name: 'costos',       modulo: 'costos',       label: 'Costos',           icon: CalculatorIcon },
+  { name: 'telas',        modulo: 'telas',        label: 'Telas',            icon: SwatchIcon },
+  { name: 'caja',         modulo: 'caja',         label: 'Caja',             icon: BanknotesIcon },
+  { name: 'citas',        modulo: 'citas',        label: 'Citas',            icon: CalendarDaysIcon },
+  { name: 'mis-stats',    modulo: 'mis-stats',    label: 'Estadísticas',     icon: PresentationChartLineIcon },
+  { name: 'reportes',     modulo: 'reportes',     label: 'Reportes',         icon: ChartBarIcon },
+  { name: 'redes',        modulo: 'redes',        label: 'Redes',            icon: ChatBubbleLeftRightIcon },
+  { name: 'metricas-redes', modulo: 'metricas-redes', label: 'Métricas',     icon: ChartPieIcon },
+  { name: 'comisiones',   modulo: 'comisiones',   label: 'Bonificaciones',   icon: ReceiptPercentIcon },
+  { name: 'usuarios',     modulo: 'usuarios',     label: 'Trabajadores',     icon: UsersIcon },
+  { name: 'nomina',       modulo: 'nomina',       label: 'Nómina',           icon: BanknotesIcon },
+  { name: 'finanzas',     modulo: 'finanzas',     label: 'Finanzas',         icon: PresentationChartBarIcon },
+  { name: 'proveedores',  modulo: 'proveedores',  label: 'Proveedores',      icon: BuildingStorefrontIcon },
+  { name: 'compras',      modulo: 'compras',      label: 'Compras',          icon: ShoppingCartIcon },
+  { name: 'encargos',     modulo: 'encargos',     label: 'Encargos',         icon: BriefcaseIcon },
+  { name: 'facturacion-electronica',              label: 'Fact. electrónica', icon: DocumentCheckIcon },
+  { name: 'gestion',                              label: 'Gestión',          icon: Cog6ToothIcon },
+]
+
+function seAbre(name) {
+  try {
+    const r = router.resolve({ name })
+    return !!r.matched.length && puedeAbrir(r, auth)
+  } catch {
+    return false
+  }
+}
+
+const navCatalogo = computed(() => {
+  const base = navItems.value
+  // Mismo orden que navItems: quien solo ve Telas y el conductor no reciben más.
+  const conExtras = auth.isSupervisor
+    || (!auth.puedeUsarTelas && (auth.isFacturador || auth.usuario?.rol === 'vendedor'))
+  if (!conExtras) return base
+  const ya = new Set(base.map(i => i.name))
+  const extras = modulos.soloVisibles(NAV_EXTRAS.filter(i => !ya.has(i.name) && seAbre(i.name)))
+  return [...base, ...extras]
+})
+const navItem = (name) => navCatalogo.value.find(i => i.name === name)
+
 // La barra se puede personalizar solo cuando hay más módulos de los que
 // caben: al conductor, con dos, no hay nada que elegir.
-const navPersonalizable = computed(() => navItems.value.length > NAV_MAX_FIJOS)
+const navPersonalizable = computed(() => navCatalogo.value.length > NAV_MAX_FIJOS)
 
 /**
  * Los que van fijos en la barra. Si la persona eligió los suyos, van esos en
@@ -413,52 +480,63 @@ const navPersonalizable = computed(() => navItems.value.length > NAV_MAX_FIJOS)
  * lista del rol, como siempre.
  */
 const navPrimarios = computed(() => {
-  const items = navItems.value
-  if (!navPersonalizable.value) return items
+  if (!navPersonalizable.value) return navItems.value
 
   const elegidos = Array.isArray(auth.usuario?.nav_favoritos) ? auth.usuario.nav_favoritos : null
   if (elegidos?.length) {
-    const propios = elegidos
-      .map(name => items.find(i => i.name === name))
-      .filter(Boolean)
-      .slice(0, NAV_MAX_FIJOS)
+    const propios = elegidos.map(navItem).filter(Boolean).slice(0, NAV_MAX_FIJOS)
     if (propios.length) return propios
   }
-  return items.slice(0, NAV_MAX_FIJOS)
+  return navItems.value.slice(0, NAV_MAX_FIJOS)
 })
+
+/**
+ * Lo que sale en "Más". Si la persona lo armó (`nav_mas`, puede ser vacío),
+ * eso en su orden; si no, lo de siempre: lo del rol que no cupo en la barra.
+ */
 const navSecundarios = computed(() => {
   if (!navPersonalizable.value) return []
   const fijos = new Set(navPrimarios.value.map(i => i.name))
-  return navItems.value.filter(i => !fijos.has(i.name))
+  const elegidos = Array.isArray(auth.usuario?.nav_mas) ? auth.usuario.nav_mas : null
+  const lista = elegidos ? elegidos.map(navItem).filter(Boolean) : navItems.value
+  return lista.filter(i => !fijos.has(i.name))
 })
 
-// ── Personalizar la barra ────────────────────────────────────────────────────
+// ── Personalizar la barra y "Más" ────────────────────────────────────────────
 const abrirPersonalizarNav = ref(false)
-const navSeleccion         = ref([])   // nombres de ruta, en el orden elegido
+const navSeleccion         = ref([])   // la barra: nombres de ruta, en orden
+const masSeleccion         = ref([])   // "Más": nombres de ruta, en orden
 const guardandoNav         = ref(false)
 
 function abrirPersonalizar() {
   navSeleccion.value = navPrimarios.value.map(i => i.name)
+  masSeleccion.value = navSecundarios.value.map(i => i.name)
   cambiandoNav.value = null
   abrirMas.value = false
   abrirPersonalizarNav.value = true
 }
 
 /*
- * Antes la lista era una sola: al abrir ya venían los 4 de la barra marcados y
- * todos los de "Más" salían apagados (no se podían tocar sin antes quitar uno,
- * y eso no se entendía: "solo puedo quitar y poner los de abajo", usuario,
- * 2026-11-17). Ahora son dos partes: "En la barra" (quitar y mover) y "En Más"
- * (agregar). Con la barra llena, tocar uno de "Más" pregunta por cuál
- * cambiarlo y se toca ese en la barra.
+ * Tres partes: "En la barra" (subir, bajar, quitar), "En Más" (subir, bajar,
+ * pasar a la barra, quitar) y "Otros módulos" (los que no salen en ningún
+ * lado: se agregan a Más o a la barra). Antes era una sola lista y con la
+ * barra llena todo lo demás salía apagado (usuario, 2026-11-17). Con la barra
+ * llena, pasar uno a la barra pregunta cuál sale; el que sale queda en Más.
  */
-const cambiandoNav = ref(null)   // el de "Más" que va a entrar por uno de la barra
-const navItem      = (name) => navItems.value.find(i => i.name === name)
+const cambiandoNav = ref(null)   // el que va a entrar a la barra por otro
 const navEnBarra   = computed(() => navSeleccion.value.map(navItem).filter(Boolean))
-const navEnMas     = computed(() => navItems.value.filter(i => !navSeleccion.value.includes(i.name)))
+const navEnMas     = computed(() => masSeleccion.value.map(navItem).filter(Boolean))
+const navOtros     = computed(() => navCatalogo.value.filter(i =>
+  !navSeleccion.value.includes(i.name) && !masSeleccion.value.includes(i.name)))
 
-function agregarNav(name) {
+function sacarDeMas(name) {
+  const k = masSeleccion.value.indexOf(name)
+  if (k !== -1) masSeleccion.value.splice(k, 1)
+  return k
+}
+function alaBarra(name) {
   if (navSeleccion.value.length < NAV_MAX_FIJOS) {
+    sacarDeMas(name)
     navSeleccion.value.push(name)
     cambiandoNav.value = null
   } else {
@@ -468,26 +546,40 @@ function agregarNav(name) {
 }
 function tocarEnBarra(i) {
   if (!cambiandoNav.value) return
-  navSeleccion.value.splice(i, 1, cambiandoNav.value)
+  const entra = cambiandoNav.value
+  const sale  = navSeleccion.value[i]
+  const k = sacarDeMas(entra)
+  navSeleccion.value.splice(i, 1, entra)
+  // El que sale de la barra queda en Más, donde estaba el que entró.
+  masSeleccion.value.splice(k === -1 ? 0 : k, 0, sale)
   cambiandoNav.value = null
 }
-function quitarNav(i) {
-  navSeleccion.value.splice(i, 1)
+function quitarDeBarra(i) {
+  const [sale] = navSeleccion.value.splice(i, 1)
+  masSeleccion.value.unshift(sale)
   cambiandoNav.value = null
 }
-function moverNav(i, paso) {
+function alMas(name) {
+  if (!masSeleccion.value.includes(name)) masSeleccion.value.push(name)
+  cambiandoNav.value = null
+}
+function quitarDeMas(i) {
+  masSeleccion.value.splice(i, 1)
+  cambiandoNav.value = null
+}
+function mover(lista, i, paso) {
   const j = i + paso
-  if (j < 0 || j >= navSeleccion.value.length) return
-  const l = navSeleccion.value
-  ;[l[i], l[j]] = [l[j], l[i]]
+  if (j < 0 || j >= lista.length) return
+  ;[lista[i], lista[j]] = [lista[j], lista[i]]
 }
 
 async function guardarNav(restablecer = false) {
   guardandoNav.value = true
   try {
     const lista = restablecer ? null : navSeleccion.value
-    await api.patch('/auth/mi-nav', { nav_favoritos: lista })
-    auth.setNavFavoritos(lista)
+    const mas   = restablecer ? null : masSeleccion.value
+    await api.patch('/auth/mi-nav', { nav_favoritos: lista, nav_mas: mas })
+    auth.setNavFavoritos(lista, mas)
     abrirPersonalizarNav.value = false
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar la barra.')
@@ -844,7 +936,7 @@ function formatFecha(iso) {
            seis o siete ítems quedaban a 50px, donde "Consultar costo" no cabe. -->
       <Transition name="slide-up">
         <div
-          v-if="abrirMas && navSecundarios.length"
+          v-if="abrirMas && (navSecundarios.length || navPersonalizable)"
           class="grid grid-cols-4 sm:grid-cols-6 border-b border-gray-100 bg-white"
         >
           <button
@@ -907,7 +999,7 @@ function formatFecha(iso) {
 
         <!-- Botón "Más" -->
         <button
-          v-if="navSecundarios.length"
+          v-if="navSecundarios.length || navPersonalizable"
           @click="abrirMas = !abrirMas"
           :class="[
             'flex-1 min-w-0 flex flex-col items-center justify-start py-2 px-0.5 gap-1 transition-colors',
@@ -945,7 +1037,7 @@ function formatFecha(iso) {
             <div>
               <h3 class="text-lg font-bold text-gray-800">Personalizar barra</h3>
               <p class="text-xs text-gray-500 mt-0.5">
-                Escoge hasta <strong>{{ NAV_MAX_FIJOS }}</strong> módulos para la barra de abajo. Los demás quedan en "Más".
+                Escoge hasta <strong>{{ NAV_MAX_FIJOS }}</strong> módulos para la barra de abajo y qué sale en "Más". Lo que no pongas sigue en Inicio.
               </p>
             </div>
             <button @click="abrirPersonalizarNav = false" class="text-gray-400 text-2xl leading-none">&times;</button>
@@ -958,8 +1050,8 @@ function formatFecha(iso) {
                 v-for="name in navSeleccion" :key="name"
                 class="flex-1 min-w-0 flex flex-col items-center gap-1 py-1 text-blue-600"
               >
-                <component :is="navItems.find(i => i.name === name)?.icon" class="w-5 h-5" />
-                <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ navItems.find(i => i.name === name)?.label }}</span>
+                <component :is="navItem(name)?.icon" class="w-5 h-5" />
+                <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ navItem(name)?.label }}</span>
               </div>
               <div v-for="n in (NAV_MAX_FIJOS - navSeleccion.length)" :key="'vacio-' + n" class="flex-1 min-w-0 flex flex-col items-center gap-1 py-1 text-gray-300">
                 <div class="w-5 h-5 rounded-full border-2 border-dashed border-gray-300" />
@@ -972,19 +1064,19 @@ function formatFecha(iso) {
             </div>
           </div>
 
-          <!-- Con la barra llena: escoger cuál sale para que entre el de "Más" -->
+          <!-- Con la barra llena: escoger cuál sale para que entre el otro -->
           <div v-if="cambiandoNav" class="flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-xs text-amber-800">
             <span class="flex-1">
-              La barra está llena. Toca abajo en <strong>En la barra</strong> el módulo que quieres cambiar por
-              <strong>{{ navItem(cambiandoNav)?.label }}</strong>.
+              La barra está llena. Toca en <strong>En la barra</strong> el módulo que quieres cambiar por
+              <strong>{{ navItem(cambiandoNav)?.label }}</strong> (el que sale queda en "Más").
             </span>
             <button type="button" @click="cambiandoNav = null" class="font-semibold text-amber-700">Cancelar</button>
           </div>
 
-          <!-- Lo que va en la barra: en orden, se mueve y se quita -->
+          <!-- 1. La barra: en orden, se mueve y se quita (se va a "Más") -->
           <div class="space-y-1.5">
             <p class="text-xs font-semibold text-gray-500">En la barra ({{ navSeleccion.length }}/{{ NAV_MAX_FIJOS }})</p>
-            <p v-if="!navEnBarra.length" class="text-xs text-gray-400">Vacía: toca un módulo de "En Más" para agregarlo.</p>
+            <p v-if="!navEnBarra.length" class="text-xs text-gray-400">Vacía: pasa un módulo de "Más" o de "Otros módulos".</p>
             <div
               v-for="(item, i) in navEnBarra" :key="item.name"
               @click="tocarEnBarra(i)"
@@ -995,33 +1087,59 @@ function formatFecha(iso) {
               <component :is="item.icon" class="w-5 h-5 text-gray-500 flex-shrink-0" />
               <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">{{ item.label }}</span>
               <template v-if="!cambiandoNav">
-                <button type="button" @click.stop="moverNav(i, -1)" :disabled="i === 0" aria-label="Subir"
+                <button type="button" @click.stop="mover(navSeleccion, i, -1)" :disabled="i === 0" aria-label="Subir"
                   class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronUpIcon class="w-4 h-4" /></button>
-                <button type="button" @click.stop="moverNav(i, 1)" :disabled="i === navEnBarra.length - 1" aria-label="Bajar"
+                <button type="button" @click.stop="mover(navSeleccion, i, 1)" :disabled="i === navEnBarra.length - 1" aria-label="Bajar"
                   class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronDownIcon class="w-4 h-4" /></button>
-                <button type="button" @click.stop="quitarNav(i)" aria-label="Quitar de la barra"
+                <button type="button" @click.stop="quitarDeBarra(i)" aria-label="Quitar de la barra (pasa a Más)"
                   class="p-1.5 rounded-lg text-red-500 hover:bg-gray-100"><XMarkIcon class="w-4 h-4" /></button>
               </template>
               <span v-else class="text-xs font-semibold text-amber-700 flex-shrink-0">Cambiar</span>
             </div>
           </div>
 
-          <!-- Lo que queda en "Más": tocar lo agrega (o lo cambia, si está llena) -->
-          <div v-if="navEnMas.length" class="space-y-1.5">
-            <p class="text-xs font-semibold text-gray-500">En "Más"</p>
-            <button
-              v-for="item in navEnMas" :key="item.name" type="button"
-              @click="agregarNav(item.name)"
-              :class="['w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 text-left transition-all',
-                cambiandoNav === item.name ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white hover:border-gray-300']"
+          <!-- 2. "Más": en orden; se pasa a la barra o se quita (queda en Otros) -->
+          <div class="space-y-1.5">
+            <p class="text-xs font-semibold text-gray-500">En "Más" ({{ navEnMas.length }})</p>
+            <p v-if="!navEnMas.length" class="text-xs text-gray-400">Vacío: en "Más" solo saldrá "Personalizar barra".</p>
+            <div
+              v-for="(item, i) in navEnMas" :key="item.name"
+              :class="['flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all',
+                cambiandoNav === item.name ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white']"
             >
-              <span class="w-6 h-6 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm font-bold flex-shrink-0">+</span>
               <component :is="item.icon" class="w-5 h-5 text-gray-500 flex-shrink-0" />
               <span class="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">{{ item.label }}</span>
-              <span class="text-xs text-gray-400 flex-shrink-0">
-                {{ navSeleccion.length < NAV_MAX_FIJOS ? 'Agregar' : (cambiandoNav === item.name ? 'Escoge cuál sale' : 'Cambiar por uno') }}
-              </span>
-            </button>
+              <button type="button" @click="alaBarra(item.name)"
+                class="px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 hover:bg-gray-100 flex-shrink-0">
+                {{ cambiandoNav === item.name ? 'Escoge cuál sale' : 'A la barra' }}
+              </button>
+              <button type="button" @click="mover(masSeleccion, i, -1)" :disabled="i === 0" aria-label="Subir"
+                class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronUpIcon class="w-4 h-4" /></button>
+              <button type="button" @click="mover(masSeleccion, i, 1)" :disabled="i === navEnMas.length - 1" aria-label="Bajar"
+                class="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30"><ChevronDownIcon class="w-4 h-4" /></button>
+              <button type="button" @click="quitarDeMas(i)" aria-label="Quitar de Más"
+                class="p-1.5 rounded-lg text-red-500 hover:bg-gray-100"><XMarkIcon class="w-4 h-4" /></button>
+            </div>
+          </div>
+
+          <!-- 3. Lo que no sale en ningún lado (siguen en Inicio) -->
+          <div v-if="navOtros.length" class="space-y-1.5">
+            <p class="text-xs font-semibold text-gray-500">Otros módulos</p>
+            <p class="text-[11px] text-gray-400 -mt-1">No salen abajo; siguen en Inicio.</p>
+            <div
+              v-for="item in navOtros" :key="item.name"
+              :class="['flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed transition-all',
+                cambiandoNav === item.name ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white']"
+            >
+              <component :is="item.icon" class="w-5 h-5 text-gray-400 flex-shrink-0" />
+              <span class="flex-1 min-w-0 truncate text-sm text-gray-600">{{ item.label }}</span>
+              <button type="button" @click="alMas(item.name)"
+                class="px-2 py-1 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100 flex-shrink-0">+ Más</button>
+              <button type="button" @click="alaBarra(item.name)"
+                class="px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 hover:bg-gray-100 flex-shrink-0">
+                {{ cambiandoNav === item.name ? 'Escoge cuál sale' : '+ Barra' }}
+              </button>
+            </div>
           </div>
 
           <div class="flex gap-3">

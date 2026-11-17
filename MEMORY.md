@@ -1431,6 +1431,14 @@ Decisiones del dueño del 2026-10-08:
   de tienda que iba a retapizar, vuelve a quedar libre en el inventario. Tests al final de
   `CancelarProduccionTest`.
 
+- **Barra de abajo y "Más" personalizables** (usuario, 2026-11-17, **subido a `main`** ese día, trae **migración**
+  `2026_11_17_000004_nav_mas_en_usuarios`, solo agrega `usuarios.nav_mas` JSON). "Personalizar barra"
+  tiene tres partes: En la barra (4), En "Más" (se quita para dejarlo vacío, se ordena) y Otros
+  módulos (los del Inicio que no salen abajo). Lo que se ofrece = barra del rol + `NAV_EXTRAS` de
+  App.vue, filtrado con `puedeAbrir` (la regla del guard, sacada a una función en `router/index.js`)
+  y `soloVisibles`. Conductor y quien solo ve Telas no reciben extras. `nav_mas` null = lo de
+  siempre; sin la llave (app vieja) no se toca. Probado en el navegador con servidor falso.
+  Un módulo nuevo del Inicio hay que agregarlo también a `NAV_EXTRAS` para que se pueda poner abajo.
 - **Revisión de seguridad** (2026-11-14, **subido a `main`** ese día, sin migración; tests en
   `RevisionSeguridadTest`). Cerrado: (1) **todos los canales en tiempo real son privados**
   (`new PrivateChannel`, reglas en `routes/channels.php`, permiso en `POST /api/broadcasting/auth`

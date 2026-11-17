@@ -96,6 +96,7 @@ class Usuario extends Authenticatable
         'firma_url',
         // Qué módulos puso cada quien en la barra de abajo (nombres de ruta).
         'nav_favoritos',
+        'nav_mas',
         // El supervisor ve (o esconde) la plata del inventario. Ver AuthController::guardarInventario.
         'ver_valor_inventario',
         'ver_valor_reserva',
@@ -144,6 +145,7 @@ class Usuario extends Authenticatable
             'nomina_desde'        => 'date',
             'nomina_retiro'       => 'date',
             'nav_favoritos'       => 'array',
+            'nav_mas'             => 'array',
             'ver_valor_inventario' => 'boolean',
             'ver_valor_reserva'    => 'boolean',
         ];

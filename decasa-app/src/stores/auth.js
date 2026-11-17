@@ -373,9 +373,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // La barra de abajo que eligió: nombres de ruta en orden, o null.
-  function setNavFavoritos(lista) {
+  // `mas`: lo que va en "Más" (null = lo de siempre). Sin pasarlo no se toca.
+  function setNavFavoritos(lista, mas) {
     if (!usuario.value) return
-    usuario.value = { ...usuario.value, nav_favoritos: lista }
+    usuario.value = { ...usuario.value, nav_favoritos: lista, ...(mas !== undefined ? { nav_mas: mas } : {}) }
     if (_perfiles.value[_perfilActivo.value]) {
       _perfiles.value[_perfilActivo.value].usuario = usuario.value
     }

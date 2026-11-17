@@ -154,39 +154,50 @@ router.beforeEach((to) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) return { name: 'login' }
   if (to.meta.guest && auth.isAuthenticated) return { name: 'dashboard' }
-  if (to.meta.requiresSupervisor && !auth.isSupervisor) return { name: 'dashboard' }
-  if (to.meta.requiresSurtir && !auth.puedeSurtir) return { name: 'dashboard' }
-  if (to.meta.requiresCostos && !auth.puedeCostos) return { name: 'dashboard' }
-  if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
-  if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
-  if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
-  if (to.meta.requiresFacturaElectronica && !auth.puedeFacturarElectronica) return { name: 'dashboard' }
-  if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }
-  if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
-  if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
-  if (to.meta.requiresNomina      && !auth.puedeNomina)            return { name: 'dashboard' }
-  if (to.meta.requiresFinanzas    && !auth.puedeFinanzas)          return { name: 'dashboard' }
-  if (to.meta.requiresCompras     && !auth.puedeCompras)           return { name: 'dashboard' }
+  if (!puedeAbrir(to, auth)) return { name: 'dashboard' }
+})
+
+/**
+ * Si esta persona puede abrir la pantalla, según los permisos de la ruta.
+ * Es la regla del guard de arriba; la usa también la barra de abajo
+ * (App.vue) para ofrecer solo módulos que de verdad se pueden abrir.
+ * `to` es la ruta que llega al guard o una resuelta con router.resolve.
+ */
+export function puedeAbrir(to, auth) {
+  if (to.meta.requiresSupervisor && !auth.isSupervisor) return false
+  if (to.meta.requiresSurtir && !auth.puedeSurtir) return false
+  if (to.meta.requiresCostos && !auth.puedeCostos) return false
+  if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return false
+  if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return false
+  if (to.meta.requiresFacturador && !auth.isFacturador) return false
+  if (to.meta.requiresFacturaElectronica && !auth.puedeFacturarElectronica) return false
+  if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return false
+  if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return false
+  if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return false
+  if (to.meta.requiresNomina      && !auth.puedeNomina)            return false
+  if (to.meta.requiresFinanzas    && !auth.puedeFinanzas)          return false
+  if (to.meta.requiresCompras     && !auth.puedeCompras)           return false
   // Entra quien administra el módulo y también quien solo responde por lo
   // suyo: ver de qué respondes tú no es administrar nada.
-  if (to.meta.requiresEncargos    && !auth.puedeEncargos && !auth.llevaEncargos) return { name: 'dashboard' }
+  if (to.meta.requiresEncargos    && !auth.puedeEncargos && !auth.llevaEncargos) return false
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
   // Producción se activa por trabajador, sea cual sea su cargo. El vendedor
   // entra igual: ahí ve sus propios pedidos.
-  if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return { name: 'dashboard' }
-  if (to.meta.requiresCargaTrabajo && !(auth.isSupervisor || auth.puedeProduccion)) return { name: 'dashboard' }
-  if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
-  if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
-  if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }
+  if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return false
+  if (to.meta.requiresCargaTrabajo && !(auth.isSupervisor || auth.puedeProduccion)) return false
+  if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return false
+  if (to.meta.requiresReserva && !auth.puedeReserva) return false
+  if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return false
   // Si la lista de módulos todavía no llegó (se abrió el enlace directo), se
   // deja pasar: la pantalla la pide y decide ella si existe y si se puede.
   if (to.meta.requiresModulo) {
     const plantilla = useModulosStore().plantilla(to.params.clave)
     const entra = plantilla && ENTRA_A_PLANTILLA[plantilla]
-    if (entra && !entra(auth)) return { name: 'dashboard' }
+    if (entra && !entra(auth)) return false
   }
-  if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
-})
+  if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return false
+  return true
+}
 
 export default router

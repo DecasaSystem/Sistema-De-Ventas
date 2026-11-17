@@ -208,6 +208,8 @@ class AuthController extends Controller
             'firma_url'          => $usuario->firma_url,
             // Su barra de abajo, si la personalizó. Null = la de siempre.
             'nav_favoritos'      => $usuario->nav_favoritos,
+            // Lo que puso en "Más" (puede ser [] = vacío). Null = lo de siempre.
+            'nav_mas'            => $usuario->nav_mas,
             // Si quiere ver la plata del inventario (solo supervisores la ven).
             // Sin la columna, o sin escoger, se ve.
             'ver_valor_inventario' => $usuario->ver_valor_inventario === null ? true : (bool) $usuario->ver_valor_inventario,
@@ -265,13 +267,27 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'nav_favoritos'   => 'nullable|array|max:4',
-            'nav_favoritos.*' => 'string|max:40|regex:/^[a-z0-9\-]+$/',
+            'nav_favoritos.*' => 'string|max:40|regex:/^[a-z0-9\-_]+$/',
+            // Lo que va en "Más" (2026-11-17). Puede ir vacío: Más sin nada.
+            // Null = lo de siempre. Sin la llave (una app vieja) no se toca.
+            'nav_mas'         => 'nullable|array|max:40',
+            'nav_mas.*'       => 'string|max:40|regex:/^[a-z0-9\-_]+$/',
         ]);
 
         $lista = isset($data['nav_favoritos']) ? array_values(array_unique($data['nav_favoritos'])) : null;
-        $request->user()->update(['nav_favoritos' => $lista ?: null]);
+        $cambios = ['nav_favoritos' => $lista ?: null];
 
-        return response()->json(['nav_favoritos' => $lista ?: null]);
+        $mas = null;
+        if ($request->exists('nav_mas') && \App\Support\Esquema::columna('usuarios', 'nav_mas')) {
+            // Lo que ya va en la barra no se repite en "Más".
+            $mas = isset($data['nav_mas'])
+                ? array_values(array_diff(array_unique($data['nav_mas']), $lista ?? []))
+                : null;
+            $cambios['nav_mas'] = $mas;
+        }
+        $request->user()->update($cambios);
+
+        return response()->json(['nav_favoritos' => $lista ?: null, 'nav_mas' => $request->user()->nav_mas]);
     }
 
     public function logout(Request $request)
