@@ -292,9 +292,11 @@ class DevolverAEsperaTest extends TestCase
             ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'pendiente_anticipo'])
             ->assertForbidden();
 
-        // Cancelar o entregar una lista sigue siendo cosa de Despacho.
+        // Entregar una lista sigue siendo cosa de Despacho. Cancelarla sí se
+        // puede desde la orden (usuario, 2026-11-17; ver
+        // ElApartadoAlEntregarYCancelarTest).
         $this->actingAs($this->jefe())
-            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])
+            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'entregado'])
             ->assertForbidden();
 
         $this->assertSame('listo_entrega', $orden->fresh()->estado);

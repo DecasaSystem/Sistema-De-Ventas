@@ -1445,7 +1445,9 @@ Decisiones del dueño del 2026-10-08:
   solo acepta devoluciones de lo no entregado; (8) Devoluciones y Cancelar en Producción mueven
   combinación y medida; (9) los rankings de lo vendido (Reportes, Estadísticas, Qué fabricar) no
   cuentan renglones devueltos (`OrdenItem::vivos`); al covendedor le llega la cancelación. Sigue
-  igual (decisión vieja): la comisión ya pagada de una venta cancelada no se recupera; una orden que
+  igual (decisión vieja): la comisión ya pagada de una venta cancelada no se recupera;
+  **una orden "lista para entregar" también se cancela desde el detalle** (usuario, mismo día; antes
+  había que devolverla a espera), solo si nadie la está despachando; "en camino" sigue bloqueada; una orden que
   queda sin productos se queda abierta hasta que alguien la cancele.
   Primero se arreglaron el 2 y el 3: (2) "Devolver la plata" en Devoluciones solo
   anotaba un egreso de caja: la orden seguía valiendo lo mismo y la comisión y la meta contaban lo

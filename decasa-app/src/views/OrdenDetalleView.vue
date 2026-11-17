@@ -449,7 +449,8 @@ const transicionesValidas = {
   pendiente_cotizacion: ['cancelado'],
   pendiente_anticipo: ['en_produccion', 'listo_entrega', 'entregado', 'cancelado'],
   en_produccion: ['listo_entrega', 'entregado', 'cancelado'],
-  listo_entrega: [],
+  // Desmarcarla va por su propio botón ("Devolver a espera").
+  listo_entrega: ['cancelado'],
   en_camino: [],
   entregado: [],
   cancelado: [],
@@ -894,7 +895,11 @@ async function devolverAEspera() {
 const puedeCambiarEstado = computed(() => {
   if (!orden.value) return false
   if (!auth.isSupervisor) return false
-  if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
+  // Lista para entregar: solo se puede cancelar, y solo si nadie la está
+  // despachando (usuario, 2026-11-17: se entregó una parte y lo que falta
+  // está en la tienda; antes había que devolverla a espera primero).
+  if (orden.value.estado === 'listo_entrega') return !despachoActivo.value && !miEntregaDirectaPendiente.value
+  if (['entregado', 'cancelado', 'en_camino'].includes(orden.value.estado)) return false
   // Con ítems personalizados el avance lo lleva Producción, pero cancelar la
   // venta es decisión de la orden: antes se escondía todo el selector y no
   // había forma de anular una orden con algo en el taller.

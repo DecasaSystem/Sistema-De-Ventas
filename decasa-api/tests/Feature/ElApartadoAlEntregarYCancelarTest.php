@@ -411,6 +411,54 @@ class ElApartadoAlEntregarYCancelarTest extends TestCase
             'la comisión sigue con lo que sí se vendió');
     }
 
+    /**
+     * Se entregó una mesa y la otra está en la tienda: la orden queda "lista
+     * para entregar". Antes había que devolverla a espera para poder
+     * cancelarla; ahora se cancela lo que falta desde ahí (usuario, 2026-11-17).
+     */
+    public function test_una_orden_lista_para_entregar_se_cancela_lo_que_falta(): void
+    {
+        $this->tablasDelRastro();
+        DB::table('inventario')->update(['cantidad_disponible' => 3, 'cantidad_reservada' => 2]);
+        $orden = $this->orden(['valor_total' => 200000], ['cantidad' => 2]);
+        $quien = $this->usuario();
+
+        EntregaService::entregarEnMostrador($orden, [$orden->items->first()->id => 1], $quien, 'se llevó una');
+        $orden->update(['estado' => 'listo_entrega']);
+
+        $this->actingAs($quien)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])
+            ->assertOk()->assertJsonPath('cancelado_lo_que_faltaba', true);
+
+        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertSame([2, 0, 2], $this->tarjeta());
+    }
+
+    /** Lista y sin nada entregado: se cancela entera, sin pasar por la espera. */
+    public function test_una_orden_lista_para_entregar_se_cancela_entera(): void
+    {
+        $orden = $this->orden(['estado' => 'listo_entrega']);
+
+        $this->actingAs($this->usuario())
+            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])->assertOk();
+
+        $this->assertSame('cancelado', $orden->fresh()->estado);
+        $this->assertSame([3, 0, 3], $this->tarjeta());
+    }
+
+    /** Si ya va en una ruta, primero se saca de ahí en Despacho. */
+    public function test_una_orden_lista_en_una_ruta_no_se_cancela(): void
+    {
+        $orden = $this->orden(['estado' => 'listo_entrega']);
+        $despacho = DB::table('despachos')->insertGetId(['estado' => 'asignado', 'tipo' => 'ruta']);
+        DB::table('despacho_items')->insert(['despacho_id' => $despacho, 'orden_id' => $orden->id, 'estado' => 'pendiente']);
+
+        $this->actingAs($this->usuario())
+            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])->assertStatus(422);
+
+        $this->assertSame('listo_entrega', $orden->fresh()->estado);
+        $this->assertSame([3, 1, 2], $this->tarjeta());
+    }
+
     public function test_una_orden_sin_productos_no_se_marca_entregada(): void
     {
         $orden = $this->orden([], ['devuelto_en' => '2026-09-23']);

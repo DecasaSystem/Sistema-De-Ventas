@@ -3693,8 +3693,20 @@ class OrdenController extends Controller
             $estadoNuevo = $hayEnTaller ? 'en_produccion' : 'pendiente_anticipo';
         }
 
+        // Cancelar una orden lista para entregar (usuario, 2026-11-17). El caso
+        // de siempre: se entregó el sofá y la mesa que falta está en la tienda;
+        // la orden queda "lista" y el cliente ya no quiere la mesa. Antes había
+        // que devolverla a espera para que apareciera Cancelar. Con la misma
+        // condición que desmarcarla: que nadie la esté despachando.
+        $cancelarLista = $estadoAnterior === 'listo_entrega' && $estadoNuevo === 'cancelado';
+        if ($cancelarLista && $orden->tieneDespachoActivo()) {
+            return response()->json([
+                'message' => 'Esta orden ya está en una ruta o en una entrega en curso. Sácala de ahí en Despacho antes de cancelarla.',
+            ], 422);
+        }
+
         // Regla 8: Bloquear cambios si está en listo_entrega o en_camino
-        if (in_array($orden->estado, ['listo_entrega', 'en_camino']) && ! $desmarcarLista) {
+        if (in_array($orden->estado, ['listo_entrega', 'en_camino']) && ! $desmarcarLista && ! $cancelarLista) {
             return response()->json([
                 'message' => 'Esta orden está en el módulo de Despacho. Solo puedes cambiar su estado desde allí.',
             ], 403);
@@ -3715,9 +3727,9 @@ class OrdenController extends Controller
             'pendiente_cotizacion'  => ['cancelado'],
             'pendiente_anticipo'    => ['en_produccion', 'listo_entrega', 'entregado', 'cancelado'],
             'en_produccion'         => ['listo_entrega', 'entregado', 'cancelado'],
-            // Solo se puede desmarcar (volver a la espera, ver arriba); lo
-            // demás lo maneja Despacho y se bloquea más arriba.
-            'listo_entrega'         => ['pendiente_anticipo', 'en_produccion'],
+            // Se puede desmarcar (volver a la espera) o cancelar, las dos
+            // solo sin despacho activo (ver arriba); lo demás lo maneja Despacho.
+            'listo_entrega'         => ['pendiente_anticipo', 'en_produccion', 'cancelado'],
             'en_camino'             => [],
             // Volvió algo en el camión. De aquí se sale por la decisión que se
             // tome en Devoluciones —vuelve al taller o se cancela—, no a mano
