@@ -64,8 +64,8 @@ class PlantillasDeGestionTest extends TestCase
         $doc = $this->actingAs($jefa)->getJson('/api/plantillas-documento/empresa')->assertOk();
         $this->assertSame('nombre', $doc->json('campos.0.campo'));
         $this->assertSame('negocio', $doc->json('grupo'));
-        // 8: con la declaración de diseños especiales (2026-10-21).
-        $this->assertCount(8, $this->actingAs($jefa)->getJson('/api/plantillas-documento')->json());
+        // 9: con la declaración de diseños especiales (2026-10-21) y el anexo de restauraciones (2026-11-17).
+        $this->assertCount(9, $this->actingAs($jefa)->getJson('/api/plantillas-documento')->json());
     }
 
     public function test_el_mensaje_para_firmar_tiene_que_llevar_el_enlace(): void

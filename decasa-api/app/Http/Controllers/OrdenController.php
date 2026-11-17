@@ -701,6 +701,16 @@ class OrdenController extends Controller
                     'codigo'  => 'anexo_desactualizado',
                 ], 422);
             }
+            // Firmó el anexo de restauraciones y después se agregó un producto:
+            // ya es una venta y la garantía de lo que se vende está en el de
+            // ventas, que no firmó (usuario, 2026-11-17).
+            if (! $guardarBorrador && $anexo->esDeRestauracion()
+                && ! collect($data['items'])->every(fn ($i) => ! empty($i['es_restauracion']))) {
+                return response()->json([
+                    'message' => 'El cliente firmó el anexo de restauraciones, pero la orden ahora también lleva productos. Que firme otra vez: le sale el anexo de garantías de ventas.',
+                    'codigo'  => 'anexo_desactualizado',
+                ], 422);
+            }
             // Una sola firma: la del anexo sirve de firma de la orden.
             if (empty($data['firma_url']) && $anexo->firma_url) {
                 $data['firma_url'] = $anexo->firma_url;
@@ -1673,7 +1683,7 @@ class OrdenController extends Controller
         // firma vale, y el anexo firmado reemplaza la foto del papel.
         $yaFirmo        = (bool) $orden->firma_url;
         $anexoFirmado   = \App\Models\AnexoGarantia::hayTabla()
-            && \App\Models\AnexoGarantia::where('orden_id', $orden->id)->where('estado', 'firmado')->exists();
+            && \App\Models\AnexoGarantia::where('orden_id', $orden->id)->where('estado', 'firmado')->deVentas()->exists();
 
         $data = $request->validate([
             'firma_url'          => ($yaFirmo ? 'nullable' : 'required') . '|string|max:500',

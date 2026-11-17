@@ -203,6 +203,15 @@ La regla técnica que no hay que romper: al arreglar en el taller el producto se
 **reactiva** en la misma orden y se vuelve a entregar por el camino normal, **sin
 descontar stock otra vez** (`orden_items.cantidad_en_garantia`, `EntregaService`).
 
+- **Las restauraciones firman su propio anexo** (usuario, 2026-11-17, **subido a `main`** ese día, trae
+  **migración** `2026_11_17_000001_anexo_de_restauraciones`, solo agrega
+  `anexos_garantia.plantilla`). Antes una restauración mostraba el anexo de ventas; ahora el
+  del papel "FORMATO ANEXO REFACCIONES" (`AnexoRestauracionTexto`), editable en Gestión →
+  Documentos. Cambio pedido: espuma **6 meses**, no 1 año. Por defecto mío (**falta
+  confirmar**): sin check list (el papel no trae); las faltas de ortografía del papel se
+  corrigieron y la frase "YO… ACEPTO" quedó como sección "Aceptación". Detalle en
+  `docs/PROYECTO.md` §6.16.
+
 ### Cotizador IA de costos (`docs/plan-cotizador-ia.md`, fases 1–7 hechas)
 "La IA arma la receta, el código calcula el precio." El sistema da **costo de
 fabricación real**; la ganancia la pone el supervisor. Precio de venta sugerido =

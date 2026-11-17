@@ -781,4 +781,104 @@ class AnexoGarantiaTest extends TestCase
         // Ya firmado no se cambia.
         $this->actingAs($v)->patchJson("/api/anexos/{$id}/crear-al-firmar", ['crear_al_firmar' => false])->assertStatus(422);
     }
+
+    // ── Anexo de restauraciones (2026-11-17) ─────────────────────────────────
+
+    private function conColumnaDePlantilla(): void
+    {
+        (require base_path('database/migrations/2026_11_17_000001_anexo_de_restauraciones.php'))->up();
+    }
+
+    /** Un anexo de la tienda: [id, token]. */
+    private function anexoEnTienda(Usuario $v, bool $restauracion): array
+    {
+        $r = $this->actingAs($v)->postJson('/api/anexos', ['cliente_id' => 1, 'modo' => 'presencial', 'restauracion' => $restauracion])
+            ->assertCreated();
+
+        return [$r->json('id'), $r->json('token')];
+    }
+
+    public function test_una_restauracion_firma_el_anexo_de_restauraciones_con_la_espuma_a_6_meses(): void
+    {
+        $this->conColumnaDePlantilla();
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoEnTienda($v, restauracion: true);
+
+        $a = AnexoGarantia::find($id);
+        $this->assertSame('anexo_restauracion', $a->plantilla);
+        $this->assertSame(\App\Support\AnexoRestauracionTexto::VERSION, $a->version);
+
+        $pub = $this->getJson("/api/public/anexos/{$token}")->assertOk()->assertJsonPath('restauracion', true);
+        $contenido = $pub->json('contenido');
+        $this->assertSame(\App\Support\AnexoRestauracionTexto::TITULO, $contenido['titulo']);
+        $espuma = collect($contenido['secciones'])->firstWhere('id', 'garantia_espuma');
+        $this->assertStringContainsString('6 meses', $espuma['parrafos'][0]);
+        $this->assertStringNotContainsString('1 año', json_encode($contenido, JSON_UNESCAPED_UNICODE));
+        $this->assertSame([], $contenido['checklist']);
+
+        // Sin check list: se firma leyendo las secciones, sin preguntas.
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas([
+            'secciones' => array_column($contenido['secciones'], 'id'),
+            'checklist' => [],
+        ]))->assertOk();
+        $this->assertSame('firmado', $a->fresh()->estado);
+
+        // El PDF sale con el texto de restauraciones.
+        $texto = null;
+        \Illuminate\Support\Facades\View::composer('pdf.anexo_garantia', function ($vista) use (&$texto) { $texto = $vista->getData()['texto']; });
+        $this->actingAs($v)->get("/api/anexos/{$id}/pdf")->assertOk();
+        set_time_limit(0);
+        $this->assertSame(\App\Support\AnexoRestauracionTexto::TITULO, $texto['titulo']);
+    }
+
+    public function test_una_venta_sigue_con_el_anexo_de_garantias(): void
+    {
+        $this->conColumnaDePlantilla();
+        [$id, $token] = $this->anexoEnTienda($this->vendedor(), restauracion: false);
+
+        $this->assertNull(AnexoGarantia::find($id)->plantilla);
+        $this->getJson("/api/public/anexos/{$token}")->assertOk()
+            ->assertJsonPath('restauracion', false)
+            ->assertJsonPath('contenido.titulo', \App\Support\AnexoGarantiaTexto::TITULO);
+    }
+
+    public function test_si_la_restauracion_pasa_a_llevar_productos_el_anexo_ya_no_sirve(): void
+    {
+        $this->conColumnaDePlantilla();
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoEnTienda($v, restauracion: true);
+        $secciones = array_column(\App\Support\AnexoRestauracionTexto::secciones(), 'id');
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas(['secciones' => $secciones, 'checklist' => []]))->assertOk();
+
+        $this->actingAs($v)->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'anexo_id' => $id,
+            'items' => [['producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 100000, 'es_personalizado' => false]],
+        ])->assertStatus(422)->assertJsonPath('codigo', 'anexo_desactualizado');
+        $this->assertSame(0, Orden::count());
+    }
+
+    public function test_gestion_edita_el_de_restauraciones_sin_tocar_el_de_ventas(): void
+    {
+        $this->conTablaDePlantillas();
+        $this->conColumnaDePlantilla();
+        $jefa = $this->supervisor();
+
+        $lista = $this->actingAs($jefa)->getJson('/api/plantillas-documento')->assertOk()->json();
+        $this->assertContains('anexo_restauracion', array_column($lista, 'clave'));
+
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_restauracion', ['contenido' => [
+            'titulo'    => 'Refacciones Decasa',
+            'secciones' => [['titulo' => 'Garantía de la espuma', 'parrafos' => 'Seis meses.']],
+            'checklist' => [],
+        ]])->assertOk()->assertJsonPath('cambio', true);
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $v = $this->vendedor();
+        // (Uno a la vez: abrir otro al mismo cliente anula el anterior.)
+        [, $tokenR] = $this->anexoEnTienda($v, restauracion: true);
+        $this->getJson("/api/public/anexos/{$tokenR}")->assertJsonPath('contenido.titulo', 'Refacciones Decasa');
+        [, $tokenV] = $this->anexoEnTienda($v, restauracion: false);
+        $this->getJson("/api/public/anexos/{$tokenV}")->assertJsonPath('contenido.titulo', \App\Support\AnexoGarantiaTexto::TITULO);
+    }
 }

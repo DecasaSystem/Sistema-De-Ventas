@@ -12,6 +12,8 @@ use App\Services\NotificacionService;
 use App\Support\AnexoGarantiaTexto;
 use App\Support\ConvierteImagenesPdf;
 use App\Support\DeclaracionEspeciales;
+use App\Support\Esquema;
+use App\Support\PlantillasDocumento;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -77,6 +79,8 @@ class AnexoGarantiaController extends Controller
             'orden'            => 'nullable|array',
             'orden.items'      => 'required_with:orden|array|min:1',
             'crear_al_firmar'  => 'nullable|boolean',
+            // En la tienda (sin la orden): la pantalla dice si todo es restauración.
+            'restauracion'     => 'nullable|boolean',
         ]);
 
         [$especiales, $error] = DeclaracionEspeciales::normalizarProductos($request->input('especiales'));
@@ -125,11 +129,18 @@ class AnexoGarantiaController extends Controller
                 ->update(['orden_auto_estado' => 'descartada', 'updated_at' => now()]);
         }
 
+        // Restauración pura: el cliente firma el anexo de restauraciones, no el
+        // de ventas. Con la orden completa (enlace) se mira lo que de verdad se
+        // va a crear; en la tienda lo dice la pantalla (`restauracion`).
+        $esRestauracion = $orden
+            ? self::itemsSonSoloRestauracion($orden['items'] ?? [])
+            : $request->boolean('restauracion');
+
         $anexo = AnexoGarantia::create([
             'token'        => Str::random(48),
             'cliente_id'   => $data['cliente_id'],
             'vendedor_id'  => $request->user()->id,
-            'version'      => AnexoGarantiaTexto::vigente()['version'],
+            ...self::conTexto($esRestauracion),
             'modo'         => $data['modo'],
             'estado'       => 'pendiente',
             'resumen'      => $resumen,
@@ -176,6 +187,30 @@ class AnexoGarantiaController extends Controller
         unset($orden['guardar_borrador'], $orden['firma_url'], $orden['anexo_id']);
 
         return [$orden, null];
+    }
+
+    /**
+     * Qué texto firma el cliente y en qué versión: el anexo de restauraciones
+     * si la orden es solo restauración (la misma regla de
+     * Orden::esSoloRestauracion), si no el de garantías de ventas. Sin la
+     * columna `plantilla` (antes de la migración) siempre el de ventas.
+     */
+    private static function conTexto(bool $esRestauracion): array
+    {
+        $clave = $esRestauracion && Esquema::columna('anexos_garantia', 'plantilla')
+            ? PlantillasDocumento::ANEXO_RESTAURACION
+            : PlantillasDocumento::ANEXO;
+
+        return [
+            'version' => AnexoGarantiaTexto::vigente($clave)['version'],
+            ...($clave === PlantillasDocumento::ANEXO_RESTAURACION ? ['plantilla' => $clave] : []),
+        ];
+    }
+
+    /** Los ítems que se mandarían a POST /ordenes son todos muebles del cliente a restaurar. */
+    private static function itemsSonSoloRestauracion(array $items): bool
+    {
+        return $items !== [] && collect($items)->every(fn ($i) => is_array($i) && ! empty($i['es_restauracion']));
     }
 
     /**
@@ -313,7 +348,7 @@ class AnexoGarantiaController extends Controller
             'orden_id'     => $orden->id,
             'cliente_id'   => $orden->cliente_id,
             'vendedor_id'  => $u->id,
-            'version'      => AnexoGarantiaTexto::vigente()['version'],
+            ...self::conTexto($orden->esSoloRestauracion()),
             'modo'         => 'remoto',
             'estado'       => 'pendiente',
             'resumen'      => $resumen,
@@ -594,11 +629,12 @@ class AnexoGarantiaController extends Controller
 
         $firma = $this->urlToBase64($anexo->firma_url);
         $logo  = $this->avifToPngBase64(public_path('img/logo.avif'));
-        $texto = AnexoGarantiaTexto::deVersion($anexo->version);
+        $texto = AnexoGarantiaTexto::delAnexo($anexo);
 
         $pdf = Pdf::loadView('pdf.anexo_garantia', compact('anexo', 'firma', 'logo', 'texto'))->setPaper('letter');
 
-        $nombre = 'anexo-garantias-' . ($anexo->orden?->referencia ?? $anexo->id) . '.pdf';
+        $nombre = ($anexo->plantilla === PlantillasDocumento::ANEXO_RESTAURACION ? 'anexo-restauracion-' : 'anexo-garantias-')
+            . ($anexo->orden?->referencia ?? $anexo->id) . '.pdf';
         return $pdf->stream(Str::slug(pathinfo($nombre, PATHINFO_FILENAME)) . '.pdf');
     }
 
@@ -663,7 +699,9 @@ class AnexoGarantiaController extends Controller
             ],
             'vendedor'   => $anexo->vendedor?->nombre,
             'resumen'    => $anexo->resumen,
-            'contenido'  => AnexoGarantiaTexto::deVersion($anexo->version),
+            'contenido'  => AnexoGarantiaTexto::delAnexo($anexo),
+            // Es el anexo de restauraciones (para nombrar lo que descarga).
+            'restauracion' => $anexo->esDeRestauracion(),
             // La declaración de diseños especiales, si el pedido trae
             // productos fuera del catálogo: el texto que va a firmar y cada
             // producto como lo escribió el vendedor, para aprobarlo uno por uno.
@@ -761,14 +799,15 @@ class AnexoGarantiaController extends Controller
             return response()->json(['message' => 'Este enlace venció. Pídele a tu asesor que te envíe uno nuevo.'], 410);
         }
 
-        $texto        = AnexoGarantiaTexto::deVersion($anexo->version);
+        $texto        = AnexoGarantiaTexto::delAnexo($anexo);
         $idsSecciones = array_column($texto['secciones'], 'id');
         $idsChecklist = array_column($texto['checklist'], 'id');
 
         $data = $request->validate([
             'secciones'   => 'required|array',
             'secciones.*' => 'string',
-            'checklist'   => 'required|array',
+            // El anexo de restauraciones viene sin check list: ahí llega vacío.
+            'checklist'   => $idsChecklist ? 'required|array' : 'nullable|array',
             'checklist.*' => 'in:si,no',
             'nombre'      => 'required|string|max:150',
             'documento'   => 'required|string|max:30',
@@ -793,7 +832,7 @@ class AnexoGarantiaController extends Controller
         if ($faltan) {
             return response()->json(['message' => 'Falta marcar como leídas ' . count($faltan) . ' sección(es) del anexo.'], 422);
         }
-        $sinResponder = array_diff($idsChecklist, array_keys($data['checklist']));
+        $sinResponder = array_diff($idsChecklist, array_keys($data['checklist'] ?? []));
         if ($sinResponder) {
             return response()->json(['message' => 'Responde todas las preguntas del check list.'], 422);
         }
@@ -840,7 +879,7 @@ class AnexoGarantiaController extends Controller
             'estado'             => 'firmado',
             'respuestas'         => json_encode([
                 'secciones' => array_values(array_intersect($idsSecciones, $data['secciones'])),
-                'checklist' => array_intersect_key($data['checklist'], array_flip($idsChecklist)),
+                'checklist' => array_intersect_key($data['checklist'] ?? [], array_flip($idsChecklist)),
                 // Dijo que revisó el pedido y que estaba bien (lo remoto).
                 ...($revisaPedido ? ['orden_revisada' => true] : []),
                 // Los datos con que firmó la declaración (el papel pedía
@@ -956,7 +995,7 @@ class AnexoGarantiaController extends Controller
             // le quedó claro el proceso, no le explicaron la espuma...). Firmar
             // se puede igual, pero el vendedor tiene que saberlo para
             // explicarle antes de cerrar la venta.
-            'respuestas_no'      => collect(AnexoGarantiaTexto::deVersion($anexo->version)['checklist'])
+            'respuestas_no'      => collect(AnexoGarantiaTexto::delAnexo($anexo)['checklist'])
                 ->filter(fn ($q) => ($anexo->respuestas['checklist'][$q['id']] ?? null) === 'no')
                 ->pluck('pregunta')->values(),
             // La declaración de diseños especiales que va con este anexo: de

@@ -915,6 +915,19 @@ desde 2026-10-15 se edita en Gestión → Documentos, ver §6.19).
 Firma presencial (en el aparato del vendedor) o remota (enlace `/firmar/:token`
 por WhatsApp/correo). Se pega a la orden al crearla; PDF y envío por correo.
 
+**Anexo de restauraciones (2026-11-17):** una orden que es solo restauración
+(`Orden::esSoloRestauracion`) firma otro texto, el del papel "Anexo informativo orden de
+pedido — Refacciones" (`Support/AnexoRestauracionTexto`, clave `anexo_restauracion`,
+editable en Gestión → Documentos igual que el de ventas; sin check list de fábrica). La
+espuma va a **6 meses** (el papel decía 1 año; pedido del usuario). Cuál firmó queda en
+`anexos_garantia.plantilla` (null = ventas; migración `2026_11_17_000001_anexo_de_restauraciones`):
+las versiones son fechas y las de los dos textos pueden coincidir. En la tienda lo dice la
+pantalla (`restauracion: true` en `POST /anexos`); con el enlace, los ítems de la orden que
+viaja (o la orden guardada, en `firma-remota`). Si la orden después lleva un producto, ese
+anexo ya no sirve para crearla (422 `anexo_desactualizado`) y completar un borrador de venta
+solo cuenta anexos de ventas (`AnexoGarantia::scopeDeVentas`). El anexo sigue siendo
+opcional en restauración.
+
 **Firma remota de la orden (2026-10-09):** el enlace es "revisa tu pedido y fírmalo":
 el cliente ve la orden completa (sus datos, productos con tela/medida, foto del
 catálogo —la pone el servidor—, especificaciones y bocetos de lo personalizado,

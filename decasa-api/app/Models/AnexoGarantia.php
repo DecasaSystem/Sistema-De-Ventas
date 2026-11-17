@@ -15,7 +15,7 @@ class AnexoGarantia extends Model
     protected $table = 'anexos_garantia';
 
     protected $fillable = [
-        'token', 'orden_id', 'cliente_id', 'vendedor_id', 'version', 'modo', 'estado',
+        'token', 'orden_id', 'cliente_id', 'vendedor_id', 'version', 'plantilla', 'modo', 'estado',
         'resumen', 'resumen_hash', 'respuestas', 'nombre_firmante', 'documento_firmante',
         'firma_url', 'firmado_at', 'ip', 'user_agent', 'vence_at',
         // La declaración de diseños especiales que va con este anexo (misma
@@ -89,6 +89,24 @@ class AnexoGarantia extends Model
     public function estaFirmado(): bool
     {
         return $this->estado === 'firmado';
+    }
+
+    /** Es el anexo de restauraciones (no el de garantías de ventas). Ver AnexoRestauracionTexto. */
+    public function esDeRestauracion(): bool
+    {
+        return ($this->plantilla ?? null) === \App\Support\PlantillasDocumento::ANEXO_RESTAURACION;
+    }
+
+    /**
+     * Solo los anexos de garantías de ventas: lo que exige una venta. Uno de
+     * restauraciones no le sirve a una orden que ya lleva productos.
+     */
+    public function scopeDeVentas($q)
+    {
+        if (! \App\Support\Esquema::columna('anexos_garantia', 'plantilla')) return $q;
+
+        return $q->where(fn ($w) => $w->whereNull('plantilla')
+            ->orWhere('plantilla', \App\Support\PlantillasDocumento::ANEXO));
     }
 
     public function vencido(): bool

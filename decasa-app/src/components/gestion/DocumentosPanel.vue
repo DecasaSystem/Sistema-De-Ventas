@@ -23,7 +23,7 @@ import EditorCampos from '@/components/gestion/EditorCampos.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { cargarTextosNegocio } from '@/utils/textosNegocio'
 import {
-  DocumentTextIcon, ShieldCheckIcon, TruckIcon, XMarkIcon, PencilSquareIcon, EyeIcon, ClockIcon,
+  DocumentTextIcon, ShieldCheckIcon, WrenchScrewdriverIcon, TruckIcon, XMarkIcon, PencilSquareIcon, EyeIcon, ClockIcon,
   ClipboardDocumentCheckIcon, CalculatorIcon, BuildingOffice2Icon, CalendarDaysIcon, ChatBubbleLeftRightIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -33,7 +33,7 @@ const lista    = ref([])
 const cargando = ref(true)
 
 const ICONOS = {
-  anexo_garantia: ShieldCheckIcon, orden_entrega: TruckIcon, acta_entrega: ClipboardDocumentCheckIcon,
+  anexo_garantia: ShieldCheckIcon, anexo_restauracion: WrenchScrewdriverIcon, orden_entrega: TruckIcon, acta_entrega: ClipboardDocumentCheckIcon,
   cotizacion: CalculatorIcon, empresa: BuildingOffice2Icon, plazos_garantia: CalendarDaysIcon,
   mensajes_whatsapp: ChatBubbleLeftRightIcon,
 }
@@ -138,7 +138,8 @@ function verComoCliente(contenido) {
   previa.value = contenido
 }
 
-const esAnexo = computed(() => doc.value?.clave === 'anexo_garantia')
+// Los dos anexos que firma el cliente (ventas y restauraciones) se editan igual.
+const esAnexo = computed(() => ['anexo_garantia', 'anexo_restauracion'].includes(doc.value?.clave))
 </script>
 
 <template>

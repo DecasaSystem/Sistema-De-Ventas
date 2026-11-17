@@ -141,9 +141,9 @@ final class AnexoGarantiaTexto
      * El texto que se firma hoy: el último que se guardó en Gestión →
      * Documentos o, si nadie lo ha cambiado, el de fábrica de arriba.
      */
-    public static function vigente(): array
+    public static function vigente(string $clave = PlantillasDocumento::ANEXO): array
     {
-        $v = PlantillasDocumento::vigente(PlantillasDocumento::ANEXO);
+        $v = PlantillasDocumento::vigente(self::clave($clave));
 
         return ['version' => $v['version'], ...$v['contenido']];
     }
@@ -153,10 +153,25 @@ final class AnexoGarantiaTexto
      * con que se creó, aunque después se haya cambiado. Un enlace enviado
      * antes del cambio se firma con el texto que se envió.
      */
-    public static function deVersion(?string $version): array
+    public static function deVersion(?string $version, ?string $clave = PlantillasDocumento::ANEXO): array
     {
-        $v = PlantillasDocumento::deVersion(PlantillasDocumento::ANEXO, $version);
+        $v = PlantillasDocumento::deVersion(self::clave($clave), $version);
 
         return ['version' => $v['version'], ...$v['contenido']];
+    }
+
+    /**
+     * El texto de un anexo ya creado: el de ventas o el de restauraciones
+     * (columna `plantilla`; vacía = ventas, como todos los de antes).
+     */
+    public static function delAnexo(\App\Models\AnexoGarantia $anexo): array
+    {
+        return self::deVersion($anexo->version, $anexo->plantilla ?? null);
+    }
+
+    /** Solo las dos claves de anexo; cualquier otra cosa (o null) es el de ventas. */
+    private static function clave(?string $clave): string
+    {
+        return $clave !== null && PlantillasDocumento::esAnexo($clave) ? $clave : PlantillasDocumento::ANEXO;
     }
 }

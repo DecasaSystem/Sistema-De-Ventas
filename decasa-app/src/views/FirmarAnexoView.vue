@@ -107,7 +107,9 @@ async function enviarCambio() {
 
 // ── Lo firmado, para guardarlo (PDF o imagen) ────────────────────────────────
 const documentos = computed(() => [
-  { doc: 'anexo', nombre: 'Anexo de garantías', archivo: 'anexo-garantias' },
+  datos.value?.restauracion
+    ? { doc: 'anexo', nombre: 'Anexo de restauración', archivo: 'anexo-restauracion' }
+    : { doc: 'anexo', nombre: 'Anexo de garantías', archivo: 'anexo-garantias' },
   ...(datos.value?.declaracion ? [{ doc: 'declaracion', nombre: 'Declaración de diseños especiales', archivo: 'declaracion-disenos-especiales' }] : []),
 ])
 const bajando = ref('')

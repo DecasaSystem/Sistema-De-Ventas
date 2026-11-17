@@ -2233,6 +2233,8 @@ async function firmarAnexoAqui() {
     const { data } = await crearAnexo({
       cliente_id: clienteSeleccionado.value.id, modo: 'presencial',
       especiales: especialesParaCliente(),
+      // Solo restauración: el cliente firma el anexo de restauraciones.
+      restauracion: tipoOrden.value === 'restauracion',
     })
     const { data: pub } = await getAnexoPublico(data.token)
     anexoIdAqui.value    = data.id

@@ -29,6 +29,8 @@ use Illuminate\Validation\ValidationException;
 final class PlantillasDocumento
 {
     public const ANEXO         = 'anexo_garantia';
+    /** El anexo de las restauraciones (refacciones). Misma forma que el de ventas. */
+    public const ANEXO_RESTAURACION = 'anexo_restauracion';
     public const ORDEN_ENTREGA = 'orden_entrega';
 
     /** Versión del texto de fábrica de la orden de entrega (la del anexo es AnexoGarantiaTexto::VERSION). */
@@ -48,7 +50,13 @@ final class PlantillasDocumento
     /** @return array<int,string> */
     public static function claves(): array
     {
-        return [self::ANEXO, self::ORDEN_ENTREGA, ...EsquemasPlantillas::claves()];
+        return [self::ANEXO, self::ANEXO_RESTAURACION, self::ORDEN_ENTREGA, ...EsquemasPlantillas::claves()];
+    }
+
+    /** Las dos claves con forma de anexo (secciones + check list) que el cliente firma. */
+    public static function esAnexo(string $clave): bool
+    {
+        return $clave === self::ANEXO || $clave === self::ANEXO_RESTAURACION;
     }
 
     public static function existe(string $clave): bool
@@ -71,6 +79,13 @@ final class PlantillasDocumento
                 'clave'       => self::ANEXO,
                 'nombre'      => 'Anexo de garantías',
                 'descripcion' => 'Lo que el cliente lee y firma en Nueva orden, en la tienda o con el enlace a distancia. Queda pegado a la orden en PDF.',
+                'grupo'       => 'documentos',
+                'datos'       => [],
+            ],
+            self::ANEXO_RESTAURACION => [
+                'clave'       => self::ANEXO_RESTAURACION,
+                'nombre'      => 'Anexo de restauraciones',
+                'descripcion' => 'El que firma el cliente cuando la orden es solo restauración (refacción de un mueble suyo). Las ventas, aunque traigan una restauración, firman el de garantías.',
                 'grupo'       => 'documentos',
                 'datos'       => [],
             ],
@@ -100,6 +115,14 @@ final class PlantillasDocumento
                     'titulo'    => AnexoGarantiaTexto::TITULO,
                     'secciones' => AnexoGarantiaTexto::secciones(),
                     'checklist' => AnexoGarantiaTexto::checklist(),
+                ],
+            ],
+            self::ANEXO_RESTAURACION => [
+                'version'   => AnexoRestauracionTexto::VERSION,
+                'contenido' => [
+                    'titulo'    => AnexoRestauracionTexto::TITULO,
+                    'secciones' => AnexoRestauracionTexto::secciones(),
+                    'checklist' => AnexoRestauracionTexto::checklist(),
                 ],
             ],
             self::ORDEN_ENTREGA => [
@@ -161,7 +184,8 @@ final class PlantillasDocumento
     public static function historial(string $clave): array
     {
         $usos = match ($clave) {
-            self::ANEXO                      => self::anexosFirmadosPorVersion(),
+            self::ANEXO                      => self::anexosFirmadosPorVersion('version', self::ANEXO),
+            self::ANEXO_RESTAURACION         => self::anexosFirmadosPorVersion('version', self::ANEXO_RESTAURACION),
             EsquemasPlantillas::DECLARACION  => self::anexosFirmadosPorVersion('declaracion_version'),
             default                          => [],
         };
@@ -242,7 +266,7 @@ final class PlantillasDocumento
     public static function normalizar(string $clave, array $e): array
     {
         return match ($clave) {
-            self::ANEXO         => self::normalizarAnexo($e),
+            self::ANEXO, self::ANEXO_RESTAURACION => self::normalizarAnexo($e),
             self::ORDEN_ENTREGA => self::normalizarEntrega($e),
             default             => self::normalizarPorEsquema($clave, $e),
         };
@@ -459,13 +483,24 @@ final class PlantillasDocumento
     }
 
     /** Cuántos anexos firmados hay con cada versión: para saber qué texto tiene firmado la gente. */
-    private static function anexosFirmadosPorVersion(string $columna = 'version'): array
+    private static function anexosFirmadosPorVersion(string $columna = 'version', ?string $plantilla = null): array
     {
         if (! Esquema::tabla('anexos_garantia')) return [];
         if ($columna !== 'version' && ! Esquema::columna('anexos_garantia', $columna)) return [];
 
+        $q = DB::table('anexos_garantia')->where('estado', 'firmado')->whereNotNull($columna);
+        // Las versiones son fechas: el de ventas y el de restauraciones pueden
+        // tener una del mismo día. Se cuentan por separado (null = ventas, lo de antes).
+        if ($plantilla !== null && Esquema::columna('anexos_garantia', 'plantilla')) {
+            $plantilla === self::ANEXO
+                ? $q->where(fn ($w) => $w->whereNull('plantilla')->orWhere('plantilla', self::ANEXO))
+                : $q->where('plantilla', $plantilla);
+        } elseif ($plantilla === self::ANEXO_RESTAURACION) {
+            return [];
+        }
+
         // Agrupar por la columna y no por el alias (trampa de MySQL: ver MEMORY).
-        return DB::table('anexos_garantia')->where('estado', 'firmado')->whereNotNull($columna)
+        return $q
             ->selectRaw("$columna AS v, COUNT(*) AS total")->groupBy($columna)
             ->pluck('total', 'v')->map(fn ($n) => (int) $n)->all();
     }
