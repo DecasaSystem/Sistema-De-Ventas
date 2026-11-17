@@ -396,6 +396,28 @@ async function cargarResumen() {
   }
 }
 
+// La plata la manda el servidor solo a supervisores; él la puede esconder con
+// el interruptor de aquí, aparte del de Inventario (usuario, 2026-11-17). Se
+// guarda en su cuenta: vale en el celular, en el computador y al recargar.
+const puedeVerPlata = computed(() => resumenReserva.value?.valor != null)
+const mostrarPlata  = computed(() => auth.usuario?.ver_valor_reserva !== false)
+const verPlata      = computed(() => puedeVerPlata.value && mostrarPlata.value)
+const guardandoVerPlata = ref(false)
+async function alternarVerPlata() {
+  if (guardandoVerPlata.value) return
+  const antes = mostrarPlata.value
+  auth.setVerValorReserva(!antes)   // se ve el cambio de una vez
+  guardandoVerPlata.value = true
+  try {
+    await api.patch('/auth/mi-inventario', { ver_valor_reserva: !antes })
+  } catch (e) {
+    auth.setVerValorReserva(antes)
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar. Revisa tu conexión.')
+  } finally {
+    guardandoVerPlata.value = false
+  }
+}
+
 /** "$ 31 M", "$ 1,5 M", "$ 850 mil": para la lista por categoría. */
 function pesosCortos(v) {
   const n = Number(v) || 0
@@ -767,12 +789,27 @@ onMounted(async () => {
         Calculando el total...
       </div>
       <template v-else-if="resumenReserva">
-        <p class="text-sm font-semibold text-gray-800">
-          {{ categoriaFiltro || 'Toda la fábrica' }}
-          <span class="font-normal text-gray-400">
-            · {{ resumenReserva.productos_con_stock }} producto{{ resumenReserva.productos_con_stock === 1 ? '' : 's' }} con stock
-          </span>
-        </p>
+        <div class="flex items-start justify-between gap-2">
+          <p class="text-sm font-semibold text-gray-800">
+            {{ categoriaFiltro || 'Toda la fábrica' }}
+            <span class="font-normal text-gray-400">
+              · {{ resumenReserva.productos_con_stock }} producto{{ resumenReserva.productos_con_stock === 1 ? '' : 's' }} con stock
+            </span>
+          </p>
+          <!-- Ver u ocultar la plata (solo supervisor; queda en su cuenta, aparte del de Inventario) -->
+          <label v-if="puedeVerPlata" class="flex items-center gap-1.5 flex-shrink-0 cursor-pointer select-none">
+            <span class="text-xs text-gray-500">Ver valor</span>
+            <button
+              type="button" role="switch" :aria-checked="mostrarPlata" aria-label="Ver el valor en plata de la reserva"
+              :disabled="guardandoVerPlata" @click="alternarVerPlata"
+              :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-50',
+                mostrarPlata ? 'bg-blue-600' : 'bg-gray-300']"
+            >
+              <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
+                mostrarPlata ? 'translate-x-5' : 'translate-x-0.5']" />
+            </button>
+          </label>
+        </div>
         <div class="grid grid-cols-3 gap-2 text-center mt-2">
           <div class="bg-gray-50 rounded-lg p-1.5">
             <p class="text-lg font-bold text-gray-800">{{ resumenReserva.cantidad_disponible }}</p>
@@ -788,7 +825,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="resumenReserva.valor != null" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
+        <div v-if="verPlata" class="mt-2 rounded-lg border border-emerald-200 px-3 py-2">
           <!-- Lo grande es lo DISPONIBLE; lo apartado ya lo compró un cliente
                y espera entrega (dueño, 2026-11-06). -->
           <p class="text-xs text-gray-500">Disponible para vender en fábrica (a precio de venta)</p>
@@ -812,7 +849,7 @@ onMounted(async () => {
         <!-- "Todas": cuánto hay en cada categoría. Tocar una la abre. -->
         <div v-if="!categoriaFiltro && resumenReserva.por_categoria?.length" class="mt-3">
           <p class="text-xs text-gray-400 mb-1">
-            Por categoría<span v-if="resumenReserva.valor != null"> · disponible para vender</span>
+            Por categoría<span v-if="verPlata"> · disponible para vender</span>
           </p>
           <ul class="divide-y divide-gray-100">
             <li v-for="c in resumenReserva.por_categoria" :key="c.categoria">
@@ -826,7 +863,7 @@ onMounted(async () => {
                   {{ c.unidades }} u.
                   <span v-if="c.apartadas > 0" class="text-gray-400">({{ c.apartadas }} apart.)</span>
                 </span>
-                <span v-if="c.valor != null" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap"
+                <span v-if="verPlata && c.valor != null" class="w-24 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap"
                   :title="`${pesos(c.valor_libre)} disponible` + (c.valor_apartado > 0 ? ` · ${pesos(c.valor_apartado)} apartado` : '')">
                   {{ pesosCortos(c.valor_libre) }}
                 </span>

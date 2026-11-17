@@ -211,15 +211,19 @@ class AuthController extends Controller
             // Si quiere ver la plata del inventario (solo supervisores la ven).
             // Sin la columna, o sin escoger, se ve.
             'ver_valor_inventario' => $usuario->ver_valor_inventario === null ? true : (bool) $usuario->ver_valor_inventario,
+            // Lo mismo en la Reserva de fábrica, con su propio interruptor.
+            'ver_valor_reserva'    => $usuario->ver_valor_reserva === null ? true : (bool) $usuario->ver_valor_reserva,
         ];
     }
 
     /**
-     * PATCH /api/auth/mi-inventario  { ver_valor: bool }
+     * PATCH /api/auth/mi-inventario  { ver_valor?: bool, ver_valor_reserva?: bool }
      *
-     * El interruptor de Inventario para ver o esconder cuánta plata hay
-     * (usuario, 2026-11-17). Se guarda en la cuenta: vale en el celular, en el
-     * computador y al recargar. Solo supervisores: los demás nunca ven esa plata.
+     * Los interruptores para ver o esconder cuánta plata hay: uno en
+     * Inventario (`ver_valor`) y otro, aparte, en la Reserva de fábrica
+     * (`ver_valor_reserva`) (usuario, 2026-11-17). Se guardan en la cuenta:
+     * valen en el celular, en el computador y al recargar. Solo supervisores:
+     * los demás nunca ven esa plata.
      */
     public function guardarInventario(Request $request)
     {
@@ -227,13 +231,26 @@ class AuthController extends Controller
         if ($u->rol !== 'supervisor') {
             return response()->json(['message' => 'Solo los supervisores ven el valor del inventario.'], 403);
         }
-        $data = $request->validate(['ver_valor' => 'required|boolean']);
+        $data = $request->validate([
+            'ver_valor'         => 'required_without:ver_valor_reserva|boolean',
+            'ver_valor_reserva' => 'nullable|boolean',
+        ]);
 
-        if (\App\Support\Esquema::columna('usuarios', 'ver_valor_inventario')) {
-            $u->update(['ver_valor_inventario' => (bool) $data['ver_valor']]);
+        $cambios = [];
+        if (array_key_exists('ver_valor', $data) && \App\Support\Esquema::columna('usuarios', 'ver_valor_inventario')) {
+            $cambios['ver_valor_inventario'] = (bool) $data['ver_valor'];
         }
+        if (array_key_exists('ver_valor_reserva', $data) && $data['ver_valor_reserva'] !== null
+            && \App\Support\Esquema::columna('usuarios', 'ver_valor_reserva')) {
+            $cambios['ver_valor_reserva'] = (bool) $data['ver_valor_reserva'];
+        }
+        if ($cambios) $u->update($cambios);
+        $u->refresh();
 
-        return response()->json(['ver_valor_inventario' => (bool) $data['ver_valor']]);
+        return response()->json([
+            'ver_valor_inventario' => $u->ver_valor_inventario === null ? true : (bool) $u->ver_valor_inventario,
+            'ver_valor_reserva'    => $u->ver_valor_reserva === null ? true : (bool) $u->ver_valor_reserva,
+        ]);
     }
 
     /**

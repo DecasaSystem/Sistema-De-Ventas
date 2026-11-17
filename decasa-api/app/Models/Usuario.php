@@ -98,6 +98,7 @@ class Usuario extends Authenticatable
         'nav_favoritos',
         // El supervisor ve (o esconde) la plata del inventario. Ver AuthController::guardarInventario.
         'ver_valor_inventario',
+        'ver_valor_reserva',
         'created_at',
     ];
 
@@ -144,6 +145,7 @@ class Usuario extends Authenticatable
             'nomina_retiro'       => 'date',
             'nav_favoritos'       => 'array',
             'ver_valor_inventario' => 'boolean',
+            'ver_valor_reserva'    => 'boolean',
         ];
     }
 

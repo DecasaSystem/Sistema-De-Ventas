@@ -250,6 +250,14 @@ class ValorInventarioTest extends TestCase
         $this->actingAs($jefa)->patchJson('/api/auth/mi-inventario', ['ver_valor' => true])->assertOk();
         $this->assertTrue($jefa->fresh()->ver_valor_inventario);
 
+        // La Reserva tiene su propio interruptor: apagarlo no toca el de Inventario.
+        (require base_path('database/migrations/2026_11_17_000003_ver_valor_reserva_en_usuarios.php'))->up();
+        $this->actingAs($jefa)->patchJson('/api/auth/mi-inventario', ['ver_valor_reserva' => false])
+            ->assertOk()->assertJsonPath('ver_valor_reserva', false)->assertJsonPath('ver_valor_inventario', true);
+        $this->assertFalse($jefa->fresh()->ver_valor_reserva);
+        $this->assertTrue($jefa->fresh()->ver_valor_inventario);
+        $this->actingAs($jefa)->patchJson('/api/auth/mi-inventario', [])->assertStatus(422);
+
         // Un vendedor nunca ve la plata: no tiene interruptor.
         $this->actingAs($this->usuario('vendedor'))->patchJson('/api/auth/mi-inventario', ['ver_valor' => true])->assertForbidden();
     }

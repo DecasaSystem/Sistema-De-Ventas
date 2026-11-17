@@ -360,9 +360,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   // El supervisor ve o esconde la plata del inventario (se guarda en la cuenta:
   // PATCH /auth/mi-inventario). Aquí solo se actualiza sin esperar otro /auth/me.
-  function setVerValorInventario(ver) {
+  function setVerValorInventario(ver) { _setPreferencia('ver_valor_inventario', !!ver) }
+  // Lo mismo para la Reserva de fábrica, con su propio interruptor.
+  function setVerValorReserva(ver) { _setPreferencia('ver_valor_reserva', !!ver) }
+  function _setPreferencia(clave, valor) {
     if (!usuario.value) return
-    usuario.value = { ...usuario.value, ver_valor_inventario: !!ver }
+    usuario.value = { ...usuario.value, [clave]: valor }
     if (_perfiles.value[_perfilActivo.value]) {
       _perfiles.value[_perfilActivo.value].usuario = usuario.value
     }
@@ -557,7 +560,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
-    login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setEmail, logout, clearSession,
+    login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setVerValorReserva, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,
   }
 })

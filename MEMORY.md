@@ -924,7 +924,7 @@ escribiendo precios (Fase 1b).
   `2026_11_17_000002_ver_valor_inventario_en_usuarios`, solo agrega `usuarios.ver_valor_inventario`,
   de fábrica 1): en la tarjeta del total de Inventario el supervisor esconde o muestra la plata;
   se guarda en su cuenta (`PATCH /auth/mi-inventario`, viaja en `/auth/me`), no en el aparato.
-  Solo supervisores. No toca Reserva ni el Excel. Revisado ese día que una unidad marcada como
+  Solo supervisores. La Reserva tiene su propio interruptor, aparte (mismo día, **subido a `main`**, migración `2026_11_17_000003_ver_valor_reserva_en_usuarios`, columna `ver_valor_reserva`, mismo PATCH con `ver_valor_reserva`). El Excel no se esconde. Revisado ese día que una unidad marcada como
   una versión suma el precio de esa versión y la sin marcar el general (test del sofá).
 - **Traslados: un supervisor también puede recibirlos** (dueño, 2026-11-07, **sin subir**, sin
   migración, rama `claude/traslado-modulo-inventario-f24b9e`). La Reserva como **destino** ya
