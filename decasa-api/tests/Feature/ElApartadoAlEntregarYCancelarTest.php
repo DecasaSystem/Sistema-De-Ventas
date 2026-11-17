@@ -358,6 +358,59 @@ class ElApartadoAlEntregarYCancelarTest extends TestCase
         $this->assertSame($antes, $this->tarjeta(), 'ya había salido: no se descuenta otra vez');
     }
 
+    // ── Cancelar con algo ya entregado ──────────────────────────────────────
+
+    private function tablasDelRastro(): void
+    {
+        // El total se recalcula con lo que queda (Orden::recalcularTotal).
+        Schema::table('ordenes', function (Blueprint $t) {
+            $t->decimal('descuento_total', 12, 2)->default(0); $t->decimal('descuento_condicionado', 12, 2)->default(0);
+        });
+        Schema::create('orden_ediciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+            $t->json('cambios')->nullable(); $t->timestamps();
+        });
+        Schema::create('orden_mensajes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+            $t->text('mensaje'); $t->string('imagen_url')->nullable(); $t->json('mencionados')->nullable(); $t->timestamps();
+        });
+    }
+
+    /**
+     * 2 mesas apartadas, se entrega 1 y el cliente cancela lo demás. Antes se
+     * cancelaba toda la orden y se soltaban las 2 (la entregada ya había
+     * soltado su apartado): la tarjeta quedaba con apartadas −1, y la venta
+     * de la mesa que el cliente sí tiene dejaba de contar (usuario,
+     * 2026-11-17: "cancelar lo que falta").
+     */
+    public function test_cancelar_con_algo_entregado_cancela_solo_lo_que_falta(): void
+    {
+        $this->tablasDelRastro();
+        DB::table('inventario')->update(['cantidad_disponible' => 3, 'cantidad_reservada' => 2]);
+        $orden = $this->orden(['valor_total' => 200000], ['cantidad' => 2]);
+        $quien = $this->usuario();
+        DB::table('comisiones')->insert(['orden_id' => $orden->id, 'vendedor_id' => 1, 'tienda_id' => self::TIENDA,
+            'mes_venta' => '2026-11', 'valor_orden' => 200000, 'estado' => 'pendiente']);
+
+        EntregaService::entregarEnMostrador($orden, [$orden->items->first()->id => 1], $quien, 'se llevó una');
+        $this->assertSame([2, 1, 1], $this->tarjeta());
+
+        $this->actingAs($quien)->getJson("/api/ordenes/{$orden->id}/anulacion")->assertOk()
+            ->assertJsonPath('lo_que_falta.sale.0.cantidad', 1)
+            ->assertJsonPath('lo_que_falta.se_queda.0.cantidad', 1);
+
+        $this->actingAs($quien)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])
+            ->assertOk()->assertJsonPath('cancelado_lo_que_faltaba', true);
+
+        $o = $orden->fresh();
+        $this->assertSame([2, 0, 2], $this->tarjeta(), 'solo se suelta la mesa que no salió');
+        $this->assertSame('entregado', $o->estado, 'queda entregada con lo que el cliente tiene');
+        $this->assertEquals(100000, (float) $o->valor_total);
+        $this->assertSame(1, (int) $o->items->first()->cantidad);
+        $this->assertEquals(100000, (float) DB::table('comisiones')->where('orden_id', $orden->id)->value('valor_orden'),
+            'la comisión sigue con lo que sí se vendió');
+    }
+
     public function test_una_orden_sin_productos_no_se_marca_entregada(): void
     {
         $orden = $this->orden([], ['devuelto_en' => '2026-09-23']);

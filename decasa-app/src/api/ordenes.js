@@ -64,6 +64,12 @@ export const revertirEntrega = (id, motivo) =>
 export const cambiarProductoEntregado = (id, payload) =>
   api.post(`/ordenes/${id}/cambiar-producto`, payload)
 
+// La plata que el cliente tiene pagada de más: devolvérsela (supervisor, hasta
+// el saldo a favor; queda como pago negativo) y la lista de órdenes con saldo
+// a favor (supervisor o facturación).
+export const devolverPlata = (id, payload) => api.post(`/ordenes/${id}/devolver-plata`, payload)
+export const getSaldosAFavor = (params = {}) => api.get('/saldos-a-favor', { params })
+
 // ── Numeración (solo supervisor) ─────────────────────────────────────────────
 // Convertir una orden a serie (FV2/R) y, si se pide, correr los consecutivos
 // de las siguientes para no dejar el hueco. Se previsualiza antes de aplicar:

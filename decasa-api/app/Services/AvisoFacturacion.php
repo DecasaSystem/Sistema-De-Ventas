@@ -187,6 +187,31 @@ class AvisoFacturacion
         }
     }
 
+    /**
+     * A la orden le quedó plata a favor del cliente (se quitó algo que ya
+     * estaba pago): hay que decidir si se le devuelve ("Devolver plata") o se
+     * le abona a otra compra.
+     */
+    public static function saldoAFavor(Orden $orden, Usuario $autor, float $aFavor, string $porque): void
+    {
+        if ($aFavor <= 0.5) return;
+
+        $orden->loadMissing('cliente');
+        $fe = self::facturaElectronicaHecha($orden);
+
+        foreach (self::destinatarios($autor->id) as $d) {
+            NotificacionService::crear(
+                tipo:      'cambio_dinero',
+                titulo:    "Saldo a favor del cliente — {$orden->referencia}",
+                mensaje:   "Orden {$orden->referencia} de " . ($orden->cliente?->nombre ?? 'cliente') . ": {$porque} ({$autor->nombre}). "
+                         . 'Le quedan ' . self::pesos($aFavor) . ' a favor: devuélveselos con "Devolver plata" en la orden o abónalos a otra compra.'
+                         . ($fe ? ' Tiene factura electrónica: revisa la nota crédito.' : ''),
+                datos:     ['orden_id' => $orden->id, 'a_favor' => $aFavor],
+                usuarioId: $d->id,
+            );
+        }
+    }
+
     /** La factura electrónica ya hecha de la orden completa, si tiene. */
     public static function facturaElectronicaHecha(Orden $orden): ?\App\Models\FacturaElectronica
     {

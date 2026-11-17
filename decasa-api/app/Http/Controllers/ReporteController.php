@@ -217,7 +217,7 @@ class ReporteController extends Controller
         $desde = $hoy->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
         $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
 
-        $general = DB::table('orden_items as oi')
+        $general = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
@@ -234,7 +234,7 @@ class ReporteController extends Controller
             ->limit(20)
             ->get();
 
-        $rawPorTienda = DB::table('orden_items as oi')
+        $rawPorTienda = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
@@ -286,7 +286,7 @@ class ReporteController extends Controller
         $desde = $hoy->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
         $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
 
-        $general = DB::table('orden_items as oi')
+        $general = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
@@ -301,7 +301,7 @@ class ReporteController extends Controller
             ->limit(20)
             ->get();
 
-        $porTiendaRaw = DB::table('orden_items as oi')
+        $porTiendaRaw = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
@@ -465,7 +465,7 @@ class ReporteController extends Controller
         $tiendaId = $r->query('tienda_id');
         $limit    = min((int) ($r->query('limit', 10)), 50);
 
-        return DB::table('orden_items as oi')
+        return \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
@@ -670,7 +670,7 @@ class ReporteController extends Controller
         ];
         $filtroClase = $r->query('clase');
 
-        $rows = DB::table('orden_items as oi')
+        $rows = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')

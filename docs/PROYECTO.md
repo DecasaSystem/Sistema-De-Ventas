@@ -490,7 +490,16 @@ Pedido del dueño (2026-10-28): "saber cuánto trabajo tenemos y vamos a tener".
   Devoluciones o de Garantía) pasa por `Services/CancelacionDeOrden`: taller, tela,
   numeración, comisiones sin pagar y avisos. El inventario lo suelta cada camino. Y
   `ComisionController::enriquecer` da $0 (sin "lista") a toda comisión sin pagar de una
-  orden cancelada.
+  orden cancelada. Si la orden ya entregó algo, Cancelar **cancela lo que falta**
+  (`OrdenController::cancelarLoQueFalta`): sale de la orden y la orden queda entregada.
+  Lo que ya estaba hecho en el taller (pieza lista, sofá en retapizado) queda escrito en la
+  orden y se avisa a los supervisores.
+- **Devoluciones** (`POST /devoluciones`) solo de lo no entregado; lo que el cliente ya
+  tiene va por Garantías o Cambiar producto. "Devolver la plata" pregunta inventario o merma.
+- **Saldo a favor** (`SaldoAFavorController`): `POST /ordenes/{id}/devolver-plata`
+  (supervisor, hasta `Orden::saldoAFavor()`; en una cancelada, todo lo pagado) deja un pago
+  negativo `tipo=reembolso`; `GET /saldos-a-favor` (supervisor o facturación) alimenta la
+  lista de Reportes → Cartera.
 - PDFs: acta de entrega, orden de entrega, hoja de ruta.
 
 ### 6.9b Garantías (posventa)

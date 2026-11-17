@@ -1432,8 +1432,22 @@ Decisiones del dueño del 2026-10-08:
   `CancelarProduccionTest`.
 
 - **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
-  problemas en la carpeta de notas de la sesión). **Arreglados el 2 y el 3** (**sin subir**, sin
-  migración, rama `claude/upbeat-archimedes-cded7e`): (2) "Devolver la plata" en Devoluciones solo
+  problemas en la carpeta de notas de la sesión). **Todo arreglado y subido a `main` el 2026-11-17**
+  (sin migración, rama `claude/upbeat-archimedes-cded7e`). Decisiones del usuario ese día: (1) cancelar
+  una orden que ya entregó algo **cancela solo lo que falta** (sale de la orden, deja de cobrarse; la
+  orden queda entregada con lo que el cliente tiene, venta y comisión con eso; la numeración no se
+  corre); (6) **"Devolver plata"** en el detalle de la orden, solo supervisor, **hasta el saldo a
+  favor** (`Orden::saldoAFavor`: en una cancelada, todo lo pagado), como pago negativo
+  `tipo=reembolso` con medio, y lista "Saldos a favor" en Reportes → Cartera (supervisor o
+  facturación; `SaldoAFavorController`); pieza ya terminada o sofá en retapizado de una orden que se
+  cancela: **se avisa a los supervisores y queda escrito en la orden** (no se mueve solo a ningún
+  lado). Además: (5) "Devolver la plata" de Devoluciones pregunta inventario o merma; (7) el servidor
+  solo acepta devoluciones de lo no entregado; (8) Devoluciones y Cancelar en Producción mueven
+  combinación y medida; (9) los rankings de lo vendido (Reportes, Estadísticas, Qué fabricar) no
+  cuentan renglones devueltos (`OrdenItem::vivos`); al covendedor le llega la cancelación. Sigue
+  igual (decisión vieja): la comisión ya pagada de una venta cancelada no se recupera; una orden que
+  queda sin productos se queda abierta hasta que alguien la cancele.
+  Primero se arreglaron el 2 y el 3: (2) "Devolver la plata" en Devoluciones solo
   anotaba un egreso de caja: la orden seguía valiendo lo mismo y la comisión y la meta contaban lo
   devuelto. Ahora es igual al reembolso de garantía (renglón fuera, total y comisión recalculados,
   pago negativo `tipo=reembolso` con medio, tope = lo pagado, aviso a facturación y al vendedor);
@@ -1442,9 +1456,8 @@ Decisiones del dueño del 2026-10-08:
   almacén se podía pagar), ni cancelaba el taller ni avisaba: ahora todo pasa por
   `Services/CancelacionDeOrden` y `enriquecer` da $0 a la comisión sin pagar de una cancelada. De
   paso: tras el reembolso la orden queda en `estadoTrasEntrega` (antes "entregado" con algo en el
-  taller) y Finanzas → garantías solo suma reembolsos de garantía. Quedan del informe: 1 (cancelar
-  con entrega parcial suelta apartado de más), 5 (el reembolso siempre manda a merma), 6 (no hay
-  reembolso general ni saldos a favor), 7, 8, 9. Los reembolsos viejos (egreso de caja) no se tocaron.
+  taller) y Finanzas → garantías solo suma reembolsos de garantía. Los reembolsos viejos (egreso de
+  caja) no se tocaron.
 
 - **Barra de abajo y "Más" personalizables** (usuario, 2026-11-17, **subido a `main`** ese día, trae **migración**
   `2026_11_17_000004_nav_mas_en_usuarios`, solo agrega `usuarios.nav_mas` JSON). "Personalizar barra"

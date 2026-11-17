@@ -18,6 +18,7 @@ import SolicitudesCambioPanel from '@/components/ordenes/SolicitudesCambioPanel.
 import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
+import { devolverPlata as devolverPlataApi } from '@/api/ordenes'
 import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
@@ -1240,19 +1241,58 @@ async function abrirCancelar() {
 async function confirmarCancelar() {
   changingEstado.value = true
   try {
-    const correr = cancelarModo.value === 'correr' && cancelarPreview.value?.tiene_numero
+    const correr = cancelarModo.value === 'correr' && cancelarPreview.value?.tiene_numero && !cancelarPreview.value?.lo_que_falta
     const { data } = await updateEstado(orden.value.id, 'cancelado', { correr_numeracion: correr })
     showCancelar.value = false
     nuevoEstado.value  = ''
     const n = data?.corridas?.length ?? 0
-    toast.success(correr
-      ? (n ? `Orden anulada. Se corrieron ${n} orden(es) para cerrar el hueco.` : 'Orden anulada.')
-      : 'Orden cancelada. Su número queda anulado.')
+    toast.success(data?.cancelado_lo_que_faltaba
+      ? (data.mensaje || 'Se canceló lo que faltaba. La orden queda entregada.')
+      : correr
+        ? (n ? `Orden anulada. Se corrieron ${n} orden(es) para cerrar el hueco.` : 'Orden anulada.')
+        : 'Orden cancelada. Su número queda anulado.')
     await cargarOrden()
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al cancelar la orden.')
   } finally {
     changingEstado.value = false
+  }
+}
+
+// ── Devolver plata (solo supervisor) ───────────────────────────────────────
+// Lo que el cliente tiene pagado de más (o todo, si la orden se canceló).
+// Queda como pago negativo: en efectivo baja la caja de la tienda.
+const showDevolverPlata = ref(false)
+const dpMonto      = ref(0)
+const dpMetodo     = ref('efectivo')
+const dpReferencia = ref('')
+const dpMotivo     = ref('')
+const dpGuardando  = ref(false)
+
+function abrirDevolverPlata() {
+  dpMonto.value      = Number(orden.value?.saldo_a_favor) || 0
+  dpMetodo.value     = 'efectivo'
+  dpReferencia.value = ''
+  dpMotivo.value     = orden.value?.estado === 'cancelado' ? 'Orden cancelada' : ''
+  showDevolverPlata.value = true
+}
+
+async function confirmarDevolverPlata() {
+  dpGuardando.value = true
+  try {
+    const { data } = await devolverPlataApi(orden.value.id, {
+      monto: Number(dpMonto.value) || 0,
+      metodo: dpMetodo.value,
+      referencia: dpMetodo.value !== 'efectivo' ? (dpReferencia.value.trim() || null) : null,
+      motivo: dpMotivo.value.trim(),
+    })
+    showDevolverPlata.value = false
+    toast.success(data?.message || 'Listo')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo registrar.')
+  } finally {
+    dpGuardando.value = false
   }
 }
 
@@ -2650,9 +2690,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             <MoneyDisplay :amount="Math.abs(Number(orden.saldo_pendiente) || 0)" />
           </span>
         </div>
-        <p v-if="Number(orden.saldo_pendiente) < 0" class="text-[11px] text-blue-700 bg-blue-50 rounded-lg px-2.5 py-1.5">
-          Ya pagó de más por lo que devolvió. Ese valor se le descuenta de lo que agregue.
+        <p v-if="Number(orden.saldo_pendiente) < 0 && orden.estado !== 'cancelado'" class="text-[11px] text-blue-700 bg-blue-50 rounded-lg px-2.5 py-1.5">
+          Ya pagó de más por lo que devolvió. Ese valor se le descuenta de lo que agregue, o se le devuelve.
         </p>
+        <!-- La plata que tiene a favor (en una cancelada, todo lo pagado):
+             devolvérsela queda como pago negativo y cuadra la caja. -->
+        <div v-if="Number(orden.saldo_a_favor) > 0" class="flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-2.5 py-2">
+          <span class="text-xs text-gray-600">
+            {{ orden.estado === 'cancelado' ? 'Orden cancelada: el cliente tiene' : 'Tiene a favor' }}
+            <strong class="text-blue-700"><MoneyDisplay :amount="Number(orden.saldo_a_favor)" /></strong>
+          </span>
+          <button v-if="auth.isSupervisor" @click="abrirDevolverPlata"
+            class="shrink-0 bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-blue-700">
+            Devolver plata
+          </button>
+        </div>
         <!-- Barra progreso -->
         <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
           <div
@@ -4535,6 +4587,57 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
     </Transition>
 
+    <!-- Devolver plata: lo que el cliente tiene a favor -->
+    <Transition name="fade">
+      <div v-if="showDevolverPlata" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-6">
+        <div class="absolute inset-0 bg-black/40" @click="showDevolverPlata = false" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+          <div>
+            <p class="text-sm font-bold text-gray-900">Devolver plata — {{ orden?.referencia }}</p>
+            <p class="text-xs text-gray-500 mt-1">
+              Tiene a favor <MoneyDisplay :amount="Number(orden?.saldo_a_favor)" />. Queda como un reembolso en los pagos de la orden.
+            </p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuánto se le devuelve? *</label>
+            <InputPesos v-model="dpMonto" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cómo se le devolvió? *</label>
+            <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+              <button v-for="m in [['efectivo','Efectivo'],['transferencia','Transferencia'],['otro','Otro']]" :key="m[0]"
+                type="button" @click="dpMetodo = m[0]"
+                :class="['flex-1 text-xs font-semibold rounded-lg py-2', dpMetodo === m[0] ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']">
+                {{ m[1] }}
+              </button>
+            </div>
+          </div>
+          <div v-if="dpMetodo !== 'efectivo'">
+            <label class="block text-xs font-semibold text-gray-500 mb-1.5">Referencia</label>
+            <input v-model="dpReferencia" maxlength="100" placeholder="N.º de la transferencia (opcional)"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo *</label>
+            <input v-model="dpMotivo" maxlength="500" placeholder="Por qué se le devuelve"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+          </div>
+          <p class="text-xs text-gray-500">
+            {{ dpMetodo === 'efectivo' ? 'Sale de la caja de la tienda.' : 'No toca la caja de la tienda.' }}
+            Se avisa a facturación.
+          </p>
+          <div class="flex gap-3">
+            <button @click="showDevolverPlata = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
+            <button @click="confirmarDevolverPlata"
+              :disabled="dpGuardando || !(Number(dpMonto) > 0) || dpMotivo.trim().length < 3"
+              class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {{ dpGuardando ? 'Guardando...' : 'Devolver' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Cancelar (anular) la orden: qué pasa con el número -->
     <Transition name="fade">
       <div v-if="showCancelar" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-6">
@@ -4551,6 +4654,24 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </div>
 
           <div v-if="cargandoCancelar" class="text-xs text-gray-400 text-center py-2">Revisando la numeración...</div>
+
+          <!-- Ya se le entregó algo: se cancela solo lo que falta y la orden
+               queda entregada con lo que tiene (no se anula la venta). -->
+          <div v-else-if="cancelarPreview?.lo_que_falta" class="space-y-2 text-xs">
+            <p class="text-gray-700">
+              El cliente ya recibió parte de esta orden, así que no se anula la venta: se cancela
+              <strong>lo que falta</strong> y la orden queda entregada con lo que ya tiene.
+            </p>
+            <div v-if="cancelarPreview.lo_que_falta.sale.length" class="rounded-lg border border-gray-200 px-3 py-2">
+              <p class="font-semibold text-gray-500 mb-1">Sale de la orden (deja de cobrarse)</p>
+              <p v-for="(x, i) in cancelarPreview.lo_que_falta.sale" :key="'s' + i" class="text-gray-800">{{ x.cantidad }} × {{ x.nombre }}</p>
+            </div>
+            <div class="rounded-lg border border-gray-200 px-3 py-2">
+              <p class="font-semibold text-gray-500 mb-1">Se queda (ya lo tiene)</p>
+              <p v-for="(x, i) in cancelarPreview.lo_que_falta.se_queda" :key="'q' + i" class="text-gray-800">{{ x.cantidad }} × {{ x.nombre }}</p>
+            </div>
+            <p class="text-gray-500">Si pagó de más, le queda a favor: se le devuelve con "Devolver plata".</p>
+          </div>
 
           <template v-else-if="cancelarPreview">
             <div class="space-y-2">
@@ -4606,7 +4727,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               :disabled="changingEstado || cargandoCancelar"
               class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
-              {{ changingEstado ? 'Cancelando...' : (cancelarModo === 'correr' ? 'Anular y correr' : 'Sí, cancelar') }}
+              {{ changingEstado ? 'Cancelando...' : (cancelarPreview?.lo_que_falta ? 'Cancelar lo que falta' : (cancelarModo === 'correr' ? 'Anular y correr' : 'Sí, cancelar')) }}
             </button>
           </div>
         </div>

@@ -955,6 +955,30 @@ class Orden extends Model
         return (float) $this->valor_total - $this->totalPagado();
     }
 
+    /**
+     * Lo que el cliente tiene pagado de más y se le puede devolver.
+     *
+     * En una orden viva es lo pagado por encima del total (se quitó o se
+     * cambió algo que ya estaba pago). En una cancelada la venta no existió:
+     * todo lo que haya pagado es suyo (la orden conserva su `valor_total`,
+     * así que el saldo de siempre no lo dice).
+     */
+    public function saldoAFavor(): float
+    {
+        $pagado = $this->totalPagado();
+        $favor  = $this->estado === 'cancelado' ? $pagado : $pagado - (float) $this->valor_total;
+
+        return round(max(0.0, $favor), 2);
+    }
+
+    /** SQL de `saldoAFavor()`, para listar sin cargar orden por orden. */
+    public static function sqlSaldoAFavor(string $tabla = 'ordenes'): string
+    {
+        $pagado = "(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = {$tabla}.id)";
+
+        return "(CASE WHEN {$tabla}.estado = 'cancelado' THEN {$pagado} ELSE {$pagado} - {$tabla}.valor_total END)";
+    }
+
     public function despachoItem()
     {
         return $this->hasOne(DespachoItem::class, 'orden_id');

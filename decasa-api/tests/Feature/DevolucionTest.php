@@ -613,4 +613,84 @@ class DevolucionTest extends TestCase
             $this->assertStringNotContainsString('"referencia"', $sql, "Pide una columna que no existe: {$sql}");
         }
     }
+
+    /** Antes devolver la plata siempre mandaba a merma, también lo que volvía sano. */
+    public function test_al_devolver_la_plata_lo_sano_vuelve_al_inventario(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();   // 5 en tienda, 2 apartadas para la orden
+        $this->pagar($orden, 600000);
+        $d = $this->devolver($orden, $mesas, 2);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$d->id}/decidir",
+            ['decision' => 'reembolso', 'monto' => 600000, 'vuelve_al_stock' => true])->assertOk();
+
+        $inv = DB::table('inventario')->where('producto_id', 7)->first();
+        $this->assertSame(5, (int) $inv->cantidad_disponible, 'nunca salió: sigue en la tienda');
+        $this->assertSame(0, (int) $inv->cantidad_reservada, 'y queda libre para vender');
+    }
+
+    /** Lo que el cliente ya tiene en la casa va por Garantías o Cambiar producto. */
+    public function test_no_se_registra_devolucion_de_lo_ya_entregado(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();
+        $mesas->update(['cantidad_entregada' => 2]);
+
+        $this->actingAs($this->jefa())->postJson('/api/devoluciones', [
+            'orden_item_id' => $mesas->id, 'cantidad' => 1, 'motivo' => 'La trajo rayada', 'fecha' => '2026-08-26',
+        ])->assertStatus(422);
+
+        $this->assertSame(0, Devolucion::count());
+    }
+
+    // ── Saldo a favor (usuario, 2026-11-17) ─────────────────────────────────
+
+    public function test_devolver_plata_de_una_orden_cancelada_hasta_lo_que_tiene_a_favor(): void
+    {
+        [$orden] = $this->ordenConTresCosas();
+        $orden->update(['estado' => 'cancelado']);
+        $this->pagar($orden, 500000);
+        $jefa = $this->jefa();
+
+        // En una cancelada, todo lo pagado es suyo.
+        $this->actingAs($jefa)->getJson('/api/saldos-a-favor')->assertOk()
+            ->assertJsonPath('0.id', $orden->id)->assertJsonPath('0.a_favor', 500000);
+
+        $this->actingAs($jefa)->postJson("/api/ordenes/{$orden->id}/devolver-plata",
+            ['monto' => 300000, 'metodo' => 'efectivo', 'motivo' => 'Ya no quiso la cama'])->assertOk()
+            ->assertJsonPath('saldo_a_favor', 200000);
+
+        $pago = \App\Models\Pago::where('tipo', 'reembolso')->first();
+        $this->assertEquals(-300000, (float) $pago->monto);
+        $this->assertSame('efectivo', $pago->metodo);
+
+        // No más de lo que le queda a favor.
+        $this->actingAs($jefa)->postJson("/api/ordenes/{$orden->id}/devolver-plata",
+            ['monto' => 300000, 'metodo' => 'transferencia', 'motivo' => 'El resto'])->assertStatus(422);
+        $this->assertSame(1, \App\Models\Pago::where('tipo', 'reembolso')->count());
+    }
+
+    public function test_en_una_orden_viva_solo_se_devuelve_lo_pagado_de_mas(): void
+    {
+        [$orden] = $this->ordenConTresCosas();   // vale $2,6 M
+        $orden->update(['estado' => 'entregado']);
+        $this->pagar($orden, 2600000);
+        $jefa = $this->jefa();
+
+        $this->actingAs($jefa)->postJson("/api/ordenes/{$orden->id}/devolver-plata",
+            ['monto' => 100000, 'metodo' => 'efectivo', 'motivo' => 'x x x'])->assertStatus(422);
+        $this->actingAs($jefa)->getJson('/api/saldos-a-favor')->assertOk()->assertJsonCount(0);
+    }
+
+    public function test_devolver_plata_es_de_supervisor(): void
+    {
+        [$orden] = $this->ordenConTresCosas();
+        $orden->update(['estado' => 'cancelado']);
+        $this->pagar($orden, 500000);
+        $otro = Usuario::create(['nombre' => 'Vendedor', 'email' => 'v2@d.com', 'password' => 'x',
+                                 'rol' => 'vendedor', 'created_at' => now()]);
+
+        $this->actingAs($otro)->postJson("/api/ordenes/{$orden->id}/devolver-plata",
+            ['monto' => 100000, 'metodo' => 'efectivo', 'motivo' => 'x x x'])->assertStatus(403);
+        $this->actingAs($otro)->getJson('/api/saldos-a-favor')->assertStatus(403);
+    }
 }

@@ -188,7 +188,7 @@ class QueFabricar
     /** Ítems de ventas reales del modelo (la base de las cuentas). */
     private static function itemsDeVenta(string $desde, string $hasta, ?int $tiendaId)
     {
-        return DB::table('orden_items as oi')
+        return \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', [$desde, $hasta])
@@ -309,7 +309,7 @@ class QueFabricar
      */
     private static function disenosRepetidos(string $desde, string $hasta, ?int $tiendaId): Collection
     {
-        return DB::table('orden_items as oi')
+        return \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', [$desde, $hasta])

@@ -43,9 +43,19 @@ class CancelacionDeOrden
         // había trabajo vivo, y es justo lo que hay que decirle.
         AvisoProduccion::ordenCancelada($orden, $usuario);
 
-        $produccionIds = Produccion::whereHas('ordenItem', fn ($q) => $q->where('orden_id', $orden->id))
+        $piezas = Produccion::with('ordenItem.producto:id,nombre')
+            ->whereHas('ordenItem', fn ($q) => $q->where('orden_id', $orden->id))
             ->whereNotIn('estado', ['cancelado', 'entregado'])
-            ->pluck('id');
+            ->get();
+        $produccionIds = $piezas->pluck('id');
+
+        // Lo que ya está hecho no desaparece al cancelar (usuario, 2026-11-17:
+        // "avisar y dejarlo anotado"). Un mueble a medida terminado se queda
+        // sin dueño en el taller, y un sofá de la tienda que se estaba
+        // retapizando vuelve a quedar libre en el inventario aunque está en la
+        // fábrica, con la tela a medio cambiar. Queda escrito en la orden y le
+        // llega a los supervisores para que decidan qué hacer con cada uno.
+        self::anotarLoQueQuedaHecho($orden, $usuario, $piezas);
 
         Produccion::whereIn('id', $produccionIds)->update(['estado' => 'cancelado']);
 
@@ -78,6 +88,42 @@ class CancelacionDeOrden
         return $corridas;
     }
 
+    /** @param \Illuminate\Support\Collection<int, Produccion> $piezas las vivas, antes de cancelarlas */
+    public static function anotarLoQueQuedaHecho(Orden $orden, Usuario $usuario, $piezas): void
+    {
+        $nombre = fn ($p) => $p->ordenItem?->nombre_custom ?: ($p->ordenItem?->producto?->nombre ?? 'Producto');
+
+        $terminadas = $piezas->filter(fn ($p) => $p->estado === 'listo' && ! $p->ordenItem?->retapizar)
+            ->map(fn ($p) => $nombre($p))->values();
+        $retapizando = $piezas->filter(fn ($p) => (bool) $p->ordenItem?->retapizar)
+            ->map(fn ($p) => $nombre($p) . ($p->estado === 'listo' ? ' (ya terminado)' : ''))->values();
+
+        if ($terminadas->isEmpty() && $retapizando->isEmpty()) return;
+
+        $partes = [];
+        if ($terminadas->isNotEmpty()) {
+            $partes[] = 'Quedó terminado en el taller y sin dueño: ' . $terminadas->implode(', ')
+                . '. Decidan si va a la Reserva, a una tienda o se vende aparte.';
+        }
+        if ($retapizando->isNotEmpty()) {
+            $partes[] = 'Estaba en la fábrica para cambiarle la tela: ' . $retapizando->implode(', ')
+                . '. En el inventario vuelve a salir libre en la tienda, pero está en la fábrica: traerlo o ajustar el inventario.';
+        }
+        $texto = '⚠️ Orden cancelada. ' . implode(' ', $partes);
+
+        \App\Models\OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+
+        foreach (Usuario::where('rol', 'supervisor')->where('activo', true)->where('id', '!=', $usuario->id)->get() as $sup) {
+            NotificacionService::crear(
+                'cancelado',
+                "Quedó algo hecho de una orden cancelada — {$orden->referencia}",
+                $texto,
+                ['orden_id' => $orden->id],
+                $sup->id,
+            );
+        }
+    }
+
     /**
      * Avisos de la cancelación: al vendedor, a quien cotizaba el costo y a
      * facturación si quedó plata recibida o una factura electrónica.
@@ -99,6 +145,17 @@ class CancelacionDeOrden
                 "Orden {$referencia} — {$cliente} fue cancelada",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
+            );
+        }
+        // En una venta compartida, el otro asesor también la tenía en su cuenta.
+        if ($orden->covendedor_id && (int) $orden->covendedor_id !== (int) $orden->vendedor_id
+            && (int) $orden->covendedor_id !== (int) $usuario->id) {
+            NotificacionService::crear(
+                'cancelado',
+                'Una orden compartida fue cancelada',
+                "Orden {$referencia} — {$cliente} fue cancelada",
+                ['orden_id' => $orden->id],
+                $orden->covendedor_id,
             );
         }
 

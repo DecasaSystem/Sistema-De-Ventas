@@ -410,7 +410,7 @@ class StatsController extends Controller
      */
     private function itemsVendidos(Request $request, array $f, $tiendaId, $vendedorId, bool $conClase = true)
     {
-        $q = DB::table('orden_items as oi')
+        $q = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
@@ -1593,7 +1593,7 @@ class StatsController extends Controller
         }
 
         // Top productos
-        $topBase = DB::table('orden_items as oi')
+        $topBase = \App\Models\OrdenItem::vivos(DB::table('orden_items as oi'))
             ->join('ordenes as o',   'o.id',  '=', 'oi.orden_id')
             ->join('productos as p', 'p.id',  '=', 'oi.producto_id')
             ->whereBetween('o.created_at', $rango)

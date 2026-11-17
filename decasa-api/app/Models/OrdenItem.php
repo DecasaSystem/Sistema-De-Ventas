@@ -462,6 +462,21 @@ class OrdenItem extends Model
         return $this->belongsTo(ProductoVarianteConfig::class, 'combo_config_id');
     }
 
+    /**
+     * Solo los renglones vivos en una consulta de "lo vendido" (`orden_items as oi`).
+     *
+     * Lo devuelto, cambiado o cancelado queda en la orden como rastro
+     * (`devuelto_en`): contarlo en "lo más vendido" sumaba el sofá que se
+     * cambió por una mesa como sofá vendido y mesa vendida (revisión
+     * 2026-11-17). El total de la orden ya no lo cuenta; el ranking tampoco.
+     */
+    public static function vivos($consulta, string $alias = 'oi')
+    {
+        return \App\Support\Esquema::columna('orden_items', 'devuelto_en')
+            ? $consulta->whereNull("{$alias}.devuelto_en")
+            : $consulta;
+    }
+
     /** ¿Sigue siendo parte de lo que el cliente va a recibir? */
     public function estaVivo(): bool
     {

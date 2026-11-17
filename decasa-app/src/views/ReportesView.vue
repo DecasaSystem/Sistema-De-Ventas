@@ -19,6 +19,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import DesglosePorTipo from '@/components/reportes/DesglosePorTipo.vue'
 import CarteraLista from '@/components/reportes/CarteraLista.vue'
+import SaldosAFavorLista from '@/components/reportes/SaldosAFavorLista.vue'
 import { formatPct } from '@/utils/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
@@ -1060,6 +1061,7 @@ onBeforeUnmount(() => {
       <!-- ══════ TAB: CARTERA ══════ -->
       <!-- La tienda elegida arriba manda: la lista y el Excel salen de ella. -->
       <div v-show="tabActivo === 'cartera'">
+        <SaldosAFavorLista v-if="auth.isSupervisor || auth.isFacturador" :tienda-id="tiendaFiltro" />
         <CarteraLista :ordenes="cartera" :tienda-id="tiendaFiltro" />
       </div>
 

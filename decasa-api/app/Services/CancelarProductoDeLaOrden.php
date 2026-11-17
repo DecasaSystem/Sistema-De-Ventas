@@ -166,8 +166,14 @@ class CancelarProductoDeLaOrden
         $mover = function ($fila) use ($n) {
             if ($fila) $fila->update(['cantidad_reservada' => max((int) $fila->cantidad_reservada + $n, 0)]);
         };
+        // Lo mismo que apartó la venta: variante y combinación (tela × medida).
+        // Sin la combinación, quedaba apartada para siempre (revisión 2026-11-17).
         if ($item->variante_id) {
             $mover(InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)->first());
+            if ($item->combo_config_id) {
+                $mover(\App\Models\InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                    ->where('config_id', $item->combo_config_id)->where('tienda_id', $tiendaId)->first());
+            }
         }
         $mover(Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)->first());
 

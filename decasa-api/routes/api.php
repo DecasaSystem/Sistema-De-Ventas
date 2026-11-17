@@ -481,6 +481,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // El cliente devuelve algo ya entregado y lo cambia por otra cosa: la
     // orden se reabre y el producto nuevo se agrega con la edición normal.
     Route::post('/ordenes/{id}/cambiar-producto',       [OrdenController::class, 'cambiarProducto'])->whereNumber('id');
+    // La plata que el cliente tiene pagada de más: devolvérsela (supervisor)
+    // y la lista de órdenes con saldo a favor (supervisor o facturación).
+    Route::post('/ordenes/{id}/devolver-plata',         [\App\Http\Controllers\SaldoAFavorController::class, 'devolver'])->whereNumber('id');
+    Route::get('/saldos-a-favor',                       [\App\Http\Controllers\SaldoAFavorController::class, 'index']);
     // Se vendió la medida sin escoger tela: aquí se escoge después.
     Route::post('/ordenes/{id}/items/{itemId}/definir-tela', [OrdenController::class, 'definirTela'])->whereNumber(['id', 'itemId']);
     // Acta de satisfacción firmada por quien recibió la entrega

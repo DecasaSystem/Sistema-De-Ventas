@@ -1567,6 +1567,8 @@ class OrdenController extends Controller
 
         $orden->total_pagado    = $orden->totalPagado();
         $orden->saldo_pendiente = $orden->saldoPendiente();
+        // Lo que se le puede devolver (en una cancelada, todo lo pagado).
+        $orden->saldo_a_favor   = $orden->saldoAFavor();
         $orden->atrasado        = !in_array($orden->estado, ['entregado', 'cancelado', 'devuelto']) &&
             $orden->items->some(fn($item) =>
                 $item->fecha_entrega_prom &&
@@ -3738,6 +3740,15 @@ class OrdenController extends Controller
             ], 422);
         }
 
+        // Ya se le entregó algo: no se cancela la venta entera, se cancela lo
+        // que falta (usuario, 2026-11-17). Antes se cancelaba todo con la mesa
+        // en la casa del cliente: dejaba de contar como venta, se borraba la
+        // comisión y se soltaba de más el apartado (el de la mesa que ya había
+        // salido): la tarjeta quedaba con apartadas −1.
+        if ($estadoNuevo === 'cancelado' && self::tieneAlgoEntregado($orden)) {
+            return $this->cancelarLoQueFalta($orden, $usuario);
+        }
+
         // "Se lo llevó de la tienda": es una entrega como cualquier otra —de
         // mostrador, sin acta— y pasa por la misma puerta que el conductor.
         // Solo cabe cuando todo lo que falta se puede entregar hoy; si hay
@@ -3952,16 +3963,140 @@ class OrdenController extends Controller
         return response()->json($ordenFresh);
     }
 
+    /** ¿El cliente ya tiene en la casa algo de esta orden? */
+    private static function tieneAlgoEntregado(Orden $orden): bool
+    {
+        // Algunas pruebas montan la orden sin renglones.
+        if (! \App\Support\Esquema::tabla('orden_items')) return false;
+        $orden->loadMissing('items');
+
+        return $orden->items->contains(fn (OrdenItem $i) => $i->estaVivo() && (int) $i->cantidad_entregada > 0);
+    }
+
+    /**
+     * Cancelar una orden que ya entregó algo: lo que falta sale de la orden
+     * (deja de cobrarse, se suelta lo apartado, el taller deja de hacerlo) y
+     * la orden queda ENTREGADA con lo que el cliente ya tiene. La venta y la
+     * comisión siguen con eso. Lo pagado de más queda a favor (se devuelve con
+     * "Devolver plata").
+     *
+     * La numeración no se corre: la orden sigue siendo una venta.
+     */
+    private function cancelarLoQueFalta(Orden $orden, Usuario $usuario)
+    {
+        if ($orden->tieneDespachoActivo()) {
+            return response()->json(['message' => 'Esta orden va en una entrega: espera a que termine para cancelar lo que falta.'], 422);
+        }
+
+        $quitados = [];
+        DB::transaction(function () use ($orden, $usuario, &$quitados) {
+            $orden = Orden::with('items.produccion', 'items.producto:id,nombre')->lockForUpdate()->findOrFail($orden->id);
+            $teniaApartado = ! in_array($orden->estado, Orden::ESTADOS_SIN_RESERVA, true);
+
+            // Avisar al taller antes de cancelarle las piezas (después ya no se ve).
+            \App\Services\AvisoProduccion::ordenCancelada($orden, $usuario);
+            // Y dejar anotado lo que ya está hecho de lo que sale (pieza
+            // terminada, sofá en la fábrica para retapizar).
+            $idsQueSalen = $orden->items->filter(fn ($i) => $i->pendienteEntregar() > 0)->pluck('id');
+            \App\Services\CancelacionDeOrden::anotarLoQueQuedaHecho($orden, $usuario,
+                Produccion::with('ordenItem.producto:id,nombre')->whereIn('orden_item_id', $idsQueSalen)
+                    ->whereNotIn('estado', ['cancelado', 'entregado'])->get());
+
+            foreach ($orden->items as $item) {
+                $n = $item->pendienteEntregar();
+                if ($n <= 0) continue;
+
+                if ($teniaApartado && ! $item->es_personalizado && ! $item->producto_unico && $item->producto_id) {
+                    self::soltarApartadoItem($orden, $item, $usuario, "Cancelado lo que faltaba de la orden #{$orden->id}", $n);
+                }
+
+                // Lo que se fabricaba para lo que falta ya no se hace.
+                $ids = Produccion::where('orden_item_id', $item->id)
+                    ->whereNotIn('estado', ['cancelado', 'entregado'])->pluck('id');
+                Produccion::whereIn('id', $ids)->update(['estado' => 'cancelado']);
+                \App\Models\ProduccionPaso::whereIn('produccion_id', $ids)
+                    ->whereIn('estado', ['pendiente', 'en_proceso'])->update(['estado' => 'cancelado']);
+
+                if ((int) $item->cantidad_entregada > 0) {
+                    $item->update(['cantidad' => (int) $item->cantidad_entregada]);
+                } else {
+                    $item->update(['devuelto_en' => \App\Services\RangoFechas::hoyTexto(), 'motivo_devolucion' => 'Cancelado: el cliente ya no lo quiere']);
+                }
+                $quitados[] = "{$n} × " . ($item->nombre_custom ?: ($item->producto?->nombre ?? 'Producto'));
+            }
+
+            ConsumoTelas::liberarOrden($orden);
+
+            $orden->refresh();
+            $estadoAntes = $orden->estado;
+            $orden->recalcularTotal();
+            ComisionController::sincronizarValorOrden($orden->fresh());
+            $orden->update(['estado' => 'entregado']);
+
+            \App\Models\OrdenEdicion::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => [[
+                    'campo' => 'estado', 'label' => 'Se canceló lo que faltaba',
+                    'antes' => $estadoAntes, 'despues' => 'entregado — ' . implode(', ', $quitados),
+                ]],
+            ]);
+        });
+
+        $ordenFresh = $orden->fresh(['items.producto:id,nombre', 'items.produccion', 'pagos', 'cliente:id,nombre', 'tienda:id,nombre']);
+        $saldo      = $ordenFresh->saldoPendiente();
+        $texto      = 'Se canceló lo que faltaba (' . implode(', ', $quitados) . '). La orden queda entregada con lo que el cliente ya tiene'
+                    . ($saldo < -0.5 ? '. Le quedan $' . number_format(-$saldo, 0, ',', '.') . ' a favor' : '') . '.';
+
+        OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+
+        if ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $usuario->id) {
+            NotificacionService::crear('orden_editada', 'Se canceló lo que faltaba de tu orden',
+                "Orden {$orden->referencia} — {$ordenFresh->cliente?->nombre}: {$texto}", ['orden_id' => $orden->id], $orden->vendedor_id);
+        }
+        if ($saldo < -0.5) {
+            \App\Services\AvisoFacturacion::saldoAFavor($ordenFresh, $usuario, -$saldo, 'Se canceló lo que faltaba');
+        }
+
+        event(new OrdenActualizada($orden->id, (int) $orden->tienda_id, 'entregado', $ordenFresh->cliente?->nombre ?? ''));
+        foreach ($ordenFresh->items->where('es_personalizado', false) as $item) {
+            if ($item->producto_id) {
+                event(new InventarioActualizado((int) ($item->tienda_origen_id ?? $orden->tienda_id), (int) $item->producto_id, 'liberacion'));
+            }
+        }
+
+        $ordenFresh->cancelado_lo_que_faltaba = true;
+        $ordenFresh->mensaje = $texto;
+
+        return response()->json($ordenFresh);
+    }
+
     /**
      * GET /api/ordenes/{id}/anulacion
      * Qué pasaría al cancelar esta orden corriendo las siguientes: cuáles
      * bajan de número y cuántas ya se entregaron. Solo mira, no toca nada.
+     *
+     * Si ya se le entregó algo, cancelar no anula la venta: cancela lo que
+     * falta (`lo_que_falta` dice qué sale y qué se queda).
      */
     public function previsualizarAnulacion(Request $request, int $id)
     {
         $orden = $this->ordenParaNumeracion($request, $id);
+        $r     = \App\Services\NumeracionOrdenes::previsualizarAnulacion($orden);
 
-        return response()->json(\App\Services\NumeracionOrdenes::previsualizarAnulacion($orden));
+        if (self::tieneAlgoEntregado($orden)) {
+            $nombre = fn (OrdenItem $i) => $i->nombre_custom ?: ($i->producto?->nombre ?? 'Producto');
+            $orden->loadMissing('items.producto:id,nombre');
+            $vivos  = $orden->items->filter->estaVivo();
+            $r['lo_que_falta'] = [
+                'sale'     => $vivos->filter(fn ($i) => $i->pendienteEntregar() > 0)
+                    ->map(fn ($i) => ['nombre' => $nombre($i), 'cantidad' => $i->pendienteEntregar()])->values()->all(),
+                'se_queda' => $vivos->filter(fn ($i) => (int) $i->cantidad_entregada > 0)
+                    ->map(fn ($i) => ['nombre' => $nombre($i), 'cantidad' => (int) $i->cantidad_entregada])->values()->all(),
+            ];
+        }
+
+        return response()->json($r);
     }
 
     /**
