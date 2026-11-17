@@ -216,7 +216,7 @@ class EntregaPorProductoTest extends TestCase
         if ($lineas !== null) $campos['lineas'] = json_encode($lineas);
 
         $archivos = ['foto_producto' => UploadedFile::fake()->image('p.jpg')];
-        if (($campos['monto'] ?? 0) > 0) $archivos['foto_pago'] = UploadedFile::fake()->image('c.jpg');
+        if (($campos['monto'] ?? 0) > 0 || isset($campos['pagos'])) $archivos['foto_pago'] = UploadedFile::fake()->image('c.jpg');
 
         $pagoResp = $this->actingAs($quien)->post("/api/despacho/mis-entregas/{$entregaId}/pago", $campos + $archivos, ['Accept' => 'application/json']);
         if ($pagoResp->status() !== 200) return $pagoResp;
@@ -452,6 +452,138 @@ class EntregaPorProductoTest extends TestCase
         $pago = $orden->pagos()->first();
         $this->assertSame('abono', $pago->tipo);
         $this->assertSame(['https://foto/x.jpg'], $pago->comprobante_fotos);
+    }
+
+    // ── Varias formas de pago al entregar ────────────────────────────────────
+
+    /** La orden del reloj y el comedor con el comedor ya terminado: la próxima es la última. */
+    private function ordenLista(Usuario $v): Orden
+    {
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: true);
+        Produccion::query()->update(['estado' => 'listo']);
+        $orden->update(['estado' => 'listo_entrega']);
+        return $orden;
+    }
+
+    public function test_el_saldo_se_paga_mitad_con_tarjeta_y_mitad_en_efectivo(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 1600000, 'metodo' => 'tarjeta', 'referencia' => 'voucher 123'],
+            ['monto' => 1600000, 'metodo' => 'efectivo'],
+        ])])->assertOk();
+
+        $orden->refresh();
+        $this->assertSame('entregado', $orden->estado);
+        $pagos = $orden->pagos()->orderBy('id')->get();
+        $this->assertSame(['tarjeta', 'efectivo'], $pagos->pluck('metodo')->all());
+        $this->assertSame(['saldo_final', 'saldo_final'], $pagos->pluck('tipo')->all());
+        $this->assertSame('voucher 123', $pagos[0]->referencia);
+        $this->assertTrue($pagos->every(fn ($p) => $p->despacho_item_id !== null), 'los dos quedan atados a la entrega');
+        $this->assertEqualsWithDelta(0, $orden->saldoPendiente(), 0.01);
+
+        // Comisiones le resta la franquicia solo a lo de tarjeta.
+        $this->assertEquals(1600000, $orden->pagadoConTarjeta());
+    }
+
+    /** Entrega con un pago partido y los comprobantes que se le digan, sin agregar nada más. */
+    private function entregarConComprobantes(Usuario $v, Orden $orden, array $pagos, array $comprobantes)
+    {
+        $entregaId = $this->actingAs($v)->postJson('/api/despacho/entrega-directa', ['orden_id' => $orden->id])
+            ->assertStatus(201)->json('despacho_item_id');
+
+        return $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba',
+            'pagos'  => json_encode($pagos),
+            'monto'  => array_sum(array_column($pagos, 'monto')),
+            'metodo' => 'varios',
+            'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+            'fotos_pago_por_pago' => $comprobantes,
+        ], ['Accept' => 'application/json']);
+    }
+
+    public function test_cada_pago_lleva_su_propio_comprobante(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+        $pagos = [['monto' => 1600000, 'metodo' => 'tarjeta'], ['monto' => 1600000, 'metodo' => 'transferencia']];
+
+        // Solo el voucher de la tarjeta: falta el de la transferencia.
+        $this->entregarConComprobantes($v, $orden, $pagos, [0 => [UploadedFile::fake()->image('voucher.jpg')]])
+            ->assertStatus(422)->assertJsonFragment(['message' => 'Falta el comprobante de: transferencia $1.600.000.']);
+        $this->assertSame(0, $orden->pagos()->count());
+
+        $this->entregarConComprobantes($v, $orden, $pagos, [
+            0 => [UploadedFile::fake()->image('voucher.jpg')],
+            1 => [UploadedFile::fake()->image('pantallazo1.jpg'), UploadedFile::fake()->image('pantallazo2.jpg')],
+        ])->assertOk();
+
+        $pagosGuardados = $orden->pagos()->orderBy('id')->get();
+        $this->assertCount(1, $pagosGuardados[0]->comprobante_fotos);
+        $this->assertCount(2, $pagosGuardados[1]->comprobante_fotos);
+        $this->assertNotNull($pagosGuardados[1]->comprobante_url);
+    }
+
+    public function test_varios_pagos_no_pueden_pasar_del_saldo(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 3000000, 'metodo' => 'tarjeta'],
+            ['monto' => 1000000, 'metodo' => 'efectivo'],
+        ])])->assertStatus(422);
+
+        $this->assertSame(0, $orden->pagos()->count());
+    }
+
+    public function test_en_la_ultima_entrega_la_lista_vacia_no_sirve(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 0, 'metodo' => 'efectivo'],
+        ])])->assertStatus(422);
+    }
+
+    public function test_una_parte_con_tarjeta_quita_el_descuento_y_exige_el_total_sin_el(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+        // 5 % por pagar en efectivo o transferencia: $3.200.000 → $3.040.000.
+        $orden->update(['valor_total' => 3040000, 'descuento_condicionado' => 160000, 'descuento_condicionado_pct' => 5]);
+
+        // Con la mitad en tarjeta el descuento se cae: cobrar $3.040.000 no alcanza.
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 1520000, 'metodo' => 'tarjeta'],
+            ['monto' => 1520000, 'metodo' => 'efectivo'],
+        ])])->assertStatus(422)->assertJsonPath('descuento_condicionado.saldo_sin_descuento', 3200000);
+
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 1600000, 'metodo' => 'tarjeta'],
+            ['monto' => 1600000, 'metodo' => 'efectivo'],
+        ])])->assertOk();
+
+        $orden->refresh();
+        $this->assertEquals(3200000, (float) $orden->valor_total);
+        $this->assertSame('entregado', $orden->estado);
+    }
+
+    public function test_todo_en_efectivo_y_transferencia_conserva_el_descuento(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+        $orden->update(['valor_total' => 3040000, 'descuento_condicionado' => 160000, 'descuento_condicionado_pct' => 5]);
+
+        $this->entregar($v, $orden, null, ['pagos' => json_encode([
+            ['monto' => 1040000, 'metodo' => 'transferencia'],
+            ['monto' => 2000000, 'metodo' => 'efectivo'],
+        ])])->assertOk();
+
+        $this->assertEquals(3040000, (float) $orden->fresh()->valor_total);
     }
 
     public function test_de_dos_relojes_se_puede_llevar_uno(): void

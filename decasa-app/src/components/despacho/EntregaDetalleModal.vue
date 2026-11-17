@@ -115,10 +115,38 @@ const seExigePago = computed(() => tieneSaldo.value && esLaUltimaEntrega.value &
 const quiereAbonar = ref(false)
 const traePago = computed(() => seExigePago.value || (esParcial.value && quiereAbonar.value))
 
-// Formulario de pago
-const monto      = ref(0)
-const metodo     = ref('efectivo')
-const referencia = ref('')
+// Formulario de pago: uno o varios medios. Debe $1.000.000 y paga $500.000
+// con tarjeta y $500.000 en efectivo: dos renglones, y el servidor guarda un
+// pago por cada uno (así comisiones le resta la franquicia solo a lo de
+// tarjeta, igual que con el anticipo partido de Nueva orden).
+const MAX_PAGOS = 4
+const pagos = ref([{ metodo: 'efectivo', monto: 0, referencia: '', fotos: [] }])
+const esPartido = computed(() => pagos.value.length > 1)
+const montoTotal = computed(() => pagos.value.reduce((s, p) => s + (Number(p.monto) || 0), 0))
+// El primer renglón sigue siendo "el" pago cuando hay uno solo.
+const metodo = computed(() => pagos.value[0].metodo)
+
+const METODOS_OPTS = [
+  { v: 'efectivo', t: 'Efectivo' }, { v: 'transferencia', t: 'Transferencia' },
+  { v: 'tarjeta', t: 'Tarjeta' }, { v: 'addi', t: 'Addi' }, { v: 'otro', t: 'Otro' },
+]
+
+function agregarPago() {
+  if (pagos.value.length >= MAX_PAGOS) return
+  // El siguiente medio que no se esté usando: tarjeta + efectivo es lo normal.
+  const usados = pagos.value.map(p => p.metodo)
+  const libre = ['efectivo', 'tarjeta', 'transferencia', 'addi', 'otro'].find(m => !usados.includes(m)) ?? 'efectivo'
+  // En una parcial el nuevo renglón arranca en 0; en la última se llena solo
+  // con lo que falta (ver el watch de abajo).
+  pagos.value.push({ metodo: libre, monto: 0, referencia: '', fotos: [] })
+}
+
+function quitarPago(i) {
+  if (pagos.value.length <= 1) return
+  const [quitado] = pagos.value.splice(i, 1)
+  quitado?.fotos?.forEach(f => f.preview && URL.revokeObjectURL(f.preview))
+  if (esLaUltimaEntrega.value && pagos.value.length === 1) pagos.value[0].monto = montoACobrar.value
+}
 const fotoAnexo           = ref(null)
 const fotoAnexoPreview    = ref(null)
 
@@ -200,8 +228,11 @@ function quitarFotoDeProducto(oi, i) {
 }
 // Varias fotos del comprobante: dos transferencias, o el pantallazo que no
 // cabe en una sola captura.
-const fotosPago           = ref([])   // [{ blob, preview }]
-const fotoPagoPreview     = computed(() => fotosPago.value[0]?.preview ?? null)
+// Cada forma de pago trae su comprobante (`pagos[i].fotos`): el voucher con
+// la tarjeta, el pantallazo con la transferencia. Esto es la lista junta.
+const fotosPago           = computed(() => pagos.value.flatMap(p => p.fotos))
+// Los renglones con plata que todavía no tienen comprobante.
+const pagosSinComprobante = computed(() => pagos.value.filter(p => Number(p.monto) > 0 && !p.fotos.length))
 
 // ── Acta de satisfacción ─────────────────────────────────────────────────────
 // Quien recibe firma que el producto llegó y en qué estado. No siempre es el
@@ -333,9 +364,11 @@ async function onFotoDevolucion(e) {
 // y el monto a cobrar sube: se fija y no se puede bajar.
 const descuentoCond = computed(() => item.value?.descuento_condicionado ?? null)
 
+// Con varios medios basta con que uno sea tarjeta/Addi/otro: el descuento era
+// por pagar todo en efectivo o transferencia (misma regla que el servidor).
 const pierdeDescuento = computed(() => {
   if (!descuentoCond.value) return false
-  return !descuentoCond.value.metodos_que_lo_conservan.includes(metodo.value)
+  return pagos.value.some(p => !descuentoCond.value.metodos_que_lo_conservan.includes(p.metodo))
 })
 
 const montoACobrar = computed(() =>
@@ -347,10 +380,27 @@ const montoACobrar = computed(() =>
 // Al cambiar el método el monto se recalcula solo: con tarjeta queda bloqueado
 // en el total sin descuento para que no se cobre de menos. En una entrega
 // parcial el monto es un abono libre: se deja como lo escriba quien cobra.
-watch([metodo, descuentoCond, esLaUltimaEntrega], () => {
-  if (esEntregado.value) return
-  if (esLaUltimaEntrega.value) monto.value = montoACobrar.value
+const metodosClave = computed(() => pagos.value.map(p => p.metodo).join(','))
+watch([metodosClave, descuentoCond, esLaUltimaEntrega], () => {
+  if (esEntregado.value || !esLaUltimaEntrega.value) return
+  if (!esPartido.value) pagos.value[0].monto = montoACobrar.value
 })
+
+// Partido en la última entrega: el último renglón es lo que falta, para que
+// entre todos den justo el saldo. Quien cobra escribe los demás.
+const restoDelUltimo = computed(() => {
+  const otros = pagos.value.slice(0, -1).reduce((s, p) => s + (Number(p.monto) || 0), 0)
+  return Math.max(0, Math.round((montoACobrar.value - otros) * 100) / 100)
+})
+const ultimoEsResto = computed(() => esPartido.value && esLaUltimaEntrega.value)
+watch([restoDelUltimo, ultimoEsResto], () => {
+  if (esEntregado.value || !ultimoEsResto.value) return
+  pagos.value[pagos.value.length - 1].monto = restoDelUltimo.value
+}, { immediate: true })
+
+// Lo escrito pasa de lo que debe (en una parcial, o si los primeros renglones
+// ya suman más que el saldo).
+const cobraDeMas = computed(() => montoTotal.value > montoACobrar.value + 0.01)
 
 const puedeEntregar = computed(() => {
   if (!hayAlgoQueEntregar.value) return false
@@ -360,7 +410,7 @@ const puedeEntregar = computed(() => {
   // Si vuelve todo, no se le cobra nada: no se le puede pedir al conductor un
   // comprobante de un pago que no existe.
   if (devuelveTodo.value) return true
-  if (traePago.value) return !!fotoPagoPreview.value && monto.value > 0
+  if (traePago.value) return !pagosSinComprobante.value.length && montoTotal.value > 0 && !cobraDeMas.value
   return true  // sin saldo, o entrega parcial sin abono: foto y acta bastan
 })
 
@@ -376,8 +426,13 @@ const mensajeBoton = computed(() => {
     if (motivoDevolucion.value.trim().length < 3) return 'Escribe por qué se devuelve'
   }
   if (traePago.value && !devuelveTodo.value) {
-    if (!fotoPagoPreview.value) return 'Sube la foto del comprobante de pago'
-    if (!(monto.value > 0))     return 'Ingresa el monto cobrado'
+    if (pagosSinComprobante.value.length) {
+      return esPartido.value
+        ? `Falta el comprobante del pago ${pagos.value.indexOf(pagosSinComprobante.value[0]) + 1} (${METODO_LABEL[pagosSinComprobante.value[0].metodo]})`
+        : 'Sube la foto del comprobante de pago'
+    }
+    if (!(montoTotal.value > 0)) return 'Ingresa el monto cobrado'
+    if (cobraDeMas.value)        return 'Lo cobrado pasa de lo que debe el cliente'
   }
   if (noHayQuienFirme.value && !motivoSinFirma.value.trim()) return 'Explica por qué nadie pudo firmar'
   if (!noHayQuienFirme.value) {
@@ -428,7 +483,7 @@ async function cargar(id) {
       llevar.value = Object.keys(marcado).length ? marcado : Object.fromEntries(
         (data.orden?.items ?? []).filter(oi => oi.entregable && (oi.pendiente_entregar ?? 0) > 0).map(oi => [oi.id, oi.pendiente_entregar])
       )
-      monto.value = data.orden?.saldo_pendiente || 0
+      pagos.value = [{ metodo: 'efectivo', monto: data.orden?.saldo_pendiente || 0, referencia: '', fotos: [] }]
       // Se precarga el cliente: en la mayoría de entregas recibe él mismo, y si
       // no, el conductor lo cambia por quien esté firmando.
       recibidoNombre.value = data.orden?.cliente?.nombre ?? ''
@@ -447,19 +502,19 @@ function _createPreviewUrl(blob) {
 }
 onUnmounted(() => _blobUrls.forEach(u => URL.revokeObjectURL(u)))
 
-async function agregarFotosPago(archivos) {
-  const nuevas = await prepararFotos('pago', archivos, 6 - fotosPago.value.length, { aceptaPdf: true })
-  fotosPago.value.push(...nuevas)
+async function agregarFotosPago(p, archivos) {
+  const nuevas = await prepararFotos(`pago-${pagos.value.indexOf(p)}`, archivos, 6 - p.fotos.length, { aceptaPdf: true })
+  p.fotos.push(...nuevas)
 }
 
-async function onFotoPago(e) {
+async function onFotoPago(p, e) {
   const archivos = Array.from(e.target.files ?? [])
   e.target.value = ''
-  await agregarFotosPago(archivos)
+  await agregarFotosPago(p, archivos)
 }
 
-function quitarFotoPago(i) {
-  const [quitada] = fotosPago.value.splice(i, 1)
+function quitarFotoPago(p, i) {
+  const [quitada] = p.fotos.splice(i, 1)
   if (quitada?.preview) URL.revokeObjectURL(quitada.preview)
 }
 
@@ -544,11 +599,28 @@ async function guardarPagoYEntregar() {
       if (fotoDevolucion.value) fd.append('foto_devolucion', fotoDevolucion.value, 'foto_devolucion.jpg')
     }
 
-    if (traePago.value && !devuelveTodo.value && monto.value > 0) {
-      fd.append('monto', monto.value)
-      fd.append('metodo', metodo.value)
-      if (referencia.value) fd.append('referencia', referencia.value)
-      fotosPago.value.forEach((f, i) => fd.append('fotos_pago[]', f.blob, `foto_pago_${i + 1}.${esPdf(f.blob) ? 'pdf' : 'jpg'}`))
+    if (traePago.value && !devuelveTodo.value && montoTotal.value > 0) {
+      if (esPartido.value) {
+        // Un pago por medio. `metodo=varios` hace que un servidor viejo lo
+        // rechace en vez de guardarlo todo con un solo medio.
+        fd.append('pagos', JSON.stringify(
+          pagos.value.filter(p => Number(p.monto) > 0).map(p => ({
+            monto: Number(p.monto), metodo: p.metodo, referencia: p.referencia?.trim() || undefined,
+          }))
+        ))
+        fd.append('monto', montoTotal.value)
+        fd.append('metodo', 'varios')
+        // Los comprobantes de cada pago, con el renglón que se mandó arriba.
+        pagos.value.filter(p => Number(p.monto) > 0).forEach((p, k) => {
+          p.fotos.forEach((f, i) => fd.append(`fotos_pago_por_pago[${k}][]`, f.blob, `pago${k + 1}_${i + 1}.${esPdf(f.blob) ? 'pdf' : 'jpg'}`))
+        })
+      } else {
+        const [p] = pagos.value
+        fd.append('monto', p.monto)
+        fd.append('metodo', p.metodo)
+        if (p.referencia) fd.append('referencia', p.referencia)
+        p.fotos.forEach((f, i) => fd.append('fotos_pago[]', f.blob, `foto_pago_${i + 1}.${esPdf(f.blob) ? 'pdf' : 'jpg'}`))
+      }
     } else {
       fd.append('monto', '0')
     }
@@ -771,7 +843,7 @@ async function guardarPagoYEntregar() {
           <!-- ── MODO LECTURA (entregado) ─────────────────────────────────── -->
           <template v-if="esEntregado">
             <div v-if="item.orden?.pagos?.length" class="space-y-2">
-              <h4 class="text-sm font-semibold text-gray-700">Pago registrado</h4>
+              <h4 class="text-sm font-semibold text-gray-700">{{ item.orden.pagos.length > 1 ? 'Pagos registrados' : 'Pago registrado' }}</h4>
               <div
                 v-for="pago in item.orden.pagos"
                 :key="pago.id"
@@ -908,16 +980,103 @@ async function guardarPagoYEntregar() {
                   </label>
                 </template>
                 <div v-if="traePago" class="space-y-3">
-                  <div>
-                    <label for="ent-metodo" class="campo-label">Método de pago</label>
-                    <select id="ent-metodo" v-model="metodo" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                      <option value="efectivo">Efectivo</option>
-                      <option value="transferencia">Transferencia</option>
-                      <option value="tarjeta">Tarjeta</option>
-                      <option value="addi">Addi</option>
-                      <option value="otro">Otro</option>
-                    </select>
+                  <!-- Uno o varios medios: cada renglón es un pago aparte -->
+                  <div
+                    v-for="(p, i) in pagos" :key="i"
+                    :class="esPartido ? 'rounded-xl border border-gray-200 p-3 space-y-3' : 'space-y-3'"
+                  >
+                    <div v-if="esPartido" class="flex items-center justify-between">
+                      <p class="text-xs font-semibold text-gray-600">Pago {{ i + 1 }}</p>
+                      <button
+                        type="button" @click="quitarPago(i)"
+                        class="min-h-9 px-2 text-xs font-semibold text-red-600 rounded-lg hover:bg-red-50"
+                      >Quitar</button>
+                    </div>
+                    <div>
+                      <label :for="`ent-metodo-${i}`" class="campo-label">Método de pago</label>
+                      <select :id="`ent-metodo-${i}`" v-model="p.metodo" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        <option v-for="m in METODOS_OPTS" :key="m.v" :value="m.v">{{ m.t }}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label :for="`ent-monto-${i}`" class="campo-label">
+                        {{ esPartido ? 'Monto' : 'Monto cobrado' }}
+                        <span v-if="ultimoEsResto && i === pagos.length - 1" class="font-normal text-gray-500">· lo que falta</span>
+                      </label>
+                      <InputPesos
+                        :id="`ent-monto-${i}`" v-model="p.monto"
+                        :disabled="(!esPartido && pierdeDescuento) || (ultimoEsResto && i === pagos.length - 1)"
+                        :class="['w-full border rounded-lg px-3 py-2.5 text-base outline-none',
+                          (!esPartido && pierdeDescuento)
+                            ? 'border-amber-300 bg-amber-50 font-bold text-amber-900 cursor-not-allowed'
+                            : (ultimoEsResto && i === pagos.length - 1)
+                              ? 'border-gray-200 bg-gray-50 font-semibold text-gray-800 cursor-not-allowed'
+                              : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500']"
+                      />
+                      <p v-if="!esPartido && pierdeDescuento" class="text-xs text-amber-700 mt-1">
+                        No se puede cobrar menos: el descuento no aplica con este medio de pago.
+                      </p>
+                    </div>
+                    <div>
+                      <label :for="`ent-referencia-${i}`" class="campo-label">Referencia (opcional)</label>
+                      <input :id="`ent-referencia-${i}`" v-model="p.referencia" autocomplete="off" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                    </div>
+
+                    <!-- El comprobante de ESTE pago: una o varias fotos o PDF; también arrastradas -->
+                    <div
+                      @dragover.prevent="arrastrando = `pago-${i}`"
+                      @dragleave.self="arrastrando = null"
+                      @drop.prevent="alSoltar($event, a => agregarFotosPago(p, a))"
+                      :class="['rounded-xl transition-colors', arrastrando === `pago-${i}` ? 'ring-2 ring-blue-300 bg-blue-50 p-2 -m-2' : '']"
+                    >
+                      <p class="campo-label">
+                        {{ esPartido ? `Comprobante de ${METODO_LABEL[p.metodo]?.toLowerCase() ?? 'este pago'}` : 'Foto del comprobante' }}
+                        <span class="font-normal text-gray-500">· puedes subir varias</span>
+                      </p>
+                      <p v-if="procesando[`pago-${i}`]" class="flex items-center justify-center gap-2 min-h-12 text-sm text-blue-700" aria-live="polite">
+                        <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
+                        Procesando foto…
+                      </p>
+                      <label
+                        v-else-if="!p.fotos.length"
+                        class="relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
+                      >
+                        <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago(p, $event)" />
+                        <CameraIcon class="w-5 h-5" aria-hidden="true" />
+                        <span>Foto, pantallazo o PDF del comprobante <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
+                      </label>
+                      <div v-else class="grid grid-cols-3 gap-2">
+                        <div v-for="(f, j) in p.fotos" :key="f.preview" class="relative aspect-square">
+                          <TarjetaPdf v-if="esPdf(f.blob)" :href="f.preview" :nombre="`Comprobante ${j + 1}`" compacta class="!h-full !px-1" />
+                          <img v-else :src="f.preview" :alt="`Comprobante ${j + 1}`" class="w-full h-full object-cover rounded-lg border border-gray-200" />
+                          <button type="button" @click="quitarFotoPago(p, j)"
+                            class="absolute top-1 right-1 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white"
+                            :aria-label="`Quitar comprobante ${j + 1}`"><XMarkIcon class="w-4 h-4" aria-hidden="true" /></button>
+                        </div>
+                        <label
+                          v-if="p.fotos.length < 6"
+                          class="relative aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
+                        >
+                          <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago(p, $event)" />
+                          <CameraIcon class="w-6 h-6" aria-hidden="true" />
+                          Agregar
+                        </label>
+                      </div>
+                    </div>
                   </div>
+
+                  <button
+                    v-if="pagos.length < MAX_PAGOS"
+                    type="button" @click="agregarPago"
+                    class="w-full min-h-11 rounded-xl border-2 border-dashed border-blue-300 text-blue-700 text-sm font-semibold hover:bg-blue-50"
+                  >+ Agregar otra forma de pago</button>
+
+                  <!-- Partido: cuánto suma y cuánto se le cobra -->
+                  <div v-if="esPartido" :class="['rounded-lg px-3 py-2 text-sm flex items-center justify-between', cobraDeMas ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700']">
+                    <span>Total cobrado</span>
+                    <span class="font-bold"><MoneyDisplay :amount="montoTotal" /> <span class="font-normal text-xs">de <MoneyDisplay :amount="montoACobrar" /></span></span>
+                  </div>
+                  <p v-if="cobraDeMas" class="text-xs text-red-700">Lo cobrado pasa de lo que debe el cliente: baja algún monto.</p>
 
                   <!-- El descuento no aplica con este medio de pago -->
                   <div v-if="pierdeDescuento" class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 space-y-2">
@@ -937,66 +1096,6 @@ async function guardarPagoYEntregar() {
                       Muéstrale esta nota al cliente si pregunta por qué cambió el valor.
                       Si prefiere pagar en efectivo o transferencia, conserva el descuento.
                     </p>
-                  </div>
-
-                  <div>
-                    <label for="ent-monto" class="campo-label">Monto cobrado</label>
-                    <InputPesos
-                      id="ent-monto" v-model="monto"
-                      :disabled="pierdeDescuento"
-                      :class="['w-full border rounded-lg px-3 py-2.5 text-base outline-none',
-                        pierdeDescuento
-                          ? 'border-amber-300 bg-amber-50 font-bold text-amber-900 cursor-not-allowed'
-                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500']"
-                    />
-                    <p v-if="pierdeDescuento" class="text-xs text-amber-700 mt-1">
-                      No se puede cobrar menos: el descuento no aplica con este medio de pago.
-                    </p>
-                  </div>
-                  <div>
-                    <label for="ent-referencia" class="campo-label">Referencia (opcional)</label>
-                    <input id="ent-referencia" v-model="referencia" autocomplete="off" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-                  </div>
-
-                  <!-- Fotos del comprobante: una o varias; también arrastradas -->
-                  <div
-                    @dragover.prevent="arrastrando = 'pago'"
-                    @dragleave.self="arrastrando = null"
-                    @drop.prevent="alSoltar($event, agregarFotosPago)"
-                    :class="['rounded-xl transition-colors', arrastrando === 'pago' ? 'ring-2 ring-blue-300 bg-blue-50 p-2 -m-2' : '']"
-                  >
-                    <p class="campo-label">
-                      Foto del comprobante <span class="font-normal text-gray-500">· puedes subir varias</span>
-                    </p>
-                    <p v-if="procesando.pago" class="flex items-center justify-center gap-2 min-h-12 text-sm text-blue-700" aria-live="polite">
-                      <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
-                      Procesando foto…
-                    </p>
-                    <label
-                      v-else-if="!fotosPago.length"
-                      class="relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
-                    >
-                      <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago" />
-                      <CameraIcon class="w-5 h-5" aria-hidden="true" />
-                      <span>Foto, pantallazo o PDF del comprobante <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
-                    </label>
-                    <div v-else class="grid grid-cols-3 gap-2">
-                      <div v-for="(f, i) in fotosPago" :key="f.preview" class="relative aspect-square">
-                        <TarjetaPdf v-if="esPdf(f.blob)" :href="f.preview" :nombre="`Comprobante ${i + 1}`" compacta class="!h-full !px-1" />
-                        <img v-else :src="f.preview" :alt="`Comprobante ${i + 1}`" class="w-full h-full object-cover rounded-lg border border-gray-200" />
-                        <button type="button" @click="quitarFotoPago(i)"
-                          class="absolute top-1 right-1 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white"
-                          :aria-label="`Quitar comprobante ${i + 1}`"><XMarkIcon class="w-4 h-4" aria-hidden="true" /></button>
-                      </div>
-                      <label
-                        v-if="fotosPago.length < 6"
-                        class="relative aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
-                      >
-                        <input type="file" accept="image/*,application/pdf" multiple class="sr-only" @change="onFotoPago" />
-                        <CameraIcon class="w-6 h-6" aria-hidden="true" />
-                        Agregar
-                      </label>
-                    </div>
                   </div>
                 </div>
               </div>
