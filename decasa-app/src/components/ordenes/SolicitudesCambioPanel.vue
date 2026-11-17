@@ -40,13 +40,15 @@ async function cargar() {
 }
 onMounted(cargar)
 watch(() => props.ordenId, cargar)
-defineExpose({ cargar })
 
 const pendiente  = computed(() => solicitudes.value.find(s => s.estado === 'pendiente') ?? null)
 const historial  = computed(() => solicitudes.value.filter(s => s.estado !== 'pendiente'))
 const verHistorial = ref(false)
 
 const esSupervisor = computed(() => auth.usuario?.rol === 'supervisor')
+// Pedir que se cancele la orden (el vendedor que la subió, 2026-11-17).
+const esCancelacion = (s) => !!s?.cambios_orden?.cancelar
+defineExpose({ cargar, hayPendiente: computed(() => !!pendiente.value) })
 const esMia = computed(() => pendiente.value && Number(pendiente.value.solicitante_id) === Number(auth.usuario?.id))
 
 function valor(v, fila) {
@@ -76,7 +78,7 @@ async function aprobar() {
   trabajando.value = true
   try {
     await aprobarSolicitudCambio(pendiente.value.id)
-    toast.success('Cambio aprobado y aplicado a la orden.')
+    toast.success(esCancelacion(pendiente.value) ? 'Cancelación aprobada: la orden quedó cancelada.' : 'Cambio aprobado y aplicado a la orden.')
     await cargar()
     emit('aplicada')
   } catch (e) {
@@ -128,7 +130,7 @@ async function retirar() {
           <ShieldCheckIcon class="w-5 h-5" />
         </div>
         <div class="min-w-0">
-          <p class="text-sm font-bold text-amber-900">Cambio de dinero esperando aprobación</p>
+          <p class="text-sm font-bold text-amber-900">{{ esCancelacion(pendiente) ? 'Piden cancelar esta orden' : 'Cambio de dinero esperando aprobación' }}</p>
           <p class="text-xs text-amber-800 mt-0.5">
             Lo pidió <span class="font-semibold">{{ pendiente.solicitante?.nombre ?? 'un vendedor' }}</span>
             <template v-if="pendiente.supervisor"> a <span class="font-semibold">{{ pendiente.supervisor.nombre }}</span></template>
@@ -154,7 +156,7 @@ async function retirar() {
           <p class="text-sm text-gray-800 whitespace-pre-line mt-0.5">{{ pendiente.motivo }}</p>
         </div>
 
-        <div>
+        <div v-if="pendiente.soportes?.length">
           <p class="text-[11px] font-semibold text-amber-900 uppercase tracking-wide mb-1">Soporte</p>
           <div class="flex flex-wrap gap-2">
             <button v-for="(url, i) in pendiente.soportes" :key="url" type="button"
@@ -207,7 +209,7 @@ async function retirar() {
     <section v-if="historial.length" class="rounded-xl bg-white shadow-sm">
       <button type="button" @click="verHistorial = !verHistorial"
         class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700">
-        Cambios de dinero pedidos ({{ historial.length }})
+        Cambios pedidos ({{ historial.length }})
         <ChevronDownIcon :class="['w-4 h-4 text-gray-400 transition-transform', verHistorial ? 'rotate-180' : '']" />
       </button>
       <ul v-if="verHistorial" class="divide-y divide-gray-100 border-t border-gray-100">

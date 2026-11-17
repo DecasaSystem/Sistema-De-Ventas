@@ -768,6 +768,27 @@ const solicitudPago    = ref(null)   // { cambios, pedido } para SolicitarCambio
 const showPedirDinero  = ref(false)  // orden vencida para el vendedor
 function cargarSolicitudes() { panelSolicitudes.value?.cargar() }
 
+// El vendedor que subió la orden pide cancelarla (usuario, 2026-11-17): le
+// quita la venta y la bonificación, así que la aprueba un supervisor, como un
+// cambio de dinero. Solo vendedor o covendedor, no los compañeros de tienda.
+const puedePedirCancelar = computed(() => {
+  const o = orden.value
+  if (!o || auth.isSupervisor) return false
+  const yo = Number(auth.usuario?.id)
+  if (Number(o.vendedor_id) !== yo && Number(o.covendedor_id) !== yo) return false
+  if (!['borrador', 'pendiente_cotizacion', 'pendiente_anticipo', 'en_produccion', 'listo_entrega'].includes(o.estado)) return false
+  if (o.estado === 'listo_entrega' && (despachoActivo.value || miEntregaDirectaPendiente.value)) return false
+  return !panelSolicitudes.value?.hayPendiente
+})
+function pedirCancelar() {
+  const algoEntregado = (orden.value?.items ?? []).some(i => Number(i.cantidad_entregada) > 0)
+  solicitudPago.value = {
+    cancelacion: true,
+    cambios: [{ label: algoEntregado ? 'Cancelar lo que falta (ya se entregó una parte)' : 'Cancelar la orden', antes: 'Activa', despues: 'Cancelada' }],
+    pedido: { cancelar: true },
+  }
+}
+
 async function guardarMedio() {
   if (!pagoCorrigiendo.value) return
   const monto = puedeCorregirMonto.value ? Number(montoNuevo.value) : Number(pagoCorrigiendo.value.monto)
@@ -2685,8 +2706,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
         <!-- Tras devolver algo para cambiarlo, el cliente puede quedar con
              plata a favor. "Saldo: -$800.000" se lee como una deuda al revés;
-             lo que pasa es que ya tiene pagado de más. -->
-        <div class="flex justify-between text-sm">
+             lo que pasa es que ya tiene pagado de más.
+             En una cancelada no hay saldo que cobrar: "Saldo $2.000.000" se
+             leía como una deuda del cliente (#4441). Lo que hay es lo pagado,
+             que se le devuelve (cuadro de abajo). -->
+        <div v-if="orden.estado !== 'cancelado'" class="flex justify-between text-sm">
           <span class="text-gray-500">{{ Number(orden.saldo_pendiente) < 0 ? 'A favor del cliente' : 'Saldo' }}</span>
           <span
             class="font-bold"
@@ -2710,15 +2734,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             Devolver plata
           </button>
         </div>
-        <!-- Barra progreso -->
-        <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-          <div
-            class="h-full rounded-full transition-all duration-500"
-            :class="porcentajePagado >= 100 ? 'bg-green-500' : 'bg-blue-500'"
-            :style="{ width: porcentajePagado + '%' }"
-          />
-        </div>
-        <p class="text-xs text-gray-400 text-right">{{ porcentajePagado }}% pagado</p>
+        <!-- Barra progreso (en una cancelada no hay nada que completar) -->
+        <template v-if="orden.estado !== 'cancelado'">
+          <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+            <div
+              class="h-full rounded-full transition-all duration-500"
+              :class="porcentajePagado >= 100 ? 'bg-green-500' : 'bg-blue-500'"
+              :style="{ width: porcentajePagado + '%' }"
+            />
+          </div>
+          <p class="text-xs text-gray-400 text-right">{{ porcentajePagado }}% pagado</p>
+        </template>
 
         <!-- Descuento que depende del medio de pago -->
         <div
@@ -3964,6 +3990,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             >Aplicar</button>
           </div>
         </div>
+
+        <!-- El vendedor que la subió: pide que se cancele -->
+        <div
+          v-if="puedePedirCancelar"
+          class="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+        >
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-800">¿El cliente ya no la quiere?</p>
+            <p class="text-[11px] text-gray-500">Pide que se cancele. Un supervisor lo aprueba y te avisamos.</p>
+          </div>
+          <button
+            @click="pedirCancelar"
+            class="shrink-0 text-xs font-semibold text-red-700 bg-white border border-red-300 rounded-lg px-3 py-2 hover:bg-red-50"
+          >Pedir cancelar</button>
+        </div>
       </div>
     </template>
 
@@ -4267,6 +4308,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       :orden-id="orden.id"
       :cambios="solicitudPago?.cambios ?? []"
       :pedido="solicitudPago?.pedido ?? {}"
+      :cancelacion="!!solicitudPago?.cancelacion"
       @close="solicitudPago = null"
       @enviada="solicitudPago = null; cargarSolicitudes()"
     />

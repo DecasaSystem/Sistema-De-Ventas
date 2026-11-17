@@ -68,6 +68,11 @@ class SolicitudCambioController extends Controller
     {
         $usuario = $request->user();
         $orden   = Orden::findOrFail($id);
+
+        if ($request->boolean('cancelar')) {
+            return $this->pedirCancelacion($request, $orden, $usuario);
+        }
+
         if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
@@ -131,6 +136,94 @@ class SolicitudCambioController extends Controller
         return response()->json($solicitud->load('solicitante:id,nombre', 'supervisor:id,nombre'), 201);
     }
 
+    /** Estados desde los que la orden se puede cancelar (los mismos que en OrdenController::updateEstado). */
+    private const ESTADOS_CANCELABLES = ['borrador', 'pendiente_cotizacion', 'pendiente_anticipo', 'en_produccion', 'listo_entrega'];
+
+    /**
+     * El vendedor pide cancelar su orden (usuario, 2026-11-17). Cancelar le
+     * quita la venta, la meta y la bonificación: es plata, así que no la
+     * cancela solo; la pide con el motivo y la aprueba un supervisor, como
+     * cualquier cambio de dinero. Solo quien la subió (vendedor o covendedor),
+     * no los compañeros de tienda. El soporte es opcional: muchas veces el
+     * cliente solo llamó a decir que ya no la quiere.
+     *
+     * Se guarda como `cambios_orden = ['cancelar' => true]`; al aprobarla se
+     * cancela por el mismo camino que el botón del supervisor (si ya se
+     * entregó algo, se cancela lo que falta).
+     */
+    private function pedirCancelacion(Request $request, Orden $orden, Usuario $usuario): JsonResponse
+    {
+        $esSuya = (int) $orden->vendedor_id === (int) $usuario->id
+               || (int) $orden->covendedor_id === (int) $usuario->id;
+        if ($usuario->rol === 'supervisor') {
+            return response()->json(['message' => 'Como supervisor la cancelas directo desde "Cambiar estado".'], 422);
+        }
+        if (! $esSuya) {
+            return response()->json(['message' => 'Solo quien subió la orden puede pedir que se cancele.'], 403);
+        }
+
+        $data = $request->validate([
+            'motivo'     => 'required|string|min:5|max:1000',
+            'soportes'   => 'nullable|array|max:6',
+            'soportes.*' => 'required|string|max:500',
+            'supervisor_id' => ['required', 'integer', Rule::exists('usuarios', 'id')
+                ->where('rol', 'supervisor')->where('activo', true)],
+        ], [
+            'supervisor_id.required' => 'Elige a qué supervisor le mandas la solicitud.',
+            'supervisor_id.exists'   => 'La solicitud solo se le puede mandar a un supervisor.',
+            'motivo.required'   => 'Explica por qué se cancela.',
+            'motivo.min'        => 'Explica un poco más por qué se cancela.',
+        ]);
+
+        if (! in_array($orden->estado, self::ESTADOS_CANCELABLES, true)) {
+            return response()->json(['message' => 'Esta orden ya no se puede cancelar desde aquí.'], 422);
+        }
+        if ($orden->estado === 'listo_entrega' && $orden->tieneDespachoActivo()) {
+            return response()->json(['message' => 'Esta orden ya está en una ruta o en una entrega en curso. Pídele a Despacho que la saque antes.'], 422);
+        }
+        if (SolicitudCambio::where('orden_id', $orden->id)->where('estado', SolicitudCambio::PENDIENTE)->exists()) {
+            return response()->json([
+                'message' => 'Esta orden ya tiene un cambio esperando aprobación. Espera la respuesta o retíralo para pedir otro.',
+            ], 422);
+        }
+
+        $orden->loadMissing('items');
+        $algoEntregado = $orden->items->contains(fn ($i) => (int) ($i->cantidad_entregada ?? 0) > 0);
+        $resumen = [[
+            'label'   => $algoEntregado ? 'Cancelar lo que falta (ya se entregó una parte)' : 'Cancelar la orden',
+            'antes'   => 'Activa',
+            'despues' => 'Cancelada',
+        ]];
+
+        $solicitud = SolicitudCambio::create([
+            'orden_id'       => $orden->id,
+            'solicitante_id' => $usuario->id,
+            'supervisor_id'  => (int) $data['supervisor_id'],
+            'estado'         => SolicitudCambio::PENDIENTE,
+            'cambios_orden'  => ['cancelar' => true],
+            'cambio_pago'    => null,
+            'resumen'        => $resumen,
+            'motivo'         => trim($data['motivo']),
+            'soportes'       => array_values($data['soportes'] ?? []),
+        ]);
+
+        NotificacionService::crear(
+            'solicitud_cambio',
+            "Aprobar cancelación de {$orden->referencia}",
+            "{$usuario->nombre} pide cancelar la orden: " . mb_strimwidth(trim($data['motivo']), 0, 120, '…'),
+            ['orden_id' => $orden->id, 'solicitud_id' => $solicitud->id],
+            $solicitud->supervisor_id,
+            true,
+        );
+
+        return response()->json($solicitud->load('solicitante:id,nombre', 'supervisor:id,nombre'), 201);
+    }
+
+    private static function esCancelacion(SolicitudCambio $s): bool
+    {
+        return ! empty(($s->cambios_orden ?? [])['cancelar']);
+    }
+
     /** GET /api/solicitudes-cambio/supervisores — a quién se le puede pedir. */
     public function supervisores(): JsonResponse
     {
@@ -171,7 +264,16 @@ class SolicitudCambioController extends Controller
                         $supervisor,
                     );
                 }
-                if ($solicitud->cambios_orden) {
+                if (self::esCancelacion($solicitud)) {
+                    // El mismo camino que "Cambiar estado → Cancelada" del
+                    // supervisor; la numeración queda con su hueco.
+                    $this->aplicar(
+                        fn (Request $r) => app(OrdenController::class)->updateEstado($r, (int) $solicitud->orden_id),
+                        "/api/ordenes/{$solicitud->orden_id}/estado",
+                        ['estado' => 'cancelado'],
+                        $supervisor,
+                    );
+                } elseif ($solicitud->cambios_orden) {
                     $this->aplicar(
                         fn (Request $r) => app(OrdenController::class)->update($r, (int) $solicitud->orden_id),
                         "/api/ordenes/{$solicitud->orden_id}",
@@ -209,10 +311,13 @@ class SolicitudCambioController extends Controller
             return response()->json(['message' => 'No se pudo aplicar: ' . $e->getMessage()], 422);
         }
 
+        $cancelacion = self::esCancelacion($solicitud);
         NotificacionService::crear(
             'solicitud_cambio_respuesta',
-            'Cambio de dinero aprobado',
-            "{$supervisor->nombre} aprobó tu cambio en {$solicitud->orden->referencia}. Ya quedó aplicado.",
+            $cancelacion ? 'Cancelación aprobada' : 'Cambio de dinero aprobado',
+            $cancelacion
+                ? "{$supervisor->nombre} aprobó cancelar {$solicitud->orden->referencia}. Ya quedó cancelada."
+                : "{$supervisor->nombre} aprobó tu cambio en {$solicitud->orden->referencia}. Ya quedó aplicado.",
             ['orden_id' => $solicitud->orden_id, 'solicitud_id' => $solicitud->id],
             $solicitud->solicitante_id,
         );
@@ -254,8 +359,8 @@ class SolicitudCambioController extends Controller
 
         NotificacionService::crear(
             'solicitud_cambio_respuesta',
-            'Cambio de dinero rechazado',
-            "{$supervisor->nombre} no aprobó tu cambio en {$solicitud->orden->referencia}: " . mb_strimwidth(trim($data['respuesta']), 0, 140, '…'),
+            self::esCancelacion($solicitud) ? 'Cancelación rechazada' : 'Cambio de dinero rechazado',
+            "{$supervisor->nombre} no aprobó " . (self::esCancelacion($solicitud) ? 'cancelar' : 'tu cambio en') . " {$solicitud->orden->referencia}: " . mb_strimwidth(trim($data['respuesta']), 0, 140, '…'),
             ['orden_id' => $solicitud->orden_id, 'solicitud_id' => $solicitud->id],
             $solicitud->solicitante_id,
         );
@@ -294,7 +399,9 @@ class SolicitudCambioController extends Controller
         return [
             'campo'          => "solicitud_{$s->id}",
             'tipo'           => $tipo,
-            'label'          => $aprobada ? 'Cambio de dinero aprobado' : 'Cambio de dinero rechazado',
+            'label'          => self::esCancelacion($s)
+                ? ($aprobada ? 'Cancelación aprobada' : 'Cancelación rechazada')
+                : ($aprobada ? 'Cambio de dinero aprobado' : 'Cambio de dinero rechazado'),
             'revisado_por'   => $supervisor->nombre,
             'solicitado_por' => $s->solicitante?->nombre ?? 'Vendedor',
             'solicitado_at'  => $s->created_at?->toIso8601String(),

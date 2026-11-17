@@ -475,7 +475,10 @@ function iniciales(nombre) {
       </template>
 
       <p v-else class="text-xs text-gray-400 text-center py-1">
-        El chat se cerró cuando la orden quedó lista para entrega. La conversación queda de consulta.
+        {{ estado === 'cancelado'
+          ? 'El chat se cerró porque la orden se canceló.'
+          : (estado === 'entregado' ? 'El chat se cerró porque la orden ya se entregó.' : 'El chat se cerró cuando la orden quedó lista para entrega.') }}
+        La conversación queda de consulta.
       </p>
     </div>
   </div>

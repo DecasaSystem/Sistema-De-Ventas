@@ -726,4 +726,66 @@ class SolicitudCambioTest extends TestCase
         // Y ya no se puede aprobar.
         $this->actingAs($this->jefa)->postJson("/api/solicitudes-cambio/{$id}/aprobar")->assertStatus(422);
     }
+
+    // ── El vendedor pide cancelar su orden (usuario, 2026-11-17) ───────────
+
+    private function pedirCancelar(Orden $orden, ?Usuario $quien = null, array $extra = [])
+    {
+        return $this->actingAs($quien ?? $this->paola)->postJson("/api/ordenes/{$orden->id}/solicitudes-cambio", array_merge([
+            'cancelar' => true,
+            'motivo'   => 'El cliente llamó y ya no quiere la mesa.',
+            'supervisor_id' => $this->jefa->id,
+        ], $extra));
+    }
+
+    public function test_el_vendedor_pide_cancelar_sin_soporte_y_no_se_cancela_hasta_aprobarla(): void
+    {
+        [$orden] = $this->orden();
+
+        $this->pedirCancelar($orden)->assertCreated()
+            ->assertJsonPath('cambios_orden.cancelar', true)
+            ->assertJsonPath('resumen.0.despues', 'Cancelada');
+
+        $this->assertSame('en_produccion', $orden->fresh()->estado, 'hasta que la aprueben sigue igual');
+        $this->assertTrue(DB::table('notificaciones')->where('usuario_id', $this->jefa->id)
+            ->where('tipo', 'solicitud_cambio')->where('titulo', 'like', '%cancelación%')->exists());
+    }
+
+    public function test_al_aprobarla_la_orden_queda_cancelada(): void
+    {
+        $this->completarEsquemaDeEntregas();
+        [$orden] = $this->orden();
+        $id = $this->pedirCancelar($orden)->json('id');
+
+        $this->actingAs($this->jefa)->postJson("/api/solicitudes-cambio/{$id}/aprobar")->assertOk();
+
+        $this->assertSame('cancelado', $orden->fresh()->estado);
+        $this->assertSame('aprobada', SolicitudCambio::find($id)->estado);
+        $this->assertTrue(DB::table('notificaciones')->where('usuario_id', $this->paola->id)
+            ->where('titulo', 'Cancelación aprobada')->exists());
+    }
+
+    public function test_solo_quien_la_subio_pide_cancelarla(): void
+    {
+        [$orden] = $this->orden();
+        $otra = Usuario::create(['nombre' => 'Martha', 'email' => 'm@d.com', 'password' => 'x', 'rol' => 'vendedor', 'created_at' => now()]);
+
+        $this->pedirCancelar($orden, $otra)->assertForbidden();
+        $this->assertSame(0, SolicitudCambio::count());
+
+        // El covendedor sí.
+        $orden->update(['covendedor_id' => $otra->id]);
+        $this->pedirCancelar($orden, $otra)->assertCreated();
+    }
+
+    public function test_no_se_pide_cancelar_una_orden_entregada_ni_sin_motivo(): void
+    {
+        [$orden] = $this->orden();
+
+        $this->pedirCancelar($orden, null, ['motivo' => ''])->assertStatus(422);
+
+        $orden->update(['estado' => 'entregado']);
+        $this->pedirCancelar($orden)->assertStatus(422);
+        $this->assertSame(0, SolicitudCambio::count());
+    }
 }

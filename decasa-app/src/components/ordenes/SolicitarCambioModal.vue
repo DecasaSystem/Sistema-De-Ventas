@@ -25,6 +25,9 @@ const props = defineProps({
   pedido:  { type: Object, default: () => ({}) },
   // Si además se guardó algo que no era dinero, se le dice al vendedor.
   seGuardoLoDemas: { type: Boolean, default: false },
+  // Pedir que se cancele la orden: el soporte no es obligatorio (muchas veces
+  // el cliente solo llamó a decir que ya no la quiere).
+  cancelacion: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'enviada'])
 const toast = useToast()
@@ -62,7 +65,7 @@ watch(() => props.show, (v) => {
   }
 }, { immediate: true })
 
-const listo = computed(() => motivo.value.trim().length >= 5 && soportes.value.length > 0 && !!supervisorId.value && !subiendo.value)
+const listo = computed(() => motivo.value.trim().length >= 5 && (props.cancelacion || soportes.value.length > 0) && !!supervisorId.value && !subiendo.value)
 
 function valor(v, fila) {
   if (v === null || v === undefined || v === '') return '—'
@@ -127,9 +130,11 @@ async function enviar() {
               <ShieldCheckIcon class="w-5 h-5" />
             </div>
             <div class="min-w-0 flex-1">
-              <h3 class="text-base font-bold text-gray-800">Este cambio necesita aprobación</h3>
+              <h3 class="text-base font-bold text-gray-800">{{ cancelacion ? 'Pedir que se cancele la orden' : 'Este cambio necesita aprobación' }}</h3>
               <p class="text-xs text-gray-500 mt-0.5">
-                Los cambios de dinero los aprueba un supervisor. Hasta entonces la orden sigue como estaba.
+                {{ cancelacion
+                  ? 'Cancelar le quita la venta y la bonificación: lo aprueba un supervisor. Hasta entonces la orden sigue como estaba.'
+                  : 'Los cambios de dinero los aprueba un supervisor. Hasta entonces la orden sigue como estaba.' }}
               </p>
             </div>
             <button @click="emit('close')" aria-label="Cerrar" class="text-gray-400 text-2xl leading-none w-9 h-9 -mr-2 -mt-1">&times;</button>
@@ -181,7 +186,9 @@ async function enviar() {
                 v-model="motivo"
                 rows="3"
                 maxlength="1000"
-                placeholder="Ej: el cliente pagó por transferencia y quedó marcado como efectivo; se le dio el descuento de la promoción…"
+                :placeholder="cancelacion
+                  ? 'Ej: el cliente llamó y ya no quiere el mueble; hay que devolverle el anticipo…'
+                  : 'Ej: el cliente pagó por transferencia y quedó marcado como efectivo; se le dio el descuento de la promoción…'"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
               />
             </div>
@@ -189,7 +196,7 @@ async function enviar() {
             <!-- Soporte -->
             <div>
               <p class="text-sm font-medium text-gray-700 mb-1">
-                Soporte <span class="text-red-500">*</span>
+                Soporte <span v-if="!cancelacion" class="text-red-500">*</span><span v-else class="text-xs font-normal text-gray-400">(opcional)</span>
                 <span class="text-xs font-normal text-gray-400">— foto del comprobante, chat con el cliente, factura…</span>
               </p>
               <div class="flex flex-wrap gap-2">
@@ -214,7 +221,7 @@ async function enviar() {
           <div class="px-5 pt-3 pb-5 border-t border-gray-100 space-y-3 flex-shrink-0">
             <p v-if="error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ error }}</p>
             <p v-else-if="!listo" class="text-xs text-gray-400 text-center">
-              Elige el supervisor, escribe el motivo y agrega al menos una foto para enviarla.
+              {{ cancelacion ? 'Elige el supervisor y escribe el motivo para enviarla.' : 'Elige el supervisor, escribe el motivo y agrega al menos una foto para enviarla.' }}
             </p>
             <div class="flex gap-3">
               <button @click="emit('close')" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
