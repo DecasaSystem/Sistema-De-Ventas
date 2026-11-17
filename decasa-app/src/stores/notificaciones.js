@@ -84,10 +84,19 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     if (n) n.leida = true
   }
 
+  // Las urgentes no: se quedan fijadas hasta que se abren o se borran una por
+  // una (el servidor tampoco las marca). Lo de atrás se vuelve a contar allá.
   async function leerTodas() {
     await notificacionesApi.marcarTodas()
-    items.value.forEach(n => (n.leida = true))
+    items.value.forEach(n => { if (!n.urgente) n.leida = true })
     noLeidasAtras.value = 0
+    cargar().catch(() => {})
+  }
+
+  /** El servidor ya las marcó leídas (p. ej. al ver el chat de la orden). */
+  function marcarLeidasLocal(ids) {
+    const set = new Set(ids)
+    items.value.forEach(n => { if (set.has(n.id)) n.leida = true })
   }
 
   async function eliminar(id) {
@@ -110,6 +119,6 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
 
   return {
     items, noLeidas, siguiente, cargandoMas,
-    cargar, cargarMas, agregarNueva, leer, leerTodas, eliminar, eliminarTodas, limpiar,
+    cargar, cargarMas, agregarNueva, leer, leerTodas, marcarLeidasLocal, eliminar, eliminarTodas, limpiar,
   }
 })

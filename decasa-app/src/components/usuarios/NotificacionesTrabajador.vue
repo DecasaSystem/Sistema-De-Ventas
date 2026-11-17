@@ -14,6 +14,7 @@ import { ref, computed, onMounted } from 'vue'
 import { getNotificacionesUsuario, setNotificacionesUsuario } from '@/api/usuarios'
 import { useToast } from '@/composables/useToast'
 import { BellIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
+import AvisosUrgentes from '@/components/usuarios/AvisosUrgentes.vue'
 
 const props = defineProps({ usuarioId: { type: Number, required: true } })
 const toast = useToast()
@@ -23,6 +24,8 @@ const cargando = ref(true)
 const error    = ref('')
 const guardando = ref(null)   // clave del grupo que se está guardando ('todas' = prender todo)
 const abierto  = ref(false)
+// Lo que se puede marcar urgente depende de lo prendido: se recarga al cambiar un grupo.
+const urgentesRef = ref(null)
 
 const prendidos = computed(() => grupos.value.filter(g => g.prendido).length)
 const apagados  = computed(() => grupos.value.filter(g => !g.prendido))
@@ -48,6 +51,7 @@ async function guardar(cambios, clave) {
   try {
     const { data } = await setNotificacionesUsuario(props.usuarioId, cambios)
     grupos.value = data.grupos
+    urgentesRef.value?.recargar()
     return true
   } catch (e) {
     grupos.value = antes
@@ -126,6 +130,11 @@ onMounted(cargar)
             <span v-if="g.aviso && !g.prendido" class="block text-xs text-amber-700 mt-0.5">{{ g.aviso }}</span>
           </span>
         </label>
+      </div>
+
+      <!-- Cuáles de los que le llegan son urgentes (la persona también lo escoge en su Perfil) -->
+      <div class="border-t border-gray-100 pt-3">
+        <AvisosUrgentes ref="urgentesRef" :usuario-id="usuarioId" incrustado />
       </div>
     </div>
   </div>

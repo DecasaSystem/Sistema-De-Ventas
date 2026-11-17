@@ -1246,6 +1246,17 @@ Decisiones del dueño del 2026-10-08:
   culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
   no tiene celular registrado para push.
 
+- **Avisos urgentes: menciones del chat y escogidos por persona** (2026-11-17, **sin subir**, trae
+  **migración** `2026_11_18_000001_notificaciones_urgentes_en_usuarios`, solo agrega columna JSON;
+  rama `claude/urgent-order-chat-messages-895aa8`). Pedido del usuario: que cuando arroban a alguien
+  en el chat de una orden sea urgente (rojo, fijado hasta que lo ve o lo borra) y que cada uno desde
+  su perfil y los supervisores escojan qué avisos le llegan urgentes, de los que tiene activos y le
+  llegan por su rol. Detalle en `docs/PROYECTO.md` §8. Por defecto mío (**falta confirmar**): solo
+  agrega urgencia (lo de plata sigue urgente siempre, nadie lo quita); la persona no apaga avisos desde
+  su perfil (sigue siendo del supervisor); "Leer todas" ya no marca las urgentes; tener el chat de la
+  orden a la vista las da por vistas. Un grupo nuevo en `TiposNotificacion` hay que agregarlo también
+  a `leLlegaPorRol` (si no, se ofrece a todos). No visto en el navegador.
+
 - **"Las notificaciones recientes se borran solas"** (2026-11-09, **sin subir**, sin migración,
   rama `claude/notificaciones-ordenes-chat-51d65d`). El servidor nunca borra avisos (solo la
   persona con la papelera o "Limpiar"). Lo que pasaba era en la campana: se pedía **una sola

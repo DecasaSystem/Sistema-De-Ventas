@@ -6,7 +6,9 @@ use App\Events\OrdenMensajeEnviado;
 use App\Models\Orden;
 use App\Models\OrdenMensaje;
 use App\Models\Usuario;
+use App\Models\Notificacion;
 use App\Services\NotificacionService;
+use App\Support\TiposNotificacion;
 use Illuminate\Http\Request;
 
 /**
@@ -159,6 +161,35 @@ class OrdenMensajeController extends Controller
     }
 
     /**
+     * POST /api/ordenes/{id}/mensajes/visto
+     *
+     * La persona tiene el chat de la orden a la vista: sus avisos de este chat
+     * quedan leídos. Así la urgente ("te preguntaron") sale de arriba de la
+     * campana cuando de verdad la vio, sin tener que abrirla también desde ahí.
+     * Solo marca leídos; no borra nada (los avisos solo los borra la persona).
+     */
+    public function visto(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::findOrFail($id);
+
+        if (! $this->puedeParticipar($usuario, $orden)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $ids = Notificacion::where('usuario_id', $usuario->id)
+            ->where('tipo', 'orden_mensaje')
+            ->where('leida', false)
+            ->get(['id', 'datos'])
+            ->filter(fn ($n) => (int) ($n->datos['orden_id'] ?? 0) === $id)
+            ->pluck('id')->all();
+
+        if ($ids) Notificacion::whereIn('id', $ids)->update(['leida' => true]);
+
+        return response()->json(['leidas' => $ids]);
+    }
+
+    /**
      * A quién se le avisa de un mensaje nuevo.
      *
      * No basta con los mencionados. Un chat donde solo se entera el que fue
@@ -216,8 +247,13 @@ class OrdenMensajeController extends Controller
                     ? "Te preguntaron en la orden {$ref}"
                     : "Mensaje nuevo en la orden {$ref}",
                 "{$autor->nombre}: {$resumen}",
-                ['orden_id' => $orden->id],
+                ['orden_id' => $orden->id, 'mensaje_id' => $msg->id] + ($preguntado ? ['mencion' => true] : []),
                 $uid,
+                // Que lo arroben es urgente (pedido del usuario, 2026-11-17): rojo
+                // y fijado en la campana hasta que lo ve. Cada uno lo puede quitar
+                // desde su perfil. Si escogió todos los chats como urgentes, eso
+                // lo decide NotificacionService con el grupo.
+                urgente: $preguntado && TiposNotificacion::mencionEsUrgente($uid),
             );
         }
     }

@@ -127,6 +127,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/auth/mi-firma',   [AuthController::class, 'guardarFirma']);
     Route::patch('/auth/mi-nav',     [AuthController::class, 'guardarNav']);
     Route::patch('/auth/mi-inventario', [AuthController::class, 'guardarInventario']);
+    // Qué avisos le llegan a uno como urgentes (Perfil). Apagarlos es del supervisor.
+    Route::get('/auth/mis-notificaciones', [\App\Http\Controllers\NotificacionesUsuarioController::class, 'mias']);
+    Route::put('/auth/mis-notificaciones', [\App\Http\Controllers\NotificacionesUsuarioController::class, 'guardarMias']);
     // Con quiénes alterna (hasta tres). Se manda la lista completa, en orden.
     Route::patch('/auth/mis-perfiles-alternos', [AuthController::class, 'guardarPerfilesAlternos']);
     Route::post('/auth/perfiles-alternos/confirmar', [AuthController::class, 'confirmarPerfilAlterno']);
@@ -511,6 +514,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/fijar',   [OrdenFijadaController::class, 'fijar'])->whereNumber('id');
     Route::delete('/ordenes/{id}/fijar', [OrdenFijadaController::class, 'quitar'])->whereNumber('id');
     Route::post('/ordenes/{id}/mensajes', [OrdenMensajeController::class, 'store'])->whereNumber('id');
+    // Tiene el chat a la vista: sus avisos de este chat quedan leídos.
+    Route::post('/ordenes/{id}/mensajes/visto', [OrdenMensajeController::class, 'visto'])->whereNumber('id');
 
     // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión
     Route::get('/cotizaciones',            [CotizacionController::class, 'index']);

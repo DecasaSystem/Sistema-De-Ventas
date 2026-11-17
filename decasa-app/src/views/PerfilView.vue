@@ -5,6 +5,7 @@ import { useAuthStore, MAX_PERFILES } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
 import api from '@/api'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import AvisosUrgentes from '@/components/usuarios/AvisosUrgentes.vue'
 import { CheckCircleIcon, EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/solid'
 import { Cog6ToothIcon, SunIcon, MoonIcon, UserCircleIcon, ArrowsRightLeftIcon, TrashIcon, PlusCircleIcon } from '@heroicons/vue/24/outline'
 
@@ -206,6 +207,9 @@ function rolLabel(usuario) {
         </span>
       </div>
     </div>
+
+    <!-- Qué avisos le llegan urgentes (rojos y fijados en la campana) -->
+    <AvisosUrgentes />
 
     <!-- Seguridad -->
     <div class="bg-white rounded-xl shadow-sm p-4 space-y-4">

@@ -47,6 +47,7 @@ class TiposNotificacion
             'nombre'      => 'Cambios de plata en órdenes',
             'descripcion' => 'Cuando cambia el valor de una orden ya facturada, o el descuento por pago en efectivo se pierde o se devuelve.',
             'tipos'       => ['cambio_dinero', 'descuento_devuelto', 'descuento_revertido'],
+            'urgente_siempre' => 'Estos ya llegan siempre como urgentes: son cambios de plata.',
         ],
         'solicitudes' => [
             'nombre'      => 'Solicitudes de cambio',
@@ -169,9 +170,111 @@ class TiposNotificacion
         return array_keys(array_filter(self::GRUPOS, fn ($g) => empty($g['columna'])));
     }
 
+    // ── Urgentes por persona ────────────────────────────────────────────────
+    //
+    // Pedido del usuario (2026-11-17): que cuando a alguien lo arroban en el
+    // chat de una orden le llegue como urgente (rojo y fijado arriba de la
+    // campana hasta que lo ve o lo borra), y que cada uno desde su perfil, o un
+    // supervisor desde Trabajadores, escoja qué otros avisos quiere así. Solo
+    // se ofrecen los que tiene prendidos y le pueden llegar por su rol.
+    //
+    // Esto solo AGREGA urgencia: lo que el código ya manda urgente (cambios de
+    // plata, garantías y devoluciones por decidir…) sigue urgente siempre.
+
+    /** Clave aparte de los grupos: lo arrobaron en el chat de una orden. */
+    public const MENCIONES = 'menciones';
+
+    public const MENCIONES_INFO = [
+        'nombre'      => 'Cuando me arroban en un chat',
+        'descripcion' => 'Un mensaje del chat de una orden donde le preguntan directamente (@).',
+    ];
+
+    /** Lo de fábrica, mientras la persona no escoja nada (columna en null). */
+    public const URGENTES_DE_FABRICA = [self::MENCIONES];
+
+    /** Todas las claves que se pueden marcar urgentes. */
+    public static function clavesUrgentes(): array
+    {
+        return [self::MENCIONES, ...array_keys(self::GRUPOS)];
+    }
+
+    /** ¿Este tipo de aviso le llega urgente a esta persona porque lo escogió? */
+    public static function esUrgente(int $usuarioId, string $tipo): bool
+    {
+        $grupo = self::grupoDe($tipo);
+        return $grupo !== null && in_array($grupo, self::urgentesDe($usuarioId), true);
+    }
+
+    /** ¿Que lo arroben en un chat le llega urgente? (de fábrica, sí) */
+    public static function mencionEsUrgente(int $usuarioId): bool
+    {
+        return in_array(self::MENCIONES, self::urgentesDe($usuarioId), true);
+    }
+
+    public static function urgentesDe(int $usuarioId): array
+    {
+        self::cargarPreferencias();
+        return self::$urgentes[$usuarioId] ?? self::URGENTES_DE_FABRICA;
+    }
+
+    /**
+     * ¿Este grupo le puede llegar a esta persona por lo que hace?
+     *
+     * Es para no ofrecerle a un conductor "Bonificaciones" o "Finanzas" como
+     * urgentes. Es generoso a propósito: si hay duda, se muestra (lo peor que
+     * pasa es un interruptor que no usa). Además, lo que ya le ha llegado
+     * alguna vez se muestra siempre (`$yaLeLlegaron`), por si un aviso le llega
+     * por un camino que esta lista no conoce.
+     */
+    public static function leLlegaPorRol(\App\Models\Usuario $u, string $clave, array $yaLeLlegaron = []): bool
+    {
+        if ($u->rol === 'supervisor' || in_array($clave, $yaLeLlegaron, true)) return true;
+
+        $vende     = $u->rol === 'vendedor';
+        $conduce   = $u->rol === 'conductor';
+        $taller    = ! $vende && ! $conduce;   // ebanista, tapicero, producción…
+        $produce   = $taller || (bool) $u->gestiona_produccion || (bool) $u->acceso_produccion;
+        $factura   = (bool) $u->facturacion;
+        $despacha  = $conduce || (bool) $u->acceso_despacho || (bool) $u->acceso_entregas;
+        $surte     = (bool) $u->acceso_surtir || (bool) $u->acceso_reserva || $vende;
+        $encargos  = (bool) $u->lleva_encargos || (bool) $u->acceso_encargos || (bool) $u->revisa_encargos;
+
+        return match ($clave) {
+            self::MENCIONES, 'chats' => ! $conduce || (bool) $u->gestiona_produccion,
+            'ventas'           => $vende || $factura,
+            'asignar_fecha'    => false,                         // solo supervisores
+            'pagos', 'cambios_dinero' => $factura,
+            'solicitudes'      => $vende,
+            'ordenes'          => $vende || $produce || $factura || $despacha,
+            'produccion', 'atrasados' => $vende || $produce,
+            'por_entregar'     => $vende || $despacha || $produce,
+            'entregas'         => $vende || $despacha || $factura,
+            'consultas_precio' => $vende || (bool) $u->acceso_costos || $u->rol === 'ebanista',
+            'cotizaciones', 'firmas' => $vende,
+            'garantias'        => $vende || $produce || $despacha,
+            'traslados'        => $surte,
+            'agotados'         => $surte || (bool) $u->notif_stock,
+            'telas'            => (bool) $u->acceso_telas || $produce,
+            'redes'            => (bool) $u->acceso_redes,
+            'encargos'         => $encargos,
+            'comisiones'       => (bool) $u->acceso_comisiones,
+            'finanzas'         => (bool) $u->acceso_finanzas,
+            default            => true,
+        };
+    }
+
+    /** Los grupos de avisos que de verdad le han llegado a esta persona. */
+    public static function gruposQueLeHanLlegado(int $usuarioId): array
+    {
+        $tipos = \DB::table('notificaciones')->where('usuario_id', $usuarioId)
+            ->distinct()->pluck('tipo')->all();
+        return array_values(array_unique(array_filter(array_map(fn ($t) => self::grupoDe((string) $t), $tipos))));
+    }
+
     // ── Quién tiene qué apagado (se lee una vez por petición) ───────────────
 
     private static ?array $apagadas = null;
+    private static ?array $urgentes = null;
 
     /**
      * ¿Esta persona apagó los avisos de este tipo? Una sola consulta por
@@ -188,23 +291,53 @@ class TiposNotificacion
 
     public static function apagadasDe(int $usuarioId): array
     {
-        if (self::$apagadas === null) {
-            self::$apagadas = [];
-            if (Esquema::columna('usuarios', 'notificaciones_apagadas')) {
-                $filas = \DB::table('usuarios')
-                    ->whereNotNull('notificaciones_apagadas')
-                    ->pluck('notificaciones_apagadas', 'id');
-                foreach ($filas as $id => $json) {
-                    $lista = json_decode((string) $json, true);
-                    if (is_array($lista) && $lista) self::$apagadas[(int) $id] = $lista;
-                }
+        self::cargarPreferencias();
+        return self::$apagadas[$usuarioId] ?? [];
+    }
+
+    /**
+     * Apagadas y urgentes de todos, en una sola consulta por petición. En las
+     * urgentes, una lista vacía guardada cuenta (la persona quitó todo); solo
+     * el null es "lo de fábrica".
+     */
+    private static function cargarPreferencias(): void
+    {
+        if (self::$apagadas !== null) return;
+        self::$apagadas = [];
+        self::$urgentes = [];
+
+        $conApagadas = Esquema::columna('usuarios', 'notificaciones_apagadas');
+        $conUrgentes = Esquema::columna('usuarios', 'notificaciones_urgentes');
+        if (! $conApagadas && ! $conUrgentes) return;
+
+        $cols = array_values(array_filter([
+            'id',
+            $conApagadas ? 'notificaciones_apagadas' : null,
+            $conUrgentes ? 'notificaciones_urgentes' : null,
+        ]));
+        $filas = \DB::table('usuarios')
+            ->where(function ($q) use ($conApagadas, $conUrgentes) {
+                if ($conApagadas) $q->orWhereNotNull('notificaciones_apagadas');
+                if ($conUrgentes) $q->orWhereNotNull('notificaciones_urgentes');
+            })
+            ->get($cols);
+
+        foreach ($filas as $f) {
+            $id = (int) $f->id;
+            if ($conApagadas && $f->notificaciones_apagadas !== null) {
+                $lista = json_decode((string) $f->notificaciones_apagadas, true);
+                if (is_array($lista) && $lista) self::$apagadas[$id] = $lista;
+            }
+            if ($conUrgentes && $f->notificaciones_urgentes !== null) {
+                $lista = json_decode((string) $f->notificaciones_urgentes, true);
+                if (is_array($lista)) self::$urgentes[$id] = array_values($lista);
             }
         }
-        return self::$apagadas[$usuarioId] ?? [];
     }
 
     public static function olvidarCache(): void
     {
         self::$apagadas = null;
+        self::$urgentes = null;
     }
 }
