@@ -1431,6 +1431,21 @@ Decisiones del dueño del 2026-10-08:
   de tienda que iba a retapizar, vuelve a quedar libre en el inventario. Tests al final de
   `CancelarProduccionTest`.
 
+- **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
+  problemas en la carpeta de notas de la sesión). **Arreglados el 2 y el 3** (**sin subir**, sin
+  migración, rama `claude/upbeat-archimedes-cded7e`): (2) "Devolver la plata" en Devoluciones solo
+  anotaba un egreso de caja: la orden seguía valiendo lo mismo y la comisión y la meta contaban lo
+  devuelto. Ahora es igual al reembolso de garantía (renglón fuera, total y comisión recalculados,
+  pago negativo `tipo=reembolso` con medio, tope = lo pagado, aviso a facturación y al vendedor);
+  la pantalla pregunta efectivo/transferencia/otro. (3) Una orden que quedaba cancelada por
+  Devoluciones o Garantías no borraba su comisión pendiente (y en 5 % directo / restauraciones /
+  almacén se podía pagar), ni cancelaba el taller ni avisaba: ahora todo pasa por
+  `Services/CancelacionDeOrden` y `enriquecer` da $0 a la comisión sin pagar de una cancelada. De
+  paso: tras el reembolso la orden queda en `estadoTrasEntrega` (antes "entregado" con algo en el
+  taller) y Finanzas → garantías solo suma reembolsos de garantía. Quedan del informe: 1 (cancelar
+  con entrega parcial suelta apartado de más), 5 (el reembolso siempre manda a merma), 6 (no hay
+  reembolso general ni saldos a favor), 7, 8, 9. Los reembolsos viejos (egreso de caja) no se tocaron.
+
 - **Barra de abajo y "Más" personalizables** (usuario, 2026-11-17, **subido a `main`** ese día, trae **migración**
   `2026_11_17_000004_nav_mas_en_usuarios`, solo agrega `usuarios.nav_mas` JSON). "Personalizar barra"
   tiene tres partes: En la barra (4), En "Más" (se quita para dejarlo vacío, se ordena) y Otros

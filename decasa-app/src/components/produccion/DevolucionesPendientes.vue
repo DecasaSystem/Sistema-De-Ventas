@@ -144,13 +144,24 @@ async function confirmarQuitar() {
 // ── Se cancela y se devuelve la plata ───────────────────────────────────────
 const reembolsando = ref(null)
 const monto        = ref(0)
+const metodo       = ref('efectivo')
+const referencia   = ref('')
 const notas        = ref('')
 const guardando    = ref(false)
+
+// Efectivo baja la caja de la tienda; transferencia u otro, no.
+const METODOS = [
+  { v: 'efectivo',      t: 'Efectivo' },
+  { v: 'transferencia', t: 'Transferencia' },
+  { v: 'otro',          t: 'Otro' },
+]
 
 function abrirReembolso(d) {
   reembolsando.value = d
   // Se sugiere lo que pagó por esas unidades; se puede cambiar.
   monto.value = d.monto_sugerido
+  metodo.value = 'efectivo'
+  referencia.value = ''
   notas.value = ''
 }
 
@@ -160,9 +171,13 @@ async function confirmarReembolso() {
     await decidirDevolucion(reembolsando.value.id, {
       decision: 'reembolso',
       monto: Number(monto.value) || 0,
+      metodo: metodo.value,
+      referencia: metodo.value !== 'efectivo' ? (referencia.value.trim() || null) : null,
       notas: notas.value.trim() || null,
     })
-    toast.success('Registrado: la salida quedó en la caja de la tienda')
+    toast.success(metodo.value === 'efectivo'
+      ? 'Registrado: el reembolso salió de la caja de la tienda'
+      : 'Registrado: el reembolso quedó en los pagos de la orden')
     reembolsando.value = null
     await cargar()
     emit('resuelta')
@@ -342,12 +357,27 @@ async function confirmarReembolso() {
                 </p>
               </div>
               <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cómo se le devolvió? *</label>
+                <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
+                  <button
+                    v-for="m in METODOS" :key="m.v" type="button" @click="metodo = m.v"
+                    class="flex-1 text-xs font-semibold rounded-lg py-2 transition-colors"
+                    :class="metodo === m.v ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'"
+                  >{{ m.t }}</button>
+                </div>
+              </div>
+              <div v-if="metodo !== 'efectivo'">
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Referencia</label>
+                <input v-model="referencia" maxlength="100" placeholder="N.º de la transferencia (opcional)" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
+              </div>
+              <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas</label>
                 <textarea v-model="notas" rows="2" placeholder="Lo que valga la pena dejar dicho..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
               </div>
               <p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                Queda una salida en la caja de la tienda por ese valor, para que cuadre al cerrar el
-                día. Si con esto no queda nada más por entregar, la orden se cancela.
+                Lo devuelto deja de cobrarse y la venta baja (también la bonificación). La plata queda
+                como un reembolso en los pagos de la orden{{ metodo === 'efectivo' ? ' y sale de la caja de la tienda' : '' }}.
+                Si con esto no le queda nada, la orden se cancela.
               </p>
             </div>
 

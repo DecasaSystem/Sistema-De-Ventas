@@ -361,7 +361,8 @@ class GarantiaService
             self::fallar('Esta garantía no está esperando que devuelvan el producto.');
         }
 
-        DB::transaction(function () use ($g, $data, $quien) {
+        $referenciaCancelada = null;
+        DB::transaction(function () use ($g, $data, $quien, &$referenciaCancelada) {
             $orden = Orden::lockForUpdate()->findOrFail($g->orden_id);
             $item  = OrdenItem::lockForUpdate()->findOrFail($g->orden_item_id);
             $n     = (int) $g->cantidad;
@@ -433,6 +434,10 @@ class GarantiaService
 
             $orden->refresh()->load('items');
             if ($orden->items->filter->estaVivo()->isEmpty()) {
+                // Por la misma puerta que el botón Cancelar: comisiones, taller,
+                // tela y avisos (ver CancelacionDeOrden).
+                $referenciaCancelada = $orden->referencia;
+                CancelacionDeOrden::alCancelar($orden, $quien);
                 $orden->update(['estado' => 'cancelado']);
             } else {
                 self::ponerOrdenAlDia($orden);
@@ -447,6 +452,10 @@ class GarantiaService
         });
 
         self::avisarFacturacionReembolso($g->fresh(['orden.cliente']));
+
+        if ($referenciaCancelada !== null && ($orden = Orden::find($g->orden_id))) {
+            CancelacionDeOrden::avisar($orden, $quien, $referenciaCancelada);
+        }
 
         return $g;
     }

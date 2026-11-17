@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\CajaMovimiento;
 use App\Models\Devolucion;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
@@ -296,11 +295,18 @@ class DevolucionController extends Controller
             // pero manda lo que se escriba: a veces se devuelve de más por el
             // disgusto, o de menos porque se cobra un arreglo.
             'monto'    => 'required_if:decision,reembolso|nullable|numeric|min:0',
+            // Cómo se le devolvió: en efectivo baja la caja de la tienda; por
+            // transferencia, no. Sin el dato (pantallas viejas) se asume
+            // efectivo, que es lo que se hacía antes (todo salía de la caja).
+            'metodo'     => 'nullable|in:efectivo,transferencia,otro',
+            'referencia' => 'nullable|string|max:100',
         ], [
             'monto.required_if' => 'Falta cuánto se le devuelve al cliente.',
         ]);
 
-        DB::transaction(function () use ($devolucion, $data, $usuario) {
+        // Si la orden queda cancelada, los avisos van después de guardar.
+        $referenciaCancelada = null;
+        DB::transaction(function () use ($devolucion, $data, $usuario, &$referenciaCancelada) {
             $devolucion->fill([
                 'decidido_por_id' => $usuario->id,
                 'decidido_at'     => now(),
@@ -313,11 +319,32 @@ class DevolucionController extends Controller
                 'cambio_otro'  => $this->cambiarPorOtro($devolucion, $usuario),
                 'reentregar'   => $this->reentregar($devolucion, $usuario),
                 'quitar'       => $this->quitarDeLaOrden($devolucion, (bool) ($data['vuelve_al_stock'] ?? true), $usuario),
-                default        => $this->reembolsar($devolucion, (float) $data['monto'], $usuario),
+                default        => $referenciaCancelada = $this->reembolsar(
+                    $devolucion, (float) $data['monto'], $data['metodo'] ?? 'efectivo', $data['referencia'] ?? null, $usuario,
+                ),
             };
 
             $devolucion->save();
         });
+
+        if ($data['decision'] === 'reembolso') {
+            $orden = Orden::with('cliente')->find($devolucion->orden_id);
+            if ($orden) {
+                \App\Services\AvisoFacturacion::reembolso($orden, (float) $data['monto'], $usuario, 'Devolución');
+                if ($referenciaCancelada !== null) {
+                    \App\Services\CancelacionDeOrden::avisar($orden, $usuario, $referenciaCancelada);
+                } elseif ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $usuario->id) {
+                    NotificacionService::crear(
+                        'orden_editada',
+                        'Se le devolvió plata a un cliente',
+                        "Orden {$orden->referencia} — " . ($orden->cliente?->nombre ?? 'cliente') . ': se devolvieron $'
+                            . number_format((float) $data['monto'], 0, ',', '.') . " por un producto que volvió ({$usuario->nombre}). Ya no se cobra.",
+                        ['orden_id' => $orden->id],
+                        $orden->vendedor_id,
+                    );
+                }
+            }
+        }
 
         return response()->json($this->comoJson($devolucion->fresh([
             'orden.cliente', 'item', 'reportadoPor', 'decididoPor',
@@ -645,74 +672,110 @@ class DevolucionController extends Controller
     /**
      * Se cancela esa pieza y se le devuelve la plata.
      *
-     * La salida queda en la caja de la tienda que vendió: si no, el día que se
-     * cuadre la caja va a faltar esa plata sin nada que lo explique.
+     * Igual que el reembolso de una garantía (GarantiaService::recibirDevolucion):
+     *  - Lo devuelto deja de cobrarse (entero queda como rastro, `devuelto_en`;
+     *    si era parte, esas unidades salen del renglón), el total baja y la
+     *    comisión y la meta lo siguen. Una comisión ya pagada no se toca.
+     *  - La plata sale como un pago NEGATIVO `tipo = reembolso`: en efectivo baja
+     *    la caja de la tienda por donde entró; por transferencia, no. El saldo,
+     *    la cartera y el 50 % de la comisión lo cuentan solos.
+     *
+     * Antes solo se anotaba un egreso en la caja: la orden seguía valiendo lo
+     * mismo, el producto seguía en ella y la comisión y la meta seguían
+     * contando la plata devuelta (revisión del 2026-11-17: se devolvían $2 M
+     * de una cama y la orden quedaba entregada por $2,6 M).
+     *
+     * Si no le queda nada vivo, la orden se cancela por la puerta de siempre
+     * (CancelacionDeOrden). Si le queda algo, queda en el estado que le toca
+     * por lo que falta entregar (antes se cerraba como entregada aunque hubiera
+     * algo en el taller).
+     *
+     * @return string|null la referencia de la orden si quedó cancelada
      */
-    private function reembolsar(Devolucion $devolucion, float $monto, Usuario $usuario): void
+    private function reembolsar(Devolucion $devolucion, float $monto, string $metodo, ?string $referencia, Usuario $usuario): ?string
     {
-        $orden = $devolucion->orden;
+        $orden = Orden::lockForUpdate()->findOrFail($devolucion->orden_id);
+        $item  = \App\Models\OrdenItem::lockForUpdate()->find($devolucion->orden_item_id);
+        $n     = (int) $devolucion->cantidad;
 
-        if ($monto > 0) {
-            $movimiento = CajaMovimiento::create([
-                'tienda_id'   => $orden->tienda_id,
-                'usuario_id'  => $usuario->id,
-                'tipo'        => 'egreso',
-                'monto'       => $monto,
-                'concepto'    => 'Devolución orden ' . $orden->referencia,
-                'descripcion' => trim(($devolucion->item?->nombre_custom ?: ($devolucion->item?->producto?->nombre ?? 'Producto')) . ' — ' . $devolucion->motivo),
-            ]);
-            $devolucion->caja_movimiento_id = $movimiento->id;
+        if (! $item || ! $item->estaVivo()) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                'message' => 'Ese producto ya no está en la orden.',
+            ], 422));
         }
 
-        $devolucion->monto_devuelto = $monto;
-        $devolucion->estado         = 'reembolsada';
+        // No se devuelve plata que no entró: lo que el cliente ha pagado.
+        $pagado = $orden->totalPagado();
+        if ($monto > $pagado + 0.01) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                'message' => 'No se puede devolver más de lo que el cliente ha pagado ($' . number_format($pagado, 0, ',', '.') . ').',
+            ], 422));
+        }
 
         // El producto que volvió está roto: sale del inventario. Devolverlo a
         // disponible lo pondría a la venta otra vez, y lo que hay en la bodega
         // es justo la pieza que el cliente no quiso.
         $this->sacarDeInventario($devolucion, $usuario);
 
-        // Si ya no queda nada vivo por entregar, la orden se acabó. Si el
-        // cliente se quedó con lo demás, la orden se cierra como entregada:
-        // esa parte sí llegó.
-        $orden->update(['estado' => $this->quedaAlgoPorEntregar($orden, $devolucion) ? 'entregado' : 'cancelado']);
+        // Si se fabricaba, el taller ya no lo hace.
+        if ($n >= (int) $item->cantidad && $item->vaAlTaller()) {
+            $ids = Produccion::where('orden_item_id', $item->id)
+                ->whereNotIn('estado', ['cancelado', 'entregado'])->pluck('id');
+            Produccion::whereIn('id', $ids)->update(['estado' => 'cancelado']);
+            \App\Models\ProduccionPaso::whereIn('produccion_id', $ids)
+                ->whereIn('estado', ['pendiente', 'en_proceso'])->update(['estado' => 'cancelado']);
+        }
+
+        // Deja de cobrarse.
+        if ($n >= (int) $item->cantidad) {
+            $item->update(['devuelto_en' => $devolucion->fecha, 'motivo_devolucion' => $devolucion->motivo]);
+        } else {
+            $item->update([
+                'cantidad'           => (int) $item->cantidad - $n,
+                'cantidad_entregada' => min((int) $item->cantidad_entregada, (int) $item->cantidad - $n),
+            ]);
+        }
+
+        $orden->refresh();
+        $orden->recalcularTotal();
+        \App\Http\Controllers\ComisionController::sincronizarValorOrden($orden->fresh());
+
+        // La plata.
+        if ($monto > 0) {
+            \App\Models\Pago::create([
+                'orden_id'    => $orden->id,
+                'vendedor_id' => $orden->vendedor_id,
+                'tienda_id'   => $orden->tienda_id,
+                'tipo'        => 'reembolso',
+                'monto'       => -$monto,
+                'metodo'      => $metodo,
+                'referencia'  => $referencia,
+                'notas'       => "Reembolso por la devolución #{$devolucion->id} — lo registró {$usuario->nombre}",
+            ]);
+        }
+
+        $devolucion->monto_devuelto = $monto;
+        $devolucion->estado         = 'reembolsada';
 
         $this->anotarEnLaOrden(
             $devolucion,
             $usuario,
-            'se cancela y se le devuelven $' . number_format($monto, 0, ',', '.'),
+            'se cancela y se le devuelven $' . number_format($monto, 0, ',', '.') . " ({$metodo}). Deja de cobrarse",
         );
-    }
 
-    /**
-     * ¿Le queda al cliente algo de esta orden?
-     *
-     * Se mira ítem por ítem cuánto se devolvió y se reembolsó: si de todo lo
-     * que llevaba la orden no quedó nada en la casa, la venta no existió.
-     *
-     * La devolución que se está resolviendo se cuenta aparte porque todavía no
-     * está guardada: leer solo la base la dejaría fuera, y la última devolución
-     * —justo la que vacía la orden— nunca alcanzaría a cancelarla.
-     */
-    private function quedaAlgoPorEntregar(Orden $orden, Devolucion $enCurso): bool
-    {
-        $devueltas = Devolucion::where('orden_id', $orden->id)
-            ->where('estado', 'reembolsada')
-            ->where('id', '!=', $enCurso->id)
-            ->get()
-            ->groupBy('orden_item_id')
-            ->map(fn ($g) => $g->sum('cantidad'));
+        $orden->refresh()->load('items.produccion');
+        if ($orden->items->filter->estaVivo()->isEmpty()) {
+            // La venta no existió: por la misma puerta que el botón Cancelar.
+            $ref = $orden->referencia;
+            \App\Services\CancelacionDeOrden::alCancelar($orden, $usuario);
+            $orden->update(['estado' => 'cancelado']);
 
-        $devueltas[$enCurso->orden_item_id] =
-            ($devueltas[$enCurso->orden_item_id] ?? 0) + (int) $enCurso->cantidad;
-
-        foreach ($orden->items as $item) {
-            if ((int) $item->cantidad > (int) ($devueltas[$item->id] ?? 0)) {
-                return true;
-            }
+            return $ref;
         }
 
-        return false;
+        $this->ponerOrdenAlDia($devolucion);
+
+        return null;
     }
 
     /** Lo devuelto de catálogo sale del stock: está roto, no se puede revender. */

@@ -6023,6 +6023,18 @@ class ComisionController extends Controller
             $montoComision = 0;
         }
 
+        // Una venta cancelada no se comisiona. Al cancelar se borran sus
+        // comisiones sin pagar, pero si alguna quedó (una orden cancelada por
+        // otro camino, o de antes de que todos pasaran por CancelacionDeOrden)
+        // no puede salir lista para pagar: en el 5 % directo, las
+        // restauraciones o la parte del almacén se pagaba igual (revisión del
+        // 2026-11-17). Lo ya pagado se queda como estaba.
+        $ordenSinVenta = $c->orden && $c->estado !== 'pagada'
+            && in_array($c->orden->estado, self::ESTADOS_SIN_VENTA, true);
+        if ($ordenSinVenta) {
+            $montoComision = 0;
+        }
+
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
         $valorOrdenEntera = (float) ($c->orden?->valor_total ?? $c->valor_orden);
         // Cuánto de esta orden entró por datáfono. Sale de los pagos que ya
@@ -6061,6 +6073,8 @@ class ComisionController extends Controller
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
+        } elseif ($ordenSinVenta) {
+            // Cancelada: no se paga, se queda pendiente en $0.
         } elseif ($usaLibro) {
             // Por libro, la parte del equipo también espera a la meta: sin
             // pool no hay nada que soltarle a nadie.

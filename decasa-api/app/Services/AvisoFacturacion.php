@@ -161,6 +161,32 @@ class AvisoFacturacion
         }
     }
 
+    /**
+     * Se le devolvió plata al cliente por algo que dejó de venderse: la venta
+     * bajó y, si ya estaba facturada, hay que hacer la nota crédito.
+     */
+    public static function reembolso(Orden $orden, float $monto, Usuario $autor, string $origen): void
+    {
+        if ($monto <= 0) return;
+
+        $orden->loadMissing('cliente');
+        $cliente = $orden->cliente?->nombre ?? 'cliente';
+        $fe      = self::facturaElectronicaHecha($orden);
+
+        foreach (self::destinatarios($autor->id) as $d) {
+            NotificacionService::crear(
+                tipo:      'cambio_dinero',
+                titulo:    "{$origen}: se devolvió plata — {$orden->referencia}",
+                mensaje:   "Orden {$orden->referencia} de {$cliente}: {$autor->nombre} registró un reembolso de " . self::pesos($monto)
+                         . ' y lo devuelto ya no se cobra.'
+                         . ($fe ? ' Tiene factura electrónica ' . ($fe->numero ?: '') . ': revisa la nota crédito en Alegra.' : ''),
+                datos:     ['orden_id' => $orden->id, 'reembolso' => $monto, 'factura_electronica' => (bool) $fe],
+                usuarioId: $d->id,
+                urgente:   (bool) $fe,
+            );
+        }
+    }
+
     /** La factura electrónica ya hecha de la orden completa, si tiene. */
     public static function facturaElectronicaHecha(Orden $orden): ?\App\Models\FacturaElectronica
     {

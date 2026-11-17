@@ -317,6 +317,23 @@ class AuditoriaComisionesTest extends TestCase
         $this->assertEqualsWithDelta(420_168, $this->pagadoPorPersona()['Marta'], 2, 'Marta queda con lo que ya cobró');
     }
 
+    /**
+     * Una orden que quedó cancelada sin pasar por el botón Cancelar (antes:
+     * devolverle la plata de todo en Devoluciones) dejaba su comisión viva.
+     * En una tienda sin meta (5 % directo) esa comisión salía lista para
+     * pagar (revisión del 2026-11-17).
+     */
+    public function test_una_comision_sin_pagar_de_una_orden_cancelada_no_se_paga(): void
+    {
+        $orden = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
+        $this->assertEqualsWithDelta(500_000, $this->loQueEstaListo()['Manuela'] ?? 0, 1, 'antes de cancelar: su 5 %');
+
+        DB::table('ordenes')->where('id', $orden->id)->update(['estado' => 'cancelado']);
+
+        $this->assertArrayNotHasKey('Manuela', $this->loQueEstaListo(), 'cancelada: no sale lista');
+        $this->assertEqualsWithDelta(0, $this->loQueCobraCadaUno()['Manuela'] ?? 0, 1, 'y vale $0');
+    }
+
     // ─────────── C2: renglón de "no vendió" repetido ───────────
 
     public function test_la_base_no_deja_abrir_dos_renglones_de_no_vendio(): void

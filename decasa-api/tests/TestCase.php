@@ -191,6 +191,22 @@ abstract class TestCase extends BaseTestCase
         $agregar('devoluciones',   'recoger_con_entrega', fn ($t) => $t->boolean('recoger_con_entrega')->default(false));
         $agregar('devoluciones',   'recibido_at',        fn ($t) => $t->timestamp('recibido_at')->nullable());
         $agregar('devoluciones',   'recibido_por_id',    fn ($t) => $t->unsignedBigInteger('recibido_por_id')->nullable());
+
+        // Cancelar una orden por cualquier camino (CancelacionDeOrden): cierra
+        // los pasos del taller y las consultas de costo pendientes.
+        if (! \Illuminate\Support\Facades\Schema::hasTable('produccion_pasos')) {
+            \Illuminate\Support\Facades\Schema::create('produccion_pasos', function ($t) {
+                $t->id(); $t->unsignedBigInteger('produccion_id'); $t->string('estado')->default('pendiente');
+                $t->string('nombre')->nullable(); $t->timestamps();
+            });
+        }
+        if (! \Illuminate\Support\Facades\Schema::hasTable('consultas_costo')) {
+            \Illuminate\Support\Facades\Schema::create('consultas_costo', function ($t) {
+                $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->string('estado')->nullable();
+                $t->unsignedBigInteger('asignado_a_id')->nullable(); $t->timestamp('respondido_at')->nullable();
+                $t->timestamps();
+            });
+        }
     }
 
     /**

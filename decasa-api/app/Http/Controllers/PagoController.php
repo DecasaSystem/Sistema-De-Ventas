@@ -350,12 +350,12 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        // El reembolso de una garantía es un pago negativo atado a la garantía
-        // (y a lo que volvió al inventario): corregirlo como un abono lo
-        // descuadraría. Se habla con un supervisor.
+        // Un reembolso (de una garantía o de una devolución) es un pago
+        // negativo atado a lo que dejó de venderse: corregirlo como un abono
+        // lo descuadraría. Se habla con un supervisor.
         if ($pago->tipo === 'reembolso') {
             return response()->json([
-                'message' => 'Este es el reembolso de una garantía: no se edita desde aquí. Pídeselo a un supervisor.',
+                'message' => 'Este es un reembolso (garantía o devolución): no se edita desde aquí. Pídeselo a un supervisor.',
             ], 422);
         }
 

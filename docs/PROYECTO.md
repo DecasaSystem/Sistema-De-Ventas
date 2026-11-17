@@ -480,6 +480,17 @@ Pedido del dueño (2026-10-28): "saber cuánto trabajo tenemos y vamos a tener".
 - **Devoluciones** (`DevolucionController`): lo que vuelve dañado queda
   `pendiente`; producción decide `a_produccion`, `reembolsada`, `cambio`,
   `cambio_mismo`. La orden queda `devuelto` mientras tanto.
+  **Devolver la plata** (`reembolsada`, desde 2026-11-17) funciona como el reembolso de
+  garantía: lo devuelto deja de cobrarse (`devuelto_en` o baja la cantidad), el total
+  y la comisión se recalculan, la plata queda como pago negativo `tipo=reembolso` con
+  su medio (efectivo baja la caja; transferencia no; antes era un egreso de caja sin
+  tocar la orden), no se devuelve más de lo pagado y se avisa a facturación. Si no le
+  queda nada vivo, la orden se cancela por `Services/CancelacionDeOrden`.
+- **Cancelar una orden** por cualquier camino (botón Cancelar, último reembolso de
+  Devoluciones o de Garantía) pasa por `Services/CancelacionDeOrden`: taller, tela,
+  numeración, comisiones sin pagar y avisos. El inventario lo suelta cada camino. Y
+  `ComisionController::enriquecer` da $0 (sin "lista") a toda comisión sin pagar de una
+  orden cancelada.
 - PDFs: acta de entrega, orden de entrega, hoja de ruta.
 
 ### 6.9b Garantías (posventa)

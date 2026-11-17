@@ -183,29 +183,101 @@ class DevolucionTest extends TestCase
         $this->assertSame(1, Produccion::where('orden_item_id', $mesas->id)->count());
     }
 
-    public function test_el_reembolso_sale_de_la_caja_de_la_tienda(): void
+    /** El cliente pagó la orden (sin plata recibida no hay qué devolver). */
+    private function pagar(Orden $orden, float $monto, string $metodo = 'efectivo'): void
     {
-        [$orden, $cama] = $this->ordenConTresCosas();
+        \App\Models\Pago::create(['orden_id' => $orden->id, 'tienda_id' => 1, 'tipo' => 'abono',
+                                  'monto' => $monto, 'metodo' => $metodo]);
+    }
+
+    /**
+     * Antes solo se anotaba un egreso en la caja y la orden seguía valiendo lo
+     * mismo: se devolvían $2 M de la cama y quedaba entregada por $2,6 M, con
+     * la comisión y la meta contando la plata devuelta (revisión 2026-11-17).
+     * Ahora es como el reembolso de una garantía.
+     */
+    public function test_el_reembolso_saca_el_producto_de_la_venta_y_queda_como_pago_negativo(): void
+    {
+        [$orden, $cama, $mesas] = $this->ordenConTresCosas();
+        $mesas->update(['cantidad_entregada' => 2]);   // las mesas sí se quedaron
+        $this->pagar($orden, 2600000);
         $devolucion = $this->devolver($orden, $cama);
 
         $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$devolucion->id}/decidir", [
             'decision' => 'reembolso', 'monto' => 2000000, 'notas' => 'No quiso esperar el arreglo',
         ])->assertOk()->assertJsonPath('estado', 'reembolsada');
 
-        $mov = CajaMovimiento::first();
-        $this->assertSame('egreso', $mov->tipo);
-        $this->assertEquals(2000000, $mov->monto);
-        $this->assertSame(1, (int) $mov->tienda_id);
-        $this->assertStringContainsString('FV2-100', $mov->concepto);
+        $o = $orden->fresh();
+        $this->assertEquals(600000, (float) $o->valor_total, 'la venta baja a las mesas');
+        $this->assertNotNull($cama->fresh()->devuelto_en, 'la cama ya no es de la orden');
+
+        $pago = \App\Models\Pago::where('tipo', 'reembolso')->first();
+        $this->assertEquals(-2000000, (float) $pago->monto);
+        $this->assertSame('efectivo', $pago->metodo);
+        $this->assertSame(1, (int) $pago->tienda_id);
+        $this->assertEquals(600000, $o->totalPagado(), 'el saldo queda al día');
+        // La caja la baja el pago en efectivo: un egreso aparte la bajaría dos veces.
+        $this->assertSame(0, CajaMovimiento::count());
 
         // Al cliente le quedaron las dos mesas, así que la orden no se cancela:
         // esa parte sí llegó a la casa.
-        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertSame('entregado', $o->estado);
+    }
+
+    public function test_por_transferencia_no_sale_de_la_caja(): void
+    {
+        [$orden, $cama] = $this->ordenConTresCosas();
+        $this->pagar($orden, 2600000, 'transferencia');
+        $devolucion = $this->devolver($orden, $cama);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$devolucion->id}/decidir", [
+            'decision' => 'reembolso', 'monto' => 2000000, 'metodo' => 'transferencia', 'referencia' => 'TR-55',
+        ])->assertOk();
+
+        $pago = \App\Models\Pago::where('tipo', 'reembolso')->first();
+        $this->assertSame('transferencia', $pago->metodo);
+        $this->assertSame('TR-55', $pago->referencia);
+        $this->assertSame(0, \App\Models\Pago::entraACaja()->where('tipo', 'reembolso')->count());
+    }
+
+    public function test_no_se_devuelve_mas_de_lo_que_pago(): void
+    {
+        [$orden, $cama] = $this->ordenConTresCosas();
+        $this->pagar($orden, 500000);
+        $devolucion = $this->devolver($orden, $cama);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$devolucion->id}/decidir",
+            ['decision' => 'reembolso', 'monto' => 2000000])->assertStatus(422);
+
+        $this->assertSame('pendiente', $devolucion->fresh()->estado);
+        $this->assertEquals(2600000, (float) $orden->fresh()->valor_total, 'no se tocó nada');
+        $this->assertSame(0, \App\Models\Pago::where('tipo', 'reembolso')->count());
+    }
+
+    /** Antes quedaba "entregado" con la cama en el taller: Despacho ya no la mostraba. */
+    public function test_con_algo_en_el_taller_la_orden_no_se_cierra_como_entregada(): void
+    {
+        [$orden, $cama, $mesas] = $this->ordenConTresCosas();
+        Produccion::where('orden_item_id', $cama->id)->update(['estado' => 'en_proceso', 'fecha_real' => null]);
+        $this->pagar($orden, 1000000);
+        $d = $this->devolver($orden, $mesas, 2);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$d->id}/decidir",
+            ['decision' => 'reembolso', 'monto' => 600000])->assertOk();
+
+        $this->assertSame('en_produccion', $orden->fresh()->estado);
+        $this->assertEquals(2000000, (float) $orden->fresh()->valor_total);
     }
 
     public function test_si_no_queda_nada_en_la_casa_la_orden_se_cancela(): void
     {
         [$orden, $cama, $mesas] = $this->ordenConTresCosas();
+        $this->pagar($orden, 2600000);
+        $vendedora = Usuario::create(['nombre' => 'Paola', 'email' => 'p@d.com', 'password' => 'x',
+                                      'rol' => 'vendedor', 'created_at' => now()]);
+        $orden->update(['vendedor_id' => $vendedora->id]);
+        DB::table('comisiones')->insert(['orden_id' => $orden->id, 'vendedor_id' => $vendedora->id, 'tienda_id' => 1,
+            'mes_venta' => '2026-08', 'valor_orden' => 2600000, 'estado' => 'pendiente']);
 
         $d1 = $this->devolver($orden, $cama, 1);
         $d2 = $this->devolver($orden, $mesas, 2);
@@ -213,19 +285,25 @@ class DevolucionTest extends TestCase
         $jefa = $this->jefa();
         $this->actingAs($jefa)->postJson("/api/devoluciones/{$d1->id}/decidir",
             ['decision' => 'reembolso', 'monto' => 2000000])->assertOk();
-        // Con la primera todavía le quedaban las mesas.
-        $this->assertSame('entregado', $orden->fresh()->estado);
+        // Con la primera todavía queda la devolución de las mesas sin decidir.
+        $this->assertSame('devuelto', $orden->fresh()->estado);
 
         $this->actingAs($jefa)->postJson("/api/devoluciones/{$d2->id}/decidir",
             ['decision' => 'reembolso', 'monto' => 600000])->assertOk();
 
-        // Ya no le quedó nada: la venta no existió.
+        // Ya no le quedó nada: la venta no existió. Y se cancela por la puerta
+        // de siempre: la comisión pendiente se borra y la vendedora se entera.
         $this->assertSame('cancelado', $orden->fresh()->estado);
+        $this->assertSame(0, DB::table('comisiones')->where('orden_id', $orden->id)->count());
+        $this->assertTrue(DB::table('notificaciones')->where('usuario_id', $vendedora->id)
+            ->where('titulo', 'Tu orden fue cancelada')->exists());
+        $this->assertEquals(0, $orden->fresh()->totalPagado());
     }
 
     public function test_lo_devuelto_de_catalogo_no_vuelve_a_estar_a_la_venta(): void
     {
         [$orden, , $mesas] = $this->ordenConTresCosas();
+        $this->pagar($orden, 600000);
         $devolucion = $this->devolver($orden, $mesas, 2);
 
         $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$devolucion->id}/decidir",
@@ -276,6 +354,7 @@ class DevolucionTest extends TestCase
     public function test_una_devolucion_no_se_resuelve_dos_veces(): void
     {
         [$orden, $cama] = $this->ordenConTresCosas();
+        $this->pagar($orden, 2600000);
         $devolucion = $this->devolver($orden, $cama);
         $jefa = $this->jefa();
 
@@ -286,7 +365,7 @@ class DevolucionTest extends TestCase
         $this->actingAs($jefa)->postJson("/api/devoluciones/{$devolucion->id}/decidir",
             ['decision' => 'reembolso', 'monto' => 2000000])->assertStatus(422);
 
-        $this->assertSame(1, CajaMovimiento::count());
+        $this->assertSame(1, \App\Models\Pago::where('tipo', 'reembolso')->count());
     }
 
     public function test_el_reembolso_exige_decir_cuanto(): void

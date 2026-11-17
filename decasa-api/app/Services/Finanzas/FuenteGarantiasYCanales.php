@@ -46,7 +46,10 @@ class FuenteGarantiasYCanales
         $totales = DB::query()->selectRaw(
             "(SELECT COUNT(*) FROM garantias WHERE estado NOT IN ('resuelta', 'no_procede')) AS abiertas, "
             . ($conReembolsos
-                ? "(SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE tipo = 'reembolso' AND created_at BETWEEN ? AND ?) AS reembolsos"
+                // Solo los de garantía: desde el 2026-11-17 una devolución
+                // (lo que volvió en el camión) también deja un pago `reembolso`.
+                ? "(SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE tipo = 'reembolso' AND created_at BETWEEN ? AND ?"
+                  . " AND id IN (SELECT pago_reembolso_id FROM garantias WHERE pago_reembolso_id IS NOT NULL)) AS reembolsos"
                 : '0 AS reembolsos'),
             $conReembolsos ? [$rIni, $rFin] : []
         )->first();

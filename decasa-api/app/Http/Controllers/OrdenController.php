@@ -3805,46 +3805,10 @@ class OrdenController extends Controller
                 }
             }
 
-            // Cancelar registros de producción activos al cancelar la orden
+            // Taller, tela, numeración y comisiones: lo mismo por cualquier
+            // camino que cancele una orden (ver CancelacionDeOrden).
             if ($estadoNuevo === 'cancelado' && $estadoAnterior !== 'cancelado') {
-                // Avisar al taller ANTES de cancelarlas: después ya no se ve que
-                // había trabajo vivo, y es justo lo que hay que decirle.
-                \App\Services\AvisoProduccion::ordenCancelada($orden, $usuario);
-
-                $produccionIds = \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
-                    ->whereNotIn('estado', ['cancelado', 'entregado'])
-                    ->pluck('id');
-
-                \App\Models\Produccion::whereIn('id', $produccionIds)->update(['estado' => 'cancelado']);
-
-                // La tela que tenían apartada esas piezas vuelve a estar
-                // libre. Aquí a mano: la cancelación de arriba va por consulta
-                // directa y no pasa por el modelo de Produccion.
-                ConsumoTelas::liberarOrden($orden);
-
-                // Y sus pasos: si solo se cancela la pieza, el paso en curso
-                // seguía saliéndole al ebanista en "Mis pasos" (lo mismo que
-                // ya hace ProduccionController al cancelar desde el tablero).
-                \App\Models\ProduccionPaso::whereIn('produccion_id', $produccionIds)
-                    ->whereIn('estado', ['pendiente', 'en_proceso'])
-                    ->update(['estado' => 'cancelado']);
-
-                // Sin hueco: la orden suelta su número y las siguientes bajan
-                // uno. Va aquí adentro para que, si algo falla, no quede el
-                // talonario corrido por una orden que siguió viva.
-                if ($correrNumeracion) {
-                    $corridas = \App\Services\NumeracionOrdenes::liberarYCorrer($orden, $usuario);
-                }
-
-                // Una venta cancelada no se comisiona. Quedaba la comisión viva
-                // y pagable, y peor: su valor le seguía sumando a la meta de la
-                // tienda, empujándola sobre el objetivo con una venta que no
-                // existió y destrabando el pool de todo el equipo.
-                // Las ya pagadas no se tocan: esa plata ya salió y borrar el
-                // registro sería perder el rastro de que se pagó.
-                Comision::where('orden_id', $orden->id)
-                    ->where('estado', '!=', 'pagada')
-                    ->delete();
+                $corridas = \App\Services\CancelacionDeOrden::alCancelar($orden, $usuario, $correrNumeracion);
             }
 
             // La entrega ya dejó la orden como le toca. Si no hubo entrega
@@ -3969,32 +3933,7 @@ class OrdenController extends Controller
         }
 
         if ($estadoNuevo === 'cancelado') {
-            NotificacionService::crear(
-                'cancelado',
-                'Tu orden fue cancelada',
-                "Orden {$referenciaOriginal} — {$ordenFresh->cliente->nombre} fue cancelada",
-                ['orden_id' => $orden->id],
-                $orden->vendedor_id,
-            );
-
-            // Cerrar consultas de costo pendientes para evitar que queden huérfanas
-            \App\Models\ConsultaCosto::where('orden_id', $orden->id)
-                ->where('estado', 'pendiente')
-                ->each(function ($consulta) use ($orden, $ordenFresh) {
-                    $consulta->update(['estado' => 'respondida', 'respondido_at' => now()]);
-                    // Notificar al cotizador que la orden fue cancelada
-                    NotificacionService::crear(
-                        'cancelado',
-                        'Cotización cancelada',
-                        "La orden {$referenciaOriginal} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
-                        ['consulta_id' => $consulta->id, 'orden_id' => $orden->id],
-                        $consulta->asignado_a_id,
-                    );
-                });
-
-            // Una orden cancelada que ya recibió plata deja un dinero sin destino:
-            // facturación tiene que decidir si se devuelve o queda a favor.
-            \App\Services\AvisoFacturacion::ordenCanceladaConPagos($ordenFresh, $usuario);
+            \App\Services\CancelacionDeOrden::avisar($ordenFresh, $usuario, $referenciaOriginal);
         }
 
         // Notificar inventario cuando se entrega o cancela
