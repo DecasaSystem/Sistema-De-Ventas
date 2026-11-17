@@ -1,6 +1,6 @@
 // Subir este número en cada cambio del service worker: al activarse borra los
 // caches con otro nombre, y así no queda nada de la versión anterior.
-const CACHE_NAME = 'decasa-v20'
+const CACHE_NAME = 'decasa-v21'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -14,7 +14,10 @@ self.addEventListener('push', (event) => {
     icon: '/logo_192x192.png',
     badge: '/logo_192x192.png',
     data: { datos: payload.datos ?? {}, tipo: payload.tipo ?? null },
-    vibrate: [200, 100, 200],
+    vibrate: payload.urgente ? [300, 100, 300, 100, 300] : [200, 100, 200],
+    // Urgente (lo arrobaron, cambio de plata, lo que la persona escogió): se
+    // queda en la pantalla hasta que la toquen o la quiten.
+    requireInteraction: !!payload.urgente,
   }
   event.waitUntil(Promise.all([
     self.registration.showNotification(title, options),

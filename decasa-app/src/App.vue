@@ -286,7 +286,8 @@ const abonosNoLeidos = computed(() =>
   notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
 )
 
-// Las urgentes son cambios de plata: van primero y en rojo, para que no queden
+// Las urgentes (cambios de plata, cuando a uno lo arroban en un chat y lo que cada
+// quien escogió en su Perfil) van primero y en rojo, para que no queden
 // enterradas debajo de veinte avisos de "asignar fecha de entrega".
 const urgentesNoLeidas = computed(() =>
   notif.items.filter(n => !n.leida && n.urgente).length
@@ -832,6 +833,7 @@ function formatFecha(iso) {
                     v-if="notif.noLeidas > 0"
                     @click="notif.leerTodas()"
                     class="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                    title="Las urgentes se quedan hasta que las abras o las borres"
                   >
                     Leer todas
                   </button>
@@ -857,7 +859,7 @@ function formatFecha(iso) {
                 :class="[
                   'flex items-start border-b transition-colors',
                   n.urgente && !n.leida
-                    ? 'bg-red-50 border-red-100'
+                    ? 'aviso-urgente'
                     : (!n.leida ? 'bg-blue-50 border-gray-50' : 'border-gray-50 hover:bg-gray-50'),
                 ]"
               >

@@ -71,7 +71,10 @@ class NotificacionController extends Controller
     public function marcarTodas(Request $request)
     {
         $u = $request->user();
-        $q = Notificacion::where('leida', false)->where('usuario_id', $u->id);
+        // Las urgentes no: se quedan fijadas hasta que la persona las abre o
+        // las borra una por una (pedido del usuario, 2026-11-17). Con "leer
+        // todas" se despegaban sin haberlas visto.
+        $q = Notificacion::where('leida', false)->where('usuario_id', $u->id)->where('urgente', false);
 
         $q->update(['leida' => true]);
         return response()->json(['ok' => true]);

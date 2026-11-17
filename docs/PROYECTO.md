@@ -1151,6 +1151,20 @@ mismo editor (`EditorCampos.vue`) sirve para todas:
 + evento `NuevaNotificacion` + job `EnviarPush` (Web Push a todos los aparatos
 suscritos). Sin `usuarioId` va a todos los supervisores activos.
 
+**Avisos urgentes** (2026-11-17): un aviso `urgente` sale en rojo, fijado arriba
+de la campana hasta que la persona lo abre o lo borra ("Leer todas" no los
+toca), y en el celular se queda en la pantalla (`requireInteraction` en
+`sw.js`). Son urgentes: (1) lo que el código ya manda así (cambios de plata,
+garantías y devoluciones por decidir…), siempre; (2) cuando a alguien lo
+arroban en el chat de una orden (clave `menciones`, de fábrica prendida); y
+(3) los grupos de `TiposNotificacion` que cada uno escoja en Perfil → Avisos
+urgentes, o un supervisor en Trabajadores → Notificaciones. Se guarda en
+`usuarios.notificaciones_urgentes` (null = solo `menciones`). Solo se ofrece lo
+que la persona tiene prendido y le puede llegar por su rol
+(`TiposNotificacion::leLlegaPorRol`, más lo que ya le ha llegado alguna vez).
+Ver el chat de la orden en pantalla (`POST /ordenes/{id}/mensajes/visto`) deja
+leídos sus avisos de ese chat. Tests en `AvisosUrgentesTest`.
+
 **Agenda** (`routes/console.php`, hora Bogotá; corre con el bucle
 `schedule:run` del contenedor):
 

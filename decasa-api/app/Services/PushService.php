@@ -10,7 +10,7 @@ class PushService
 {
     public const VENCE_EN_SEGUNDOS = 2 * 24 * 60 * 60;
 
-    public static function enviarAUsuario(int $usuarioId, string $titulo, string $cuerpo, array $datos = [], ?string $tipo = null): void
+    public static function enviarAUsuario(int $usuarioId, string $titulo, string $cuerpo, array $datos = [], ?string $tipo = null, bool $urgente = false): void
     {
         $suscripciones = PushSubscription::where('usuario_id', $usuarioId)->get();
         if ($suscripciones->isEmpty()) return;
@@ -36,6 +36,8 @@ class PushService
             'body'  => $cuerpo,
             'datos' => $datos,
             'tipo'  => $tipo,
+            // La urgente se queda en la pantalla hasta que la toquen (sw.js).
+            'urgente' => $urgente,
         ]);
 
         $expiradas = [];

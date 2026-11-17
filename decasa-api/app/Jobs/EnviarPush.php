@@ -27,16 +27,26 @@ class EnviarPush implements ShouldQueue
 
     public $tries = 2;
 
+    /**
+     * Propiedad con valor por defecto y no promovida: los trabajos que ya
+     * estaban en la cola al subir esto no la traen y quedan en false (una
+     * promovida quedaría sin iniciar y el trabajo fallaría al leerla).
+     */
+    private bool $urgente = false;
+
     public function __construct(
         private int $usuarioId,
         private string $titulo,
         private string $cuerpo,
         private array $datos = [],
         private ?string $tipo = null,
-    ) {}
+        bool $urgente = false,
+    ) {
+        $this->urgente = $urgente;
+    }
 
     public function handle(): void
     {
-        PushService::enviarAUsuario($this->usuarioId, $this->titulo, $this->cuerpo, $this->datos, $this->tipo);
+        PushService::enviarAUsuario($this->usuarioId, $this->titulo, $this->cuerpo, $this->datos, $this->tipo, $this->urgente);
     }
 }

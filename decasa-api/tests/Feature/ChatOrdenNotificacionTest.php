@@ -96,7 +96,8 @@ class ChatOrdenNotificacionTest extends TestCase
             && $this->del($job, 'titulo') === 'Te preguntaron en la orden FV2-150'
             && $this->del($job, 'cuerpo') === 'Paola: ¿Se le puede hacer 10% al cliente?'
             && $this->del($job, 'tipo') === 'orden_mensaje'
-            && $this->del($job, 'datos') === ['orden_id' => $this->orden->id]);
+            && $this->del($job, 'datos')['orden_id'] === $this->orden->id
+            && $this->del($job, 'urgente') === true);
 
         // Al supervisor que nadie arrobó no se le molesta, ni a quien escribe
         $this->assertSame(0, Notificacion::where('usuario_id', $this->otroSup->id)->count());

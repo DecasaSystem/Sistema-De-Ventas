@@ -54,6 +54,12 @@ class NotificacionService
         ?int   $usuarioId,
         bool   $urgente = false,
     ): Notificacion {
+        // Además de lo que el código ya manda urgente, lo que la persona
+        // escogió que le llegue así (Perfil o Trabajadores). Solo agrega.
+        if (! $urgente && $usuarioId && TiposNotificacion::esUrgente($usuarioId, $tipo)) {
+            $urgente = true;
+        }
+
         $n = Notificacion::create([
             'usuario_id' => $usuarioId,
             'tipo'       => $tipo,
@@ -75,7 +81,9 @@ class NotificacionService
                 // HTTP por cada teléfono, y hacerla aquí dejaba esperando a
                 // quien acaba de pulsar el botón. Lo que le importa a él ya
                 // está guardado; el aviso sale detrás.
-                EnviarPush::dispatch($usuarioId, $titulo, $mensaje, $datos, $tipo);
+                // La urgente se queda en la pantalla del celular hasta que la
+                // toquen o la quiten (requireInteraction en sw.js).
+                EnviarPush::dispatch($usuarioId, $titulo, $mensaje, $datos, $tipo, $urgente);
             } catch (\Throwable $e) {
                 \Log::warning("No se pudo encolar el push para el usuario {$usuarioId}", [
                     'tipo'  => $tipo,

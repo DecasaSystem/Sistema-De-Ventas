@@ -116,6 +116,8 @@ class Usuario extends Authenticatable
             'notif_stock'         => 'boolean',
             // Grupos de avisos apagados (App\Support\TiposNotificacion).
             'notificaciones_apagadas' => 'array',
+            // Grupos que le llegan como urgentes (null = de fábrica: menciones).
+            'notificaciones_urgentes' => 'array',
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'acceso_reglas_comision' => 'boolean',
