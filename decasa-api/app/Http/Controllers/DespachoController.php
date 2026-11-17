@@ -1287,6 +1287,10 @@ class DespachoController extends Controller
             'foto_pago'     => 'nullable|file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
             'fotos_pago'    => 'nullable|array|max:6',
             'fotos_pago.*'  => 'file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
+            // Los de cada pago cuando son varios: `fotos_pago_por_pago[i][]`.
+            'fotos_pago_por_pago'     => 'nullable|array|max:4',
+            'fotos_pago_por_pago.*'   => 'array|max:6',
+            'fotos_pago_por_pago.*.*' => 'file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
             'foto_anexo'    => 'nullable|file|mimes:jpg,jpeg,png,gif,bmp,webp,pdf|max:10240',
 
             // ── Acta de satisfacción ─────────────────────────────────────────
@@ -1360,7 +1364,27 @@ class DespachoController extends Controller
             ? array_values((array) $request->file('fotos_pago'))
             : ($request->hasFile('foto_pago') ? [$request->file('foto_pago')] : []);
 
-        if ($traePago && ! $archivosPago) {
+        // ── Comprobantes de cada pago ────────────────────────────────────────
+        // Con varios medios cada uno trae el suyo (`fotos_pago_por_pago[i][]`,
+        // i = el renglón de `pagos`): el voucher del datáfono va con el pago
+        // de tarjeta y el pantallazo con el de transferencia, y si después
+        // corrigen uno se sabe cuál es cuál (usuario, 2026-11-17). Los
+        // `fotos_pago[]` sueltos siguen valiendo para todos (pantalla vieja).
+        $porPago   = (array) $request->file('fotos_pago_por_pago', []);
+        $archivosDe = [];
+        foreach ($pagosLista as $k => $p) {
+            $suyos = array_values(array_filter((array) ($porPago[$p['i'] ?? $k] ?? [])));
+            $archivosDe[$k] = $suyos ?: $archivosPago;
+        }
+        $faltan = collect($pagosLista)->keys()->filter(fn ($k) => ! $archivosDe[$k]);
+        if ($traePago && $pagosLista && $faltan->isNotEmpty()) {
+            $cuales = $faltan->map(fn ($k) => $pagosLista[$k]['metodo'] . ' $' . number_format($pagosLista[$k]['monto'], 0, ',', '.'))->join(', ', ' y ');
+            return response()->json([
+                'message' => count($pagosLista) > 1 ? "Falta el comprobante de: {$cuales}." : 'Falta la foto del comprobante de pago.',
+                'errors'  => ['foto_pago' => ['Sube la foto o el pantallazo del comprobante de cada pago.']],
+            ], 422);
+        }
+        if ($traePago && ! $pagosLista && ! $archivosPago) {
             return response()->json([
                 'message' => 'Falta la foto del comprobante de pago.',
                 'errors'  => ['foto_pago' => ['Sube la foto o el pantallazo del comprobante.']],
@@ -1446,7 +1470,21 @@ class DespachoController extends Controller
         if ($fotoUnica) {
             $fotosProducto[] = ['orden_item_id' => null, 'url' => $this->subirCloudinary($fotoUnica)];
         }
-        $fotosPago    = array_map(fn ($f) => $this->subirCloudinary($f), $archivosPago);
+        // Cada archivo se sube una sola vez aunque lo usen varios pagos (los
+        // sueltos de la pantalla vieja).
+        $subidos = [];
+        $subir = function ($f) use (&$subidos) {
+            $clave = spl_object_id($f);
+            return $subidos[$clave] ??= $this->subirCloudinary($f);
+        };
+        $fotosDePago = [];
+        foreach ($archivosDe as $k => $archivos) {
+            $fotosDePago[$k] = array_map($subir, $archivos);
+        }
+        // La entrega guarda todos los comprobantes juntos (miniaturas y acta).
+        $fotosPago    = $fotosDePago
+            ? array_values(array_unique(array_merge(...array_values($fotosDePago))))
+            : array_map($subir, $archivosPago);
         $fotoPago     = $fotosPago[0] ?? null;
         $fotoAnexo    = $request->hasFile('foto_anexo')
             ? $this->subirCloudinary($request->file('foto_anexo'))
@@ -1464,7 +1502,7 @@ class DespachoController extends Controller
         // regla de cierre). Si todo volvió en el camión, la de la devolución.
         $fotoProducto = $fotosProducto[0]['url'] ?? $fotoDevolucion;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $pagosLista, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $pagosLista, $fotosDePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
             $item->update([
                 'foto_producto'  => $fotoProducto,
                 'fotos_producto' => $fotosProducto ?: null,
@@ -1488,9 +1526,9 @@ class DespachoController extends Controller
             // Qué se llevó el cliente en esta entrega, y qué volvió.
             EntregaService::fijarLineas($item, $lineas, $devueltoPorItem);
 
-            // Un pago por cada medio. Los comprobantes son los de la entrega
-            // (el voucher del datáfono y la foto del efectivo van juntos).
-            foreach ($traePago ? $pagosLista : [] as $p) {
+            // Un pago por cada medio, cada uno con su comprobante.
+            foreach ($traePago ? $pagosLista : [] as $k => $p) {
+                $suyas = $fotosDePago[$k] ?? $fotosPago;
                 Pago::create([
                     'orden_id'    => $item->orden_id,
                     'vendedor_id' => $usuario->id,
@@ -1501,8 +1539,8 @@ class DespachoController extends Controller
                     'monto'       => $p['monto'],
                     'metodo'      => $p['metodo'],
                     'referencia'  => $p['referencia'] ?? null,
-                    'comprobante_url'   => $fotoPago,
-                    'comprobante_fotos' => $fotosPago ?: null,
+                    'comprobante_url'   => $suyas[0] ?? null,
+                    'comprobante_fotos' => $suyas ?: null,
                 ]);
             }
 
@@ -1582,8 +1620,8 @@ class DespachoController extends Controller
 
         $metodos = ['efectivo', 'transferencia', 'tarjeta', 'addi', 'otro'];
         $limpios = [];
-        foreach ($lista as $p) {
-            $monto = is_array($p) && is_numeric($p['monto'] ?? null) ? round((float) $p['monto'], 2) : null;
+        foreach (array_values($lista) as $i => $p) {
+            $monto =is_array($p) && is_numeric($p['monto'] ?? null) ? round((float) $p['monto'], 2) : null;
             if ($monto === null || $monto < 0) {
                 return response()->json(['message' => 'Uno de los pagos no tiene un monto válido.', 'errors' => ['pagos' => ['Revisa los montos.']]], 422);
             }
@@ -1592,7 +1630,9 @@ class DespachoController extends Controller
                 return response()->json(['message' => 'Escoge con qué se paga cada parte.', 'errors' => ['pagos' => ['Falta el método de un pago.']]], 422);
             }
             $ref = trim((string) ($p['referencia'] ?? ''));
-            $limpios[] = ['monto' => $monto, 'metodo' => $p['metodo'], 'referencia' => $ref !== '' ? mb_substr($ref, 0, 100) : null];
+            // `i`: el renglón como llegó, para casar sus comprobantes
+            // (`fotos_pago_por_pago[i][]`) aunque se salten los de $0.
+            $limpios[] = ['i' => $i, 'monto' => $monto, 'metodo' => $p['metodo'], 'referencia' => $ref !== '' ? mb_substr($ref, 0, 100) : null];
         }
 
         if (count($limpios) > 4) {

@@ -1438,7 +1438,7 @@ Decisiones del dueño del 2026-10-08:
   como el anticipo partido de Nueva orden. No cambió ninguna regla de plata: comisiones ya restaba
   el 5,5 % sumando pago por pago lo de tarjeta/Addi; el descuento condicionado se pierde si **un**
   medio es tarjeta/Addi/otro (misma regla del anticipo). En la última entrega el último renglón es
-  "lo que falta". Los comprobantes son los mismos para todos los pagos de esa entrega. Con lista,
+  "lo que falta". **Cada pago lleva su propio comprobante** (`fotos_pago_por_pago[i][]`, obligatorio en cada uno; usuario, mismo día, subido a `main`); los `fotos_pago[]` sueltos valen para todos (app vieja). Con lista,
   la app manda `metodo=varios` para que un servidor viejo dé 422 en vez de guardar un solo medio:
   **subir backend y front juntos**. Tests al final de la sección "Varias formas de pago" de
   `EntregaPorProductoTest`.

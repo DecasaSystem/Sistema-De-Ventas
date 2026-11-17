@@ -488,6 +488,44 @@ class EntregaPorProductoTest extends TestCase
         $this->assertEquals(1600000, $orden->pagadoConTarjeta());
     }
 
+    /** Entrega con un pago partido y los comprobantes que se le digan, sin agregar nada más. */
+    private function entregarConComprobantes(Usuario $v, Orden $orden, array $pagos, array $comprobantes)
+    {
+        $entregaId = $this->actingAs($v)->postJson('/api/despacho/entrega-directa', ['orden_id' => $orden->id])
+            ->assertStatus(201)->json('despacho_item_id');
+
+        return $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba',
+            'pagos'  => json_encode($pagos),
+            'monto'  => array_sum(array_column($pagos, 'monto')),
+            'metodo' => 'varios',
+            'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+            'fotos_pago_por_pago' => $comprobantes,
+        ], ['Accept' => 'application/json']);
+    }
+
+    public function test_cada_pago_lleva_su_propio_comprobante(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->ordenLista($v);
+        $pagos = [['monto' => 1600000, 'metodo' => 'tarjeta'], ['monto' => 1600000, 'metodo' => 'transferencia']];
+
+        // Solo el voucher de la tarjeta: falta el de la transferencia.
+        $this->entregarConComprobantes($v, $orden, $pagos, [0 => [UploadedFile::fake()->image('voucher.jpg')]])
+            ->assertStatus(422)->assertJsonFragment(['message' => 'Falta el comprobante de: transferencia $1.600.000.']);
+        $this->assertSame(0, $orden->pagos()->count());
+
+        $this->entregarConComprobantes($v, $orden, $pagos, [
+            0 => [UploadedFile::fake()->image('voucher.jpg')],
+            1 => [UploadedFile::fake()->image('pantallazo1.jpg'), UploadedFile::fake()->image('pantallazo2.jpg')],
+        ])->assertOk();
+
+        $pagosGuardados = $orden->pagos()->orderBy('id')->get();
+        $this->assertCount(1, $pagosGuardados[0]->comprobante_fotos);
+        $this->assertCount(2, $pagosGuardados[1]->comprobante_fotos);
+        $this->assertNotNull($pagosGuardados[1]->comprobante_url);
+    }
+
     public function test_varios_pagos_no_pueden_pasar_del_saldo(): void
     {
         $v     = $this->vendedora();
