@@ -1398,6 +1398,24 @@ Decisiones del dueño del 2026-10-08:
   estar a mitad de una orden). El service worker no cachea `/version.json`. Cuando algo nuevo
   "no le sale" a una persona, lo primero es preguntar si recargó.
 
+- **Producto cancelado en Producción trababa la orden** (2026-11-17, **subido a `main`** ese día, trae
+  **migración** `2026_11_16_000001_cantidad_cancelada_en_orden_items`, solo agrega). Cancelar una
+  pieza solo cambiaba su estado: el producto seguía en la orden "por entregar" y cobrándose; lo
+  demás se entregaba pero la orden quedaba en "entrega parcial" para siempre. Además la
+  sincronización de `ProduccionController` contaba la pieza cancelada como "no lista" y dejaba la
+  orden en `en_produccion`. **Decisiones del usuario:** el producto que el cliente ya no quiere
+  **deja de cobrarse** (sale como en el "quitar" de devoluciones: `devuelto_en` + `recalcularTotal`
+  + `sincronizarValorOrden`, lo pagado de más queda a favor) y **al cancelar se pregunta cada vez**
+  (`que_pasa`: `sale_de_la_orden` | `solo_fabricacion`, que es lo de antes: estaba en la tienda y
+  se corrige en Editar orden). Se puede **descancelar** (`POST /produccion/{id}/descancelar`: la
+  pieza vuelve a `pendiente` y, si salió, vuelve a la orden y a cobrarse; `cantidad_cancelada`
+  dice cuántas) y una pieza cancelada a la manera vieja se saca con
+  `POST /produccion/{id}/quitar-de-la-orden` (para destrabar las órdenes que ya están así).
+  Regla en `Services/CancelarProductoDeLaOrden`. Por defecto mío (**falta confirmar**): lo hace un
+  supervisor o quien maneja Producción (cambia el total), no el vendedor; si se suelta un mueble
+  de tienda que iba a retapizar, vuelve a quedar libre en el inventario. Tests al final de
+  `CancelarProduccionTest`.
+
 - **Revisión de seguridad** (2026-11-14, **subido a `main`** ese día, sin migración; tests en
   `RevisionSeguridadTest`). Cerrado: (1) **todos los canales en tiempo real son privados**
   (`new PrivateChannel`, reglas en `routes/channels.php`, permiso en `POST /api/broadcasting/auth`

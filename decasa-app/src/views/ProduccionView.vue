@@ -18,7 +18,7 @@ import {
   TableCellsIcon,
   ArchiveBoxIcon,
 } from '@heroicons/vue/24/outline'
-import { getProduccion, updateProduccion } from '@/api/produccion'
+import { getProduccion, updateProduccion, descancelarProduccion, quitarProduccionDeLaOrden } from '@/api/produccion'
 import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
 import { formatoDuracion } from '@/utils/duracion'
 import { exportarExcel } from '@/utils/exportarExcel'
@@ -89,6 +89,50 @@ const produccionSeleccionada = ref(null)
 const nuevoEstado = ref('')
 const motivoRetraso = ref('')
 const modalLoading = ref(false)
+
+// Cancelar una pieza de una orden: se pregunta qué pasa con el producto
+// (usuario, 2026-11-17). "sale_de_la_orden" = el cliente ya no lo quiere, deja
+// de cobrarse; "solo_fabricacion" = sigue en la orden (estaba en la tienda).
+const quePasaAlCancelar = ref('')
+const cancelaConOrden = computed(() =>
+  nuevoEstado.value === 'cancelado'
+  && produccionSeleccionada.value?.estado !== 'cancelado'
+  && !!produccionSeleccionada.value?.orden_item_id
+)
+
+// Una pieza ya cancelada: descancelar (el cliente la vuelve a querer) o, si se
+// canceló antes de que se preguntara, sacarla de la orden para cerrarla.
+const accionCancelada = ref(null) // id de la pieza mientras se guarda
+function productoSigueEnLaOrden(p) {
+  const item = p.orden_item
+  return !!item && !item.devuelto_en && (item.cantidad_entregada ?? 0) < (item.cantidad ?? 0)
+}
+async function descancelarPieza(p) {
+  if (!confirm('¿Descancelar? La pieza vuelve al taller como pendiente y, si había salido de la orden, vuelve a cobrarse.')) return
+  accionCancelada.value = p.id
+  try {
+    await descancelarProduccion(p.id)
+    toast.success('Descancelada: vuelve al taller.')
+    await fetchProduccion()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo descancelar.')
+  } finally {
+    accionCancelada.value = null
+  }
+}
+async function quitarPiezaDeLaOrden(p) {
+  if (!confirm('¿El cliente ya no lo quiere? Sale de la orden y deja de cobrarse; lo pagado de más queda a favor. Se puede descancelar después.')) return
+  accionCancelada.value = p.id
+  try {
+    await quitarProduccionDeLaOrden(p.id)
+    toast.success('Quitado de la orden: ya no se cobra.')
+    await fetchProduccion()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo quitar de la orden.')
+  } finally {
+    accionCancelada.value = null
+  }
+}
 
 // Pasos de producción (para cuando se cambia a en_proceso)
 // Los procesos los mantiene el taller desde el boton "Procesos"
@@ -416,6 +460,7 @@ function openModal(p) {
   produccionSeleccionada.value = p
   nuevoEstado.value = p.estado
   motivoRetraso.value = ''
+  quePasaAlCancelar.value = ''
   pasosSeleccionados.value = []
   // Si ya tiene pasos, pre-cargarlos
   if (p.pasos && p.pasos.length > 0) {
@@ -437,10 +482,15 @@ async function guardarEstado() {
     toast.error('Debes seleccionar al menos un proceso de producción.')
     return
   }
+  if (cancelaConOrden.value && !quePasaAlCancelar.value) {
+    toast.error('Escoge qué pasa con el producto en la orden.')
+    return
+  }
 
   modalLoading.value = true
   try {
     const data = { estado: nuevoEstado.value }
+    if (cancelaConOrden.value) data.que_pasa = quePasaAlCancelar.value
     if (motivoRetraso.value.trim()) {
       data.motivo_retraso = motivoRetraso.value.trim()
     }
@@ -1020,6 +1070,30 @@ onUnmounted(() => {
             >{{ diasInfo(p).texto }}</span>
             <span v-else-if="p.estado === 'entregado'" class="text-gray-400 italic">Entregado</span>
           </div>
+          <!-- Pieza cancelada: si salió de la orden se dice, y se puede
+               descancelar o, si sigue esperándose, sacarla de la orden. -->
+          <template v-if="p.estado === 'cancelado' && (auth.isSupervisor || auth.gestionaProduccion) && !modoElegir">
+            <p v-if="p.orden_item?.cantidad_cancelada > 0" class="mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-2 py-1">
+              Salió de la orden: ya no se cobra.
+            </p>
+            <div class="flex gap-1.5 mt-2">
+              <button
+                @click.stop="descancelarPieza(p)"
+                :disabled="accionCancelada === p.id"
+                class="flex-1 text-blue-600 text-xs font-medium text-center py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors disabled:opacity-50"
+              >
+                Descancelar
+              </button>
+              <button
+                v-if="productoSigueEnLaOrden(p) && !(p.orden_item?.cantidad_cancelada > 0)"
+                @click.stop="quitarPiezaDeLaOrden(p)"
+                :disabled="accionCancelada === p.id"
+                class="flex-1 text-red-600 text-xs font-medium text-center py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Quitar de la orden
+              </button>
+            </div>
+          </template>
           <button
             v-if="auth.gestionaProduccion && !modoElegir && (!['entregado', 'cancelado', 'en_reserva'].includes(p.estado) || entregadoSinSalir(p))"
             @click.stop="openModal(p)"
@@ -1130,6 +1204,29 @@ onUnmounted(() => {
               <option value="entregado">Entregado</option>
               <option value="cancelado">Cancelado</option>
             </select>
+          </div>
+
+          <!-- Cancelar una pieza de una orden: ¿qué pasa con el producto? -->
+          <div v-if="cancelaConOrden" class="space-y-2">
+            <p class="text-sm font-medium text-gray-700">¿Qué pasa con el producto en la orden? <span class="text-red-500">*</span></p>
+            <button
+              type="button"
+              @click="quePasaAlCancelar = 'sale_de_la_orden'"
+              :class="['w-full text-left px-3 py-2.5 rounded-xl border-2 transition-all',
+                quePasaAlCancelar === 'sale_de_la_orden' ? 'border-blue-500 bg-white' : 'border-gray-200 bg-white hover:border-gray-300']"
+            >
+              <p class="text-sm font-semibold text-gray-800">El cliente ya no lo quiere</p>
+              <p class="text-xs text-gray-500">Sale de la orden y deja de cobrarse. Lo pagado de más queda a favor. Lo demás se entrega y la orden se cierra.</p>
+            </button>
+            <button
+              type="button"
+              @click="quePasaAlCancelar = 'solo_fabricacion'"
+              :class="['w-full text-left px-3 py-2.5 rounded-xl border-2 transition-all',
+                quePasaAlCancelar === 'solo_fabricacion' ? 'border-blue-500 bg-white' : 'border-gray-200 bg-white hover:border-gray-300']"
+            >
+              <p class="text-sm font-semibold text-gray-800">Solo se cancela la fabricación</p>
+              <p class="text-xs text-gray-500">El producto sigue en la orden y se sigue cobrando (por ejemplo, estaba en la tienda: cámbialo en Editar orden).</p>
+            </button>
           </div>
 
           <!-- Selector de pasos (solo cuando se elige "en_proceso") -->

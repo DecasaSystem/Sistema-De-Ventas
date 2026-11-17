@@ -686,6 +686,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Fabricar contra stock: crea una producción para la Reserva de Fábrica.
     Route::post('/produccion/producir', [ProduccionController::class, 'producir']);
     Route::patch('/produccion/{id}', [ProduccionController::class, 'update'])->whereNumber('id');
+    // Cancelado que el cliente vuelve a querer, y cancelado que sale de la orden (2026-11-17).
+    Route::post('/produccion/{id}/descancelar',        [ProduccionController::class, 'descancelar'])->whereNumber('id');
+    Route::post('/produccion/{id}/quitar-de-la-orden', [ProduccionController::class, 'quitarDeLaOrden'])->whereNumber('id');
 
     // Carga de trabajo: órdenes por entregar, piezas sin arrancar, cola de
     // cada paso. Solo lee (ver App\Services\CargaDeTrabajo).

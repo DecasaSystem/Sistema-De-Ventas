@@ -265,4 +265,108 @@ class CancelarProduccionTest extends TestCase
         $this->assertNull(Produccion::find($prod->id));
         $this->assertSame(0, ProduccionPaso::where('produccion_id', $prod->id)->count());
     }
+
+    // ── El cliente ya no lo quiere (usuario, 2026-11-17) ─────────────────────
+    //
+    // Antes, cancelar una pieza dejaba el producto en la orden como "por
+    // entregar" y cobrándose: lo demás se entregaba, pero la orden quedaba en
+    // "entrega parcial" para siempre y el saldo seguía contándolo. Decisión del
+    // usuario: deja de cobrarse, y se puede descancelar.
+
+    /** Lo de las pruebas viejas + lo que toca la salida de la orden. */
+    private function conEsquemaParaQuitar(): void
+    {
+        $this->completarEsquemaDeEntregas();
+        if (! Schema::hasTable('orden_mensajes')) {
+            Schema::create('orden_mensajes', function (Blueprint $t) {
+                $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+                $t->text('mensaje')->nullable(); $t->string('imagen_url')->nullable(); $t->json('imagenes')->nullable();
+                $t->timestamps();
+            });
+        }
+    }
+
+    public function test_el_cliente_ya_no_lo_quiere_sale_de_la_orden_y_la_orden_se_cierra(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, $item, $prod] = $this->piezaEnProceso();
+        // El otro mueble ya se le entregó: solo faltaba el que se cancela.
+        OrdenItem::where('orden_id', $orden->id)->where('id', '!=', $item->id)->update(['cantidad_entregada' => 1]);
+
+        $this->actingAs($this->jefe())
+            ->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado', 'que_pasa' => 'sale_de_la_orden'])
+            ->assertOk();
+
+        $item->refresh();
+        $this->assertNotNull($item->devuelto_en, 'Sale de la orden.');
+        $this->assertSame(1, (int) $item->cantidad_cancelada);
+        // Deja de cobrarse: solo queda el mueble que sí recibió.
+        $this->assertEquals(300000, (float) $orden->fresh()->valor_total);
+        // Ya no le falta nada: la orden se cierra.
+        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertSame('cancelado', $prod->fresh()->estado);
+    }
+
+    public function test_solo_la_fabricacion_deja_el_producto_en_la_orden(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, $item, $prod] = $this->piezaEnProceso();
+
+        $this->actingAs($this->jefe())
+            ->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado', 'que_pasa' => 'solo_fabricacion'])
+            ->assertOk();
+
+        $this->assertNull($item->fresh()->devuelto_en);
+        $this->assertEquals(1200000, (float) $orden->fresh()->valor_total);
+    }
+
+    public function test_descancelar_lo_devuelve_a_la_orden_y_al_taller(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, $item, $prod] = $this->piezaEnProceso();
+        $jefe = $this->jefe();
+
+        $this->actingAs($jefe)
+            ->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado', 'que_pasa' => 'sale_de_la_orden'])
+            ->assertOk();
+        $this->assertEquals(300000, (float) $orden->fresh()->valor_total);
+
+        // El cliente cambió de opinión.
+        $this->actingAs($jefe)->postJson("/api/produccion/{$prod->id}/descancelar")->assertOk();
+
+        $item->refresh();
+        $this->assertNull($item->devuelto_en);
+        $this->assertSame(0, (int) $item->cantidad_cancelada);
+        $this->assertEquals(1200000, (float) $orden->fresh()->valor_total, 'Vuelve a cobrarse.');
+        $this->assertSame('pendiente', $prod->fresh()->estado, 'Vuelve al taller.');
+        $this->assertSame('en_produccion', $orden->fresh()->estado);
+    }
+
+    /** Las órdenes que ya quedaron trabadas: la pieza se canceló antes de que se preguntara. */
+    public function test_una_pieza_ya_cancelada_se_puede_sacar_de_la_orden(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, $item, $prod] = $this->piezaEnProceso();
+        OrdenItem::where('orden_id', $orden->id)->where('id', '!=', $item->id)->update(['cantidad_entregada' => 1]);
+        $jefe = $this->jefe();
+
+        $this->actingAs($jefe)->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado'])->assertOk();
+        $this->assertNotSame('entregado', $orden->fresh()->estado, 'Así quedaba trabada.');
+
+        $this->actingAs($jefe)->postJson("/api/produccion/{$prod->id}/quitar-de-la-orden")->assertOk();
+
+        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertEquals(300000, (float) $orden->fresh()->valor_total);
+    }
+
+    public function test_un_vendedor_no_saca_un_producto_de_la_orden_solo(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [, , $prod] = $this->piezaEnProceso();
+        $vendedor = Usuario::create(['nombre' => 'Vende', 'email' => 'v@d.com', 'password' => 'x', 'rol' => 'vendedor',
+                                     've_todas_ordenes' => false, 'created_at' => now()]);
+
+        $this->actingAs($vendedor)->postJson("/api/produccion/{$prod->id}/quitar-de-la-orden")->assertStatus(403);
+        $this->actingAs($vendedor)->postJson("/api/produccion/{$prod->id}/descancelar")->assertStatus(403);
+    }
 }

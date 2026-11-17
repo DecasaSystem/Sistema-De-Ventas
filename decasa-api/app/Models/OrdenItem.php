@@ -32,6 +32,7 @@ class OrdenItem extends Model
         'cantidad',
         // Cuántas ya se entregaron. Caché de entrega_lineas: ver EntregaLinea.
         'cantidad_entregada',
+        'cantidad_cancelada',
         // De lo entregado, cuántas unidades volvieron a estar por entregar
         // porque se están arreglando por garantía. Ya salieron del inventario
         // la primera vez: al volverlas a entregar no se descuenta otra vez.
@@ -85,6 +86,7 @@ class OrdenItem extends Model
             'piezas_juego'          => 'integer',
             'es_pieza_suelta'       => 'boolean',
             'cantidad_entregada'    => 'integer',
+            'cantidad_cancelada'    => 'integer',
             'cantidad_en_garantia'  => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',

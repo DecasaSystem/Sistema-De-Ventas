@@ -10,6 +10,12 @@ export const producir = (data) =>
 export const updateProduccion = (id, data) =>
   api.patch(`/produccion/${id}`, data)
 
+// Pieza cancelada que el cliente vuelve a querer / que sale de la orden.
+export const descancelarProduccion = (id) =>
+  api.post(`/produccion/${id}/descancelar`)
+export const quitarProduccionDeLaOrden = (id) =>
+  api.post(`/produccion/${id}/quitar-de-la-orden`)
+
 // Pasos de producción (ebanista / tapicero)
 export const getMisPasos = () =>
   api.get('/produccion/mis-pasos')

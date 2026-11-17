@@ -2701,11 +2701,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <!-- Devuelto para cambio: se queda a la vista porque es parte de lo
                que paso con esta orden, pero ya no se cobra ni se entrega. -->
           <div v-if="item.devuelto_en" class="mb-1.5 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-            <span class="text-xs">🔁</span>
+            <span class="text-xs">{{ item.cantidad_cancelada > 0 ? '✕' : '🔁' }}</span>
             <p class="text-[11px] text-amber-900 leading-snug">
-              <span class="font-semibold">Devuelto el {{ formatFecha(item.devuelto_en) }}</span>
+              <!-- Cancelado en Producción porque el cliente ya no lo quiere
+                   (2026-11-17): se descancela desde Producción. -->
+              <span class="font-semibold">{{ item.cantidad_cancelada > 0 ? 'Cancelado' : 'Devuelto' }} el {{ formatFecha(item.devuelto_en) }}</span>
               — ya no se cobra.
-              <span v-if="item.motivo_devolucion" class="block text-amber-700">{{ item.motivo_devolucion }}</span>
+              <span v-if="item.cantidad_cancelada > 0" class="block text-amber-700">El cliente ya no lo quiere. Si cambia de opinión, se descancela en Producción.</span>
+              <span v-else-if="item.motivo_devolucion" class="block text-amber-700">{{ item.motivo_devolucion }}</span>
             </p>
           </div>
           <div class="flex justify-between items-start gap-3">

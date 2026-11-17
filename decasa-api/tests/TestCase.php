@@ -53,6 +53,7 @@ abstract class TestCase extends BaseTestCase
         $agregar('orden_items',    'tela_por_definir',   fn ($t) => $t->boolean('tela_por_definir')->default(false));
         $agregar('orden_items',    'devuelto_en',        fn ($t) => $t->date('devuelto_en')->nullable());
         $agregar('orden_items',    'motivo_devolucion',  fn ($t) => $t->text('motivo_devolucion')->nullable());
+        $agregar('orden_items',    'cantidad_cancelada', fn ($t) => $t->unsignedInteger('cantidad_cancelada')->default(0));
         $agregar('ordenes',        'descuento_total',    fn ($t) => $t->decimal('descuento_total', 15, 2)->default(0));
         $agregar('ordenes',        'descuento_condicionado', fn ($t) => $t->decimal('descuento_condicionado', 15, 2)->default(0));
         $agregar('ordenes',        'descuento_condicionado_pct', fn ($t) => $t->decimal('descuento_condicionado_pct', 5, 2)->nullable());

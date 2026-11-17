@@ -636,9 +636,15 @@ class ProduccionController extends Controller
 
             $orden->loadMissing('items.produccion');
 
+            // Lo cancelado y lo que ya salió de la orden no se espera: antes una
+            // pieza cancelada contaba como "no lista" y la orden se quedaba en
+            // producción para siempre aunque todo lo demás estuviera listo
+            // (usuario, 2026-11-17).
             $estadosProduccion = $orden->items
+                ->filter->estaVivo()
                 ->map(fn($item) => optional($item->produccion)->estado)
-                ->filter();
+                ->filter()
+                ->reject(fn ($e) => $e === 'cancelado');
 
             if ($estadosProduccion->isNotEmpty()) {
                 // "Entregado" es de la orden entera —también lo de catálogo—,
@@ -790,6 +796,62 @@ class ProduccionController extends Controller
     }
 
     /**
+     * POST /api/produccion/{id}/descancelar
+     *
+     * El cliente cambió de opinión y lo vuelve a querer (usuario, 2026-11-17):
+     * la pieza vuelve al taller como pendiente y, si había salido de la orden,
+     * vuelve a ella y a cobrarse.
+     */
+    public function descancelar(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if ($usuario->rol !== 'supervisor' && ! $usuario->gestionaProduccion()) {
+            return response()->json(['message' => 'Descancelar lo hace un supervisor o quien maneja Producción.'], 403);
+        }
+
+        $produccion = Produccion::findOrFail($id);
+        \App\Services\CancelarProductoDeLaOrden::descancelar($produccion, $usuario);
+
+        try {
+            event(new ProduccionActualizada($produccion->id, $produccion->ordenItem?->orden_id, 'pendiente'));
+        } catch (\Throwable) {}
+
+        return response()->json($produccion->fresh());
+    }
+
+    /**
+     * POST /api/produccion/{id}/quitar-de-la-orden
+     *
+     * Una pieza ya cancelada (por ejemplo, antes de que se preguntara qué
+     * pasaba con el producto) cuyo cliente ya no lo quiere: sale de la orden y
+     * deja de cobrarse. Así se destraban las órdenes que quedaron en "entrega
+     * parcial" esperando un producto que nunca iba a llegar.
+     */
+    public function quitarDeLaOrden(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if ($usuario->rol !== 'supervisor' && ! $usuario->gestionaProduccion()) {
+            return response()->json(['message' => 'Quitar un producto de la orden lo hace un supervisor o quien maneja Producción.'], 403);
+        }
+
+        $produccion = Produccion::with('ordenItem.orden')->findOrFail($id);
+        if ($produccion->estado !== 'cancelado' || ! $produccion->ordenItem) {
+            return response()->json(['message' => 'Solo se quita de la orden una pieza cancelada de una orden.'], 422);
+        }
+        if ($produccion->ordenItem->orden?->estado === 'cancelado') {
+            return response()->json(['message' => 'La orden ya está cancelada.'], 422);
+        }
+
+        \App\Services\CancelarProductoDeLaOrden::quitar($produccion->ordenItem, $usuario);
+
+        try {
+            event(new ProduccionActualizada($produccion->id, $produccion->ordenItem->orden_id, 'cancelado'));
+        } catch (\Throwable) {}
+
+        return response()->json($produccion->fresh());
+    }
+
+    /**
      * PATCH /api/produccion/{id}
      * Supervisor cambia estado. Si cambia a en_proceso, debe enviar los pasos.
      */
@@ -823,7 +885,24 @@ class ProduccionController extends Controller
             'pasos'          => 'nullable|array|min:1',
             'pasos.*.tipo_proceso' => 'required_with:pasos|exists:tipos_proceso,clave',
             'pasos.*.orden'        => 'required_with:pasos|integer|min:1',
+            // Al cancelar se pregunta (usuario, 2026-11-17): el cliente ya no lo
+            // quiere (sale de la orden y deja de cobrarse) o solo se cancela la
+            // fabricación (el producto sigue en la orden). Sin el dato, lo de
+            // siempre: solo la fabricación.
+            'que_pasa'       => 'nullable|in:sale_de_la_orden,solo_fabricacion',
         ]);
+
+        $saleDeLaOrden = $data['estado'] === 'cancelado'
+            && ($data['que_pasa'] ?? null) === 'sale_de_la_orden'
+            && $produccion->ordenItem;
+
+        // Quitar un producto cambia el total de la venta: lo decide quien
+        // maneja el taller o un supervisor, no el vendedor solo.
+        if ($saleDeLaOrden && $usuario->rol !== 'supervisor' && ! $usuario->gestionaProduccion()) {
+            return response()->json([
+                'message' => 'Quitar un producto de la orden lo hace un supervisor o quien maneja Producción.',
+            ], 403);
+        }
 
         // Arrancar una pieza es armarle el flujo de pasos, y eso lo decide quien
         // gestiona el taller. Antes se exigía ser supervisor, así que activarle
@@ -890,6 +969,17 @@ class ProduccionController extends Controller
                 ->update(['estado' => 'cancelado']);
         }
 
+        // El cliente ya no lo quiere: sale de la orden, deja de cobrarse y la
+        // orden queda al día (ver CancelarProductoDeLaOrden).
+        if ($saleDeLaOrden) {
+            \App\Services\CancelarProductoDeLaOrden::quitar($produccion->ordenItem, $usuario);
+            try {
+                event(new ProduccionActualizada($produccion->id, $produccion->ordenItem?->orden_id, 'cancelado'));
+            } catch (\Throwable) {}
+
+            return response()->json($produccion->fresh());
+        }
+
         // Si cambia a en_proceso: crear pasos. Las piezas para la Reserva no
         // llevan paso de despacho (no hay entrega).
         if ($data['estado'] === 'en_proceso' && ! empty($data['pasos'])) {
@@ -923,9 +1013,15 @@ class ProduccionController extends Controller
         if ($orden) {
             $orden->loadMissing('items.produccion');
 
+            // Lo cancelado y lo que ya salió de la orden no se espera: antes una
+            // pieza cancelada contaba como "no lista" y la orden se quedaba en
+            // producción para siempre aunque todo lo demás estuviera listo
+            // (usuario, 2026-11-17).
             $estadosProduccion = $orden->items
+                ->filter->estaVivo()
                 ->map(fn($item) => optional($item->produccion)->estado)
-                ->filter();
+                ->filter()
+                ->reject(fn ($e) => $e === 'cancelado');
 
             if ($estadosProduccion->isNotEmpty()) {
                 // Igual que arriba: entregado solo cuando TODO se entregó.
