@@ -1236,13 +1236,43 @@ class DespachoController extends Controller
         // El saldo se cobra cuando el cliente queda con TODO lo que compró.
         // En una entrega parcial todavía le falta recibir algo, así que el
         // pago es opcional: puede abonar, no se le exige.
+        // ── Con qué paga: uno o varios medios ────────────────────────────────
+        // Debe $1.000.000 y paga $500.000 con tarjeta y $500.000 en efectivo:
+        // llega `pagos` (JSON [{monto, metodo, referencia}]) y se guarda un
+        // pago por cada medio, igual que el anticipo partido de Nueva orden.
+        // Así comisiones le resta la franquicia solo a lo de tarjeta/Addi (lo
+        // suma pago por pago) y la caja ve cada medio por su lado. `monto` +
+        // `metodo` sueltos siguen sirviendo (un teléfono con la pantalla vieja).
+        $conLista = $request->filled('pagos');
+        $pagosLista = [];
+        if ($conLista) {
+            $pagosLista = $this->leerPagos($request);
+            if ($pagosLista instanceof \Illuminate\Http\JsonResponse) {
+                return $pagosLista;
+            }
+        }
+
         $esLaUltima   = $this->completaLaOrden($item->orden, $lineas, $devueltoPorItem);
         $requierePago = $saldoPendiente > 0.01 && $esLaUltima && ! $devuelveTodo;
-        $traePago     = $requierePago || ((float) $request->input('monto', 0) > 0);
+        $traePago     = $requierePago || ($conLista
+            ? count($pagosLista) > 0
+            : (float) $request->input('monto', 0) > 0);
+
+        if ($requierePago && $conLista && ! $pagosLista) {
+            return response()->json([
+                'message' => 'Falta el pago: es la última entrega y el cliente tiene saldo pendiente.',
+                'errors'  => ['pagos' => ['Escribe cuánto paga y con qué.']],
+            ], 422);
+        }
 
         $data = $request->validate([
-            'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
-            'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,addi,otro' : 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
+            'monto'         => ($requierePago && ! $conLista) ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
+            // Con la lista, la pantalla manda `metodo=varios`: un servidor viejo
+            // lo rechaza (422) en vez de guardar todo con un solo medio. Aquí
+            // se ignora: mandan los de la lista.
+            'metodo'        => $conLista ? 'nullable|string'
+                : ($traePago ? 'required|in:efectivo,transferencia,tarjeta,addi,otro' : 'nullable|in:efectivo,transferencia,tarjeta,addi,otro'),
+            'pagos'         => 'nullable|string',
             'referencia'    => 'nullable|string|max:100',
             // Fotos por producto: `fotos_producto[{orden_item_id}][]`, hasta 3
             // de cada uno. `foto_producto` (una sola para todo) queda para un
@@ -1278,6 +1308,16 @@ class DespachoController extends Controller
         ]);
 
         $conforme = $request->has('conforme') ? $request->boolean('conforme') : null;
+
+        // Un solo medio a la manera de antes: se vuelve una lista de uno.
+        if (! $conLista && $traePago && (float) ($data['monto'] ?? 0) > 0) {
+            $pagosLista = [[
+                'monto'      => round((float) $data['monto'], 2),
+                'metodo'     => $data['metodo'],
+                'referencia' => $data['referencia'] ?? null,
+            ]];
+        }
+        $montoCobrado = round(array_sum(array_column($pagosLista, 'monto')), 2);
 
         // ── Fotos de lo que se entrega, producto por producto ────────────────
         // Cada producto que se queda el cliente necesita al menos una foto: es
@@ -1354,10 +1394,15 @@ class DespachoController extends Controller
         // Si el cliente paga con tarjeta pierde el descuento por efectivo o
         // transferencia: hay que quitarlo ANTES de validar el monto, porque el
         // saldo a cobrar sube y con el saldo viejo se rechazaría el pago correcto.
+        // Con varios medios basta con que UNO sea tarjeta/Addi/otro para que el
+        // descuento se pierda: es la misma regla del anticipo partido en Nueva
+        // orden (la condición era pagar todo en efectivo o transferencia).
         $orden = $item->orden;
+        $metodoQueLoPierde = collect($pagosLista)->pluck('metodo')
+            ->first(fn ($m) => Orden::metodoPierdeDescuento($m));
         $pierdeDescuento = $traePago
             && $orden->tieneDescuentoCondicionadoVivo()
-            && Orden::metodoPierdeDescuento($data['metodo']);
+            && $metodoQueLoPierde !== null;
 
         if ($pierdeDescuento) {
             $saldoExigido = round($orden->valorSinDescuentoCondicionado() - $orden->totalPagado(), 2);
@@ -1365,9 +1410,11 @@ class DespachoController extends Controller
             // Con tarjeta no se puede cobrar menos: el descuento ya no aplica.
             // Solo en la última entrega: en una parcial es un abono y el
             // descuento se pierde igual, pero el saldo se cobra al final.
-            if ($requierePago && $data['monto'] < $saldoExigido - 0.01) {
+            if ($requierePago && $montoCobrado < $saldoExigido - 0.01) {
                 return response()->json([
-                    'message' => 'Al pagar con ' . $data['metodo'] . ' el descuento no aplica: debes cobrar '
+                    'message' => (count($pagosLista) > 1
+                            ? 'Una parte se paga con ' . $metodoQueLoPierde . ' y el descuento no aplica: entre todos los pagos debes cobrar '
+                            : 'Al pagar con ' . $metodoQueLoPierde . ' el descuento no aplica: debes cobrar ')
                         . '$' . number_format($saldoExigido, 0, ',', '.') . '.',
                     'descuento_condicionado' => [
                         'monto'               => (float) $orden->descuento_condicionado,
@@ -1377,15 +1424,16 @@ class DespachoController extends Controller
                 ], 422);
             }
 
-            DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
+            DescuentoCondicionadoService::quitar($orden, $usuario, $metodoQueLoPierde);
             $orden->refresh();
             $item->setRelation('orden', $orden);
             $saldoPendiente = $orden->saldoPendiente();
         }
 
-        if ($traePago && $data['monto'] > $saldoPendiente + 0.01) {
+        if ($traePago && $montoCobrado > $saldoPendiente + 0.01) {
             return response()->json([
-                'message' => "El monto ({$data['monto']}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
+                'message' => 'Lo cobrado ($' . number_format($montoCobrado, 0, ',', '.') . ') supera el saldo pendiente ($'
+                    . number_format(round($saldoPendiente, 2), 0, ',', '.') . ').',
             ], 422);
         }
 
@@ -1416,7 +1464,7 @@ class DespachoController extends Controller
         // regla de cierre). Si todo volvió en el camión, la de la devolución.
         $fotoProducto = $fotosProducto[0]['url'] ?? $fotoDevolucion;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $pagosLista, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
             $item->update([
                 'foto_producto'  => $fotoProducto,
                 'fotos_producto' => $fotosProducto ?: null,
@@ -1440,7 +1488,9 @@ class DespachoController extends Controller
             // Qué se llevó el cliente en esta entrega, y qué volvió.
             EntregaService::fijarLineas($item, $lineas, $devueltoPorItem);
 
-            if ($traePago && (float) $data['monto'] > 0) {
+            // Un pago por cada medio. Los comprobantes son los de la entrega
+            // (el voucher del datáfono y la foto del efectivo van juntos).
+            foreach ($traePago ? $pagosLista : [] as $p) {
                 Pago::create([
                     'orden_id'    => $item->orden_id,
                     'vendedor_id' => $usuario->id,
@@ -1448,9 +1498,9 @@ class DespachoController extends Controller
                     'despacho_item_id' => $item->id,
                     // En la última entrega es el saldo; en una parcial, un abono.
                     'tipo'        => $esLaUltima ? 'saldo_final' : 'abono',
-                    'monto'       => $data['monto'],
-                    'metodo'      => $data['metodo'],
-                    'referencia'  => $data['referencia'] ?? null,
+                    'monto'       => $p['monto'],
+                    'metodo'      => $p['metodo'],
+                    'referencia'  => $p['referencia'] ?? null,
                     'comprobante_url'   => $fotoPago,
                     'comprobante_fotos' => $fotosPago ?: null,
                 ]);
@@ -1511,6 +1561,45 @@ class DespachoController extends Controller
         }
 
         return response()->json($item);
+    }
+
+    /**
+     * Los medios con que paga el cliente en la entrega, ya comprobados.
+     *
+     * Llega como JSON dentro del multipart (el formulario sube fotos):
+     * [{monto, metodo, referencia}]. Los renglones en $0 se ignoran; hasta 4
+     * medios (tarjeta + efectivo + transferencia… más no se ha visto).
+     *
+     * @return array<int, array{monto: float, metodo: string, referencia: ?string}>|\Illuminate\Http\JsonResponse
+     */
+    private function leerPagos(Request $request)
+    {
+        $crudo = $request->input('pagos');
+        $lista = is_array($crudo) ? $crudo : json_decode((string) $crudo, true);
+        if (! is_array($lista)) {
+            return response()->json(['message' => 'No se entendió con qué paga el cliente.'], 422);
+        }
+
+        $metodos = ['efectivo', 'transferencia', 'tarjeta', 'addi', 'otro'];
+        $limpios = [];
+        foreach ($lista as $p) {
+            $monto = is_array($p) && is_numeric($p['monto'] ?? null) ? round((float) $p['monto'], 2) : null;
+            if ($monto === null || $monto < 0) {
+                return response()->json(['message' => 'Uno de los pagos no tiene un monto válido.', 'errors' => ['pagos' => ['Revisa los montos.']]], 422);
+            }
+            if ($monto < 0.01) continue;
+            if (! in_array($p['metodo'] ?? null, $metodos, true)) {
+                return response()->json(['message' => 'Escoge con qué se paga cada parte.', 'errors' => ['pagos' => ['Falta el método de un pago.']]], 422);
+            }
+            $ref = trim((string) ($p['referencia'] ?? ''));
+            $limpios[] = ['monto' => $monto, 'metodo' => $p['metodo'], 'referencia' => $ref !== '' ? mb_substr($ref, 0, 100) : null];
+        }
+
+        if (count($limpios) > 4) {
+            return response()->json(['message' => 'Máximo 4 formas de pago en una entrega.', 'errors' => ['pagos' => ['Máximo 4.']]], 422);
+        }
+
+        return $limpios;
     }
 
     /**

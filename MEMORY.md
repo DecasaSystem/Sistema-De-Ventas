@@ -1431,6 +1431,17 @@ Decisiones del dueño del 2026-10-08:
   de tienda que iba a retapizar, vuelve a quedar libre en el inventario. Tests al final de
   `CancelarProduccionTest`.
 
+- **Varias formas de pago al entregar** (usuario, 2026-11-17, **subido a `main`** ese día, sin migración, rama
+  `claude/entregas-multiples-pagos-10d2b6`). La entrega directa (Detalle de la orden) y la del conductor
+  usan el mismo formulario (`EntregaDetalleModal`) y el mismo `POST /despacho/mis-entregas/{id}/pago`:
+  ahora acepta `pagos` (JSON [{monto, metodo, referencia}], hasta 4) y guarda **un pago por medio**,
+  como el anticipo partido de Nueva orden. No cambió ninguna regla de plata: comisiones ya restaba
+  el 5,5 % sumando pago por pago lo de tarjeta/Addi; el descuento condicionado se pierde si **un**
+  medio es tarjeta/Addi/otro (misma regla del anticipo). En la última entrega el último renglón es
+  "lo que falta". Los comprobantes son los mismos para todos los pagos de esa entrega. Con lista,
+  la app manda `metodo=varios` para que un servidor viejo dé 422 en vez de guardar un solo medio:
+  **subir backend y front juntos**. Tests al final de la sección "Varias formas de pago" de
+  `EntregaPorProductoTest`.
 - **Barra de abajo y "Más" personalizables** (usuario, 2026-11-17, **subido a `main`** ese día, trae **migración**
   `2026_11_17_000004_nav_mas_en_usuarios`, solo agrega `usuarios.nav_mas` JSON). "Personalizar barra"
   tiene tres partes: En la barra (4), En "Más" (se quita para dejarlo vacío, se ordena) y Otros
