@@ -358,6 +358,17 @@ export const useAuthStore = defineStore('auth', () => {
     _syncStorage()
   }
 
+  // El supervisor ve o esconde la plata del inventario (se guarda en la cuenta:
+  // PATCH /auth/mi-inventario). Aquí solo se actualiza sin esperar otro /auth/me.
+  function setVerValorInventario(ver) {
+    if (!usuario.value) return
+    usuario.value = { ...usuario.value, ver_valor_inventario: !!ver }
+    if (_perfiles.value[_perfilActivo.value]) {
+      _perfiles.value[_perfilActivo.value].usuario = usuario.value
+    }
+    _syncStorage()
+  }
+
   // La barra de abajo que eligió: nombres de ruta en orden, o null.
   function setNavFavoritos(lista) {
     if (!usuario.value) return
@@ -546,7 +557,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
-    login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setEmail, logout, clearSession,
+    login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,
   }
 })

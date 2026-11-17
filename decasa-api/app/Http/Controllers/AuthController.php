@@ -208,7 +208,32 @@ class AuthController extends Controller
             'firma_url'          => $usuario->firma_url,
             // Su barra de abajo, si la personalizó. Null = la de siempre.
             'nav_favoritos'      => $usuario->nav_favoritos,
+            // Si quiere ver la plata del inventario (solo supervisores la ven).
+            // Sin la columna, o sin escoger, se ve.
+            'ver_valor_inventario' => $usuario->ver_valor_inventario === null ? true : (bool) $usuario->ver_valor_inventario,
         ];
+    }
+
+    /**
+     * PATCH /api/auth/mi-inventario  { ver_valor: bool }
+     *
+     * El interruptor de Inventario para ver o esconder cuánta plata hay
+     * (usuario, 2026-11-17). Se guarda en la cuenta: vale en el celular, en el
+     * computador y al recargar. Solo supervisores: los demás nunca ven esa plata.
+     */
+    public function guardarInventario(Request $request)
+    {
+        $u = $request->user();
+        if ($u->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo los supervisores ven el valor del inventario.'], 403);
+        }
+        $data = $request->validate(['ver_valor' => 'required|boolean']);
+
+        if (\App\Support\Esquema::columna('usuarios', 'ver_valor_inventario')) {
+            $u->update(['ver_valor_inventario' => (bool) $data['ver_valor']]);
+        }
+
+        return response()->json(['ver_valor_inventario' => (bool) $data['ver_valor']]);
     }
 
     /**

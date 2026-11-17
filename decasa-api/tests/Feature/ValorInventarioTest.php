@@ -236,4 +236,39 @@ class ValorInventarioTest extends TestCase
         $this->assertEquals(1000000, $res);
         $this->assertSame(1, $sin);
     }
+
+    public function test_el_supervisor_esconde_la_plata_y_queda_en_su_cuenta(): void
+    {
+        (require base_path('database/migrations/2026_11_17_000002_ver_valor_inventario_en_usuarios.php'))->up();
+        $jefa = $this->usuario('supervisor');
+        $this->assertTrue($jefa->fresh()->ver_valor_inventario, 'de fábrica se ve');
+
+        $this->actingAs($jefa)->patchJson('/api/auth/mi-inventario', ['ver_valor' => false])
+            ->assertOk()->assertJsonPath('ver_valor_inventario', false);
+        $this->assertFalse($jefa->fresh()->ver_valor_inventario);
+
+        $this->actingAs($jefa)->patchJson('/api/auth/mi-inventario', ['ver_valor' => true])->assertOk();
+        $this->assertTrue($jefa->fresh()->ver_valor_inventario);
+
+        // Un vendedor nunca ve la plata: no tiene interruptor.
+        $this->actingAs($this->usuario('vendedor'))->patchJson('/api/auth/mi-inventario', ['ver_valor' => true])->assertForbidden();
+    }
+
+    public function test_la_unica_unidad_es_la_variante_barata_y_suma_su_precio_no_el_general(): void
+    {
+        // Ejemplo del usuario (2026-11-17): sofá de $2 M con una versión de
+        // $1 M; la unidad que hay es esa versión → suma $1 M, no $2 M.
+        [$valor, , $sin] = ValorInventario::valorar(['tipo:1' => [[1, 0, 1000000.0]]], 2000000, 1, 0);
+        $this->assertEquals(1000000, $valor);
+        $this->assertSame(0, $sin);
+
+        // Si la unidad no es de ninguna versión, suma el precio general.
+        [$valor] = ValorInventario::valorar([], 2000000, 1, 0);
+        $this->assertEquals(2000000, $valor);
+
+        // Una de cada: $1 M + $2 M. Si la de $1 M es la apartada, lo libre es $2 M.
+        [$valor, $res] = ValorInventario::valorar(['tipo:1' => [[1, 1, 1000000.0]]], 2000000, 2, 1);
+        $this->assertEquals(3000000, $valor);
+        $this->assertEquals(2000000, $valor - $res);
+    }
 }

@@ -1095,7 +1095,27 @@ async function cargarResumenCategoria({ silencioso = false } = {}) {
   }
 }
 
-const verPlataInventario = computed(() => auth.isSupervisor && resumenCategoria.value?.valor != null)
+// La plata solo la ve el supervisor, y él puede esconderla con el
+// interruptor (usuario, 2026-11-17). Se guarda en su cuenta, no en el
+// aparato: vale en el celular, en el computador y al recargar.
+const puedeVerPlata = computed(() => auth.isSupervisor && resumenCategoria.value?.valor != null)
+const mostrarPlata = computed(() => auth.usuario?.ver_valor_inventario !== false)
+const verPlataInventario = computed(() => puedeVerPlata.value && mostrarPlata.value)
+const guardandoVerPlata = ref(false)
+async function alternarVerPlata() {
+  if (guardandoVerPlata.value) return
+  const antes = mostrarPlata.value
+  auth.setVerValorInventario(!antes)   // se ve el cambio de una vez
+  guardandoVerPlata.value = true
+  try {
+    await api.patch('/auth/mi-inventario', { ver_valor: !antes })
+  } catch (e) {
+    auth.setVerValorInventario(antes)
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar. Revisa tu conexión.')
+  } finally {
+    guardandoVerPlata.value = false
+  }
+}
 
 /** "$ 31 M", "$ 1,5 M", "$ 850 mil": para las pastillas, donde no cabe la cifra entera. */
 function pesosCortos(v) {
@@ -2651,12 +2671,27 @@ onMounted(async () => {
         Calculando el total...
       </div>
       <template v-else-if="resumenCategoria">
-        <p class="text-sm font-semibold text-gray-800">
-          {{ categoriaFiltro ? (CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro) : 'Todo el inventario' }}
-          <span class="font-normal text-gray-400">
-            · {{ resumenCategoria.productos }} producto{{ resumenCategoria.productos === 1 ? '' : 's' }}
-          </span>
-        </p>
+        <div class="flex items-start justify-between gap-2">
+          <p class="text-sm font-semibold text-gray-800">
+            {{ categoriaFiltro ? (CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro) : 'Todo el inventario' }}
+            <span class="font-normal text-gray-400">
+              · {{ resumenCategoria.productos }} producto{{ resumenCategoria.productos === 1 ? '' : 's' }}
+            </span>
+          </p>
+          <!-- Ver u ocultar la plata (solo supervisor; queda en su cuenta) -->
+          <label v-if="puedeVerPlata" class="flex items-center gap-1.5 flex-shrink-0 cursor-pointer select-none">
+            <span class="text-xs text-gray-500">Ver valor</span>
+            <button
+              type="button" role="switch" :aria-checked="mostrarPlata" aria-label="Ver el valor en plata del inventario"
+              :disabled="guardandoVerPlata" @click="alternarVerPlata"
+              :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-50',
+                mostrarPlata ? 'bg-blue-600' : 'bg-gray-300']"
+            >
+              <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
+                mostrarPlata ? 'translate-x-5' : 'translate-x-0.5']" />
+            </button>
+          </label>
+        </div>
 
         <!-- Cuánta plata hay: unidades × precio de venta, cada variante a su
              precio (la 1.60 vale lo de la 1.60). Solo el supervisor.

@@ -126,6 +126,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me',         [AuthController::class, 'me']);
     Route::patch('/auth/mi-firma',   [AuthController::class, 'guardarFirma']);
     Route::patch('/auth/mi-nav',     [AuthController::class, 'guardarNav']);
+    Route::patch('/auth/mi-inventario', [AuthController::class, 'guardarInventario']);
     // Con quiénes alterna (hasta tres). Se manda la lista completa, en orden.
     Route::patch('/auth/mis-perfiles-alternos', [AuthController::class, 'guardarPerfilesAlternos']);
     Route::post('/auth/perfiles-alternos/confirmar', [AuthController::class, 'confirmarPerfilAlterno']);

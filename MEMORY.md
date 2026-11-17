@@ -920,6 +920,12 @@ escribiendo precios (Fase 1b).
   (comprado, sin entregar) y el total van debajo. Por defecto mío (**falta confirmar**): la tienda
   cerrada no cuenta.
   No cambió ninguna regla de plata.
+  **Interruptor "Ver valor"** (usuario, 2026-11-17, **subido a `main`** ese día, trae **migración**
+  `2026_11_17_000002_ver_valor_inventario_en_usuarios`, solo agrega `usuarios.ver_valor_inventario`,
+  de fábrica 1): en la tarjeta del total de Inventario el supervisor esconde o muestra la plata;
+  se guarda en su cuenta (`PATCH /auth/mi-inventario`, viaja en `/auth/me`), no en el aparato.
+  Solo supervisores. No toca Reserva ni el Excel. Revisado ese día que una unidad marcada como
+  una versión suma el precio de esa versión y la sin marcar el general (test del sofá).
 - **Traslados: un supervisor también puede recibirlos** (dueño, 2026-11-07, **sin subir**, sin
   migración, rama `claude/traslado-modulo-inventario-f24b9e`). La Reserva como **destino** ya
   existía (2431961); como **origen no** (dueño: para eso está Surtir desde Reserva). Ahora quien
