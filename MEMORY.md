@@ -1288,8 +1288,20 @@ Decisiones del dueño del 2026-10-08:
   cuentan con la convención de 30 días (`CicloNomina::diasEntre`): la segunda quincena de febrero
   paga 15 (antes 13), febrero 30 (antes 28), el 31 no suma. Consecuencia: quien entra a mitad de un
   mes de 31 cobra un día menos que antes (entra el 20 → 11 días, no 12). Diario, semanal y cada 20
-  días siguen con días corridos. Tests en `NominaDiasDeFebreroTest`. Pendiente de preguntar (no
-  tocado): intereses de cesantías al doble en años incompletos (A4).
+  días siguen con días corridos. Tests en `NominaDiasDeFebreroTest`.
+  **Intereses de cesantías (A4), pedido del usuario el mismo día (subido a `main` ese día, sin
+  migración):** lo que se debe (Prestaciones) y la liquidación usan la fórmula de ley, cesantías ×
+  días (máx. 360) × % del concepto ÷ 360 (`Prestaciones::interesesDeLey`). Antes sumaban el 12 % de
+  cada quincena: el doble en medio año (Jul–Dic: $59.973 y no $119.952). En año completo da lo mismo.
+  Finanzas sigue viendo el costo como provisión de cada pago (sin tocar `CostoEmpleador`): en años
+  incompletos su costo de intereses queda por encima de lo que se paga. Lo ya pagado no cambia.
+  **Visual, mismo día (queja del usuario: "re difícil de encontrar", estaba al final de los
+  sueldos):** botón **Ajustes** (pastilla) en el encabezado de Nómina abre una hoja con Horas extra
+  y recargos (abierto), Lo que paga la empresa y un acceso a Prestaciones; Sueldos tiene el acceso
+  arriba. En Gente, cada trabajador tiene botones con nombre (Faltas y novedades, **Horas extra**,
+  Adelanto, Préstamos) en vez de íconos grises sin texto; "Horas extra" abre directo esa pestaña.
+  Las hojas nuevas van dentro del `<Teleport>` (si no, el botón del asistente queda encima) y con
+  `bg-white` sólido en el encabezado (`bg-white/95` no tiene versión oscura).
 - **Horas extra en Nómina** (2026-11-18, **subido a `main`** ese día, misma rama, trae **migración**
   `2026_11_19_000001_horas_extra_en_nomina`: crea 3 tablas y agrega `nomina_pagos.horas_extra(_detalle)`).
   Antes solo había una pastilla "Hora extra" en Ajustes con el valor a mano, fuera de la base salarial.

@@ -13,7 +13,9 @@ import { useToast } from '@/composables/useToast'
 
 const props = defineProps({
   // Debajo del título. En Novedades se dice otra cosa que en Sueldos.
-  subtitulo: { type: String, default: 'Tipos y porcentajes · se anotan en Novedades' },
+  subtitulo: { type: String, default: 'Tipos y porcentajes · las horas se anotan en Gente → Horas extra' },
+  // En la hoja de Ajustes se abre de una: es lo primero que se busca ahí.
+  abiertoInicial: { type: Boolean, default: false },
 })
 const emit  = defineEmits(['guardado'])
 const toast = useToast()
@@ -63,6 +65,8 @@ function abrir() {
   abierto.value = !abierto.value
   if (abierto.value && !tipos.value.length) cargar()
 }
+
+if (props.abiertoInicial) abrir()
 
 function editar(t) {
   if (editando.value === t.id) {

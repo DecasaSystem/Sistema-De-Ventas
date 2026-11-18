@@ -143,6 +143,10 @@ class Prestaciones
      */
     public static function causado(string $clave, Carbon $desde, Carbon $hasta, ?int $usuarioId = null, ?array $sinPagar = null): array
     {
+        if ($clave === 'intereses_cesantias') {
+            return self::interesesDeLey($desde, $hasta, $usuarioId, $sinPagar);
+        }
+
         $desde = CicloNomina::fecha($desde);
         $hasta = CicloNomina::fecha($hasta);
         $out = [];
@@ -161,6 +165,57 @@ class Prestaciones
         foreach ($sinPagar ?? self::sinPagar($usuarioId) as $l) {
             self::sumar($out, $l['usuario_id'], $l['fecha_inicio'], $l['fecha_corte'] ?? $l['fecha_fin'], $desde, $hasta,
                 $l['costo_empleador'], (float) $l['dias'], $clave);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Los intereses de cesantías con la fórmula de ley (Ley 52 de 1975):
+     *
+     *   cesantías del periodo × días trabajados en él × 12 % ÷ 360
+     *
+     * Antes salían de sumar lo provisionado en cada pago (12 % de las cesantías
+     * de cada quincena). En un año completo da lo mismo, pero en uno incompleto
+     * daba el doble o más: quien trabajó de julio a diciembre con ~$1.000.000 de
+     * cesantías tiene por ley ~$60.000 de intereses y el sistema le debía
+     * ~$120.000. Afectaba a todo el que entra o se va a mitad de año, y a la
+     * liquidación al retiro.
+     *
+     * Las cesantías y los días salen de lo mismo de siempre (causado de
+     * 'cesantias'); el porcentaje es el del concepto "intereses de cesantías"
+     * para esa persona (configurable, con su excepción si la tiene). Los días
+     * no pasan de 360 (un año).
+     *
+     * Finanzas sigue viendo el costo como provisión de cada pago (CostoEmpleador):
+     * en el año completo cuadra con esto.
+     *
+     * @return array<int, array{monto: float, dias: float}>
+     */
+    private static function interesesDeLey(Carbon $desde, Carbon $hasta, ?int $usuarioId, ?array $sinPagar): array
+    {
+        $cesantias = self::causado('cesantias', $desde, $hasta, $usuarioId, $sinPagar);
+        if (! $cesantias) {
+            return [];
+        }
+
+        $fecha = CicloNomina::fecha($hasta);
+        $gente = Usuario::query()
+            ->when(CostoEmpleador::hayTablas(), fn ($q) => $q->with('conceptosEmpleador'))
+            ->whereIn('id', array_keys($cesantias))->get()->keyBy('id');
+
+        $out = [];
+        foreach ($cesantias as $id => $c) {
+            $u = $gente[$id] ?? null;
+            $concepto = $u ? collect(CostoEmpleador::conceptosDe($u, $fecha))->firstWhere('clave', 'intereses_cesantias') : null;
+            // Sin el concepto configurado (esquemas viejos) rige el 12 % de ley.
+            $pct = $concepto ? ($concepto['aplica'] ? (float) $concepto['porcentaje'] : 0.0) : 12.0;
+            $dias = min(360.0, (float) $c['dias']);
+
+            $out[$id] = [
+                'monto' => (float) $c['monto'] * $dias / 360 * $pct / 100,
+                'dias'  => (float) $c['dias'],
+            ];
         }
 
         return $out;

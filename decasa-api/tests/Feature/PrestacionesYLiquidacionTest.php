@@ -106,12 +106,34 @@ class PrestacionesYLiquidacionTest extends TestCase
 
         $int = $this->actingAs($this->jefa())->getJson('/api/nomina/prestaciones?tipo=intereses_cesantias&fecha=2026-06-01')->json();
         $this->assertSame('2027-01-31', $int['fecha_limite']);
-        $this->assertEquals(12 * 9996, $int['saldo']);
+        // Fórmula de ley: 999.552 × 180 días × 12 % ÷ 360 = 59.973 (solo trabajó
+        // el segundo semestre). Antes daba 119.952: el 12 % de cada quincena.
+        $this->assertEquals(59973, $int['saldo']);
 
         $this->actingAs($this->jefa())->postJson('/api/nomina/prestaciones/pagar', [
             'tipo' => 'cesantias', 'fecha' => '2026-06-01', 'usuarios' => [2],
         ])->assertCreated();
         $this->assertDatabaseHas('nomina_prestaciones_pagos', ['tipo' => 'cesantias', 'forma' => 'consignacion', 'destino' => 'Porvenir']);
+    }
+
+    public function test_en_un_anio_completo_los_intereses_son_el_12_por_ciento(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2027-01-02 10:00', 'America/Bogota'));
+        // Se copian las 12 quincenas del segundo semestre al primero: año completo.
+        foreach (DB::table('nomina_pagos')->where('usuario_id', 2)->get() as $p) {
+            $fila = (array) $p;
+            unset($fila['id']);
+            $fila['fecha_inicio'] = Carbon::parse($p->fecha_inicio)->subMonths(6)->toDateString();
+            $fila['fecha_fin'] = Carbon::parse($p->fecha_inicio)->subMonths(6)->day((int) Carbon::parse($p->fecha_inicio)->day === 1 ? 15 : 1)->toDateString();
+            if ((int) Carbon::parse($p->fecha_inicio)->day === 16) {
+                $fila['fecha_fin'] = Carbon::parse($p->fecha_inicio)->subMonths(6)->endOfMonth()->toDateString();
+            }
+            DB::table('nomina_pagos')->insert($fila);
+        }
+
+        $int = $this->actingAs($this->jefa())->getJson('/api/nomina/prestaciones?tipo=intereses_cesantias&fecha=2026-06-01')->json();
+        // 1.999.104 de cesantías × 360 días × 12 % ÷ 360. Antes: 24 × 9.996 = 239.904 (solo cambia el redondeo).
+        $this->assertEquals(239892, $int['saldo']);
     }
 
     public function test_vacaciones_en_dias(): void
@@ -196,7 +218,8 @@ class PrestacionesYLiquidacionTest extends TestCase
      *   salario 1–9 ene     525.240 + 74.729 aux − 42.022 seg. social = 557.947
      *   prima jul–dic       999.552   ·  prima 1–9 ene   49.977
      *   cesantías 2026      999.552   ·  cesantías ene   49.977
-     *   intereses 2026      119.952   ·  intereses ene    5.997
+     *   intereses 2026       59.973   ·  intereses ene      150
+     *     (ley: cesantías × días × 12 % ÷ 360 → 999.552 × 180 y 49.977 × 9)
      *   vacaciones          189 días × 15/360 = 7,88 días × 58.360 = 459.877
      *   indemnización       193 días de servicio (< 1 año): 30 días × 58.360 = 1.750.800
      */
@@ -214,11 +237,11 @@ class PrestacionesYLiquidacionTest extends TestCase
         $this->assertEquals(49977, $concepto('prima', '2027-01-01'));
         $this->assertEquals(999552, $concepto('cesantias', '2026-01-01'));
         $this->assertEquals(49977, $concepto('cesantias', '2027-01-01'));
-        $this->assertEquals(119952, $concepto('intereses_cesantias', '2026-01-01'));
-        $this->assertEquals(5997, $concepto('intereses_cesantias', '2027-01-01'));
+        $this->assertEquals(59973, $concepto('intereses_cesantias', '2026-01-01'));
+        $this->assertEquals(150, $concepto('intereses_cesantias', '2027-01-01'));
         $this->assertEquals(459877, $concepto('vacaciones'));
         $this->assertEquals(1750800, $concepto('indemnizacion'));
-        $this->assertEquals(557947 + 999552 + 49977 + 999552 + 49977 + 119952 + 5997 + 459877 + 1750800, $c['total']);
+        $this->assertEquals(557947 + 999552 + 49977 + 999552 + 49977 + 59973 + 150 + 459877 + 1750800, $c['total']);
 
         // Renuncia: sin indemnización.
         $r = $this->actingAs($this->jefa())->postJson('/api/nomina/liquidaciones/calcular', ['motivo' => 'renuncia'] + $datos)->json();

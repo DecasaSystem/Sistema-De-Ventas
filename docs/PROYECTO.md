@@ -913,6 +913,12 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   sumando 30). `registrar` acepta ese inicio y frena cualquier ciclo que se cruce
   con un pago ya hecho. Lo usan pendientes, el ciclo en curso, adelantos, la
   liquidación y la proyección de Finanzas.
+- **Intereses de cesantías** (2026-11-18): lo que se debe y la liquidación usan la fórmula
+  de ley, cesantías × días (máx. 360) × % ÷ 360 (`Prestaciones::interesesDeLey`), no la suma
+  del 12 % de cada pago (que en medio año daba el doble). Finanzas sigue con la provisión.
+- **Dónde está cada cosa en la pantalla** (2026-11-18): botón **Ajustes** en el encabezado
+  (horas extra y recargos, lo que paga la empresa, acceso a Prestaciones); en Gente, cada
+  trabajador tiene "Faltas y novedades", "Horas extra", "Adelanto" y "Préstamos" con nombre.
 - **Días de quincenas y meses** (2026-11-18): se cuentan con meses de 30
   (`CicloNomina::diasEntre`): la segunda quincena de febrero paga 15 y febrero 30; el 31
   no suma (quien entra el 20 de un mes de 31 cobra 11 días de esa quincena). Diario,

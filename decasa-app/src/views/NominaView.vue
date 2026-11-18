@@ -23,13 +23,24 @@ import {
   BanknotesIcon, PlusIcon, PencilSquareIcon, TrashIcon, XMarkIcon,
   UsersIcon, CheckCircleIcon, TagIcon, CalendarIcon, MagnifyingGlassIcon,
   ChevronDownIcon, ChevronUpIcon, ClockIcon, ArrowUturnLeftIcon,
-  TrophyIcon, WrenchScrewdriverIcon,
+  TrophyIcon, WrenchScrewdriverIcon, Cog6ToothIcon, ChevronRightIcon, CreditCardIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const toast  = useToast()
 
 const tab = ref('pagos')
+
+// Ajustes de nómina (horas extra, aportes y prestaciones) en una hoja que se
+// abre desde el encabezado. Antes estaban al final de la lista de sueldos.
+const mostrarAjustesNomina = ref(false)
+function abrirAjustesNomina() {
+  mostrarAjustesNomina.value = true
+}
+function irAPrestaciones() {
+  mostrarAjustesNomina.value = false
+  tab.value = 'prestaciones'
+}
 
 function formatoPesos(n) {
   return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
@@ -1129,11 +1140,12 @@ async function quitarHoraExtra(id) {
   }
 }
 
-async function abrirNovedades(e) {
+/** `pestana`: abrir de una en esa (el botón "Horas extra" de cada trabajador). */
+async function abrirNovedades(e, pestana = null) {
   empleadoNovedades.value = e
   editandoHoraExtra.value = null
   // Si aplica para bonificación, lo que más se va a registrar es producción.
-  novedadTab.value = e.nomina_bonificacion_id ? 'produccion' : 'falta'
+  novedadTab.value = pestana || (e.nomina_bonificacion_id ? 'produccion' : 'falta')
   resetFormsNovedad()
   mostrarNovedades.value = true
   await Promise.all([cargarNovedades(), tiposHoraExtra.value.length ? null : cargarTiposHoraExtra()])
@@ -1327,6 +1339,10 @@ async function quitarAjuste(id) {
       </h1>
       <button @click="abrirHistorial" class="text-xs font-semibold text-gray-400 hover:text-blue-600 flex items-center gap-1">
         <ClockIcon class="w-4 h-4" /> Historial
+      </button>
+      <!-- En pastilla y no en gris suelto: es lo que se busca y no se encontraba. -->
+      <button @click="abrirAjustesNomina" class="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 flex items-center gap-1 transition-colors" aria-label="Ajustes de nómina">
+        <Cog6ToothIcon class="w-4 h-4" /> Ajustes
       </button>
     </div>
 
@@ -1707,15 +1723,6 @@ async function quitarAjuste(id) {
               </p>
             </div>
             <div class="flex items-center gap-1 shrink-0">
-              <button @click="abrirNovedades(e)" class="p-1.5 text-gray-300 hover:text-amber-600 transition-colors" aria-label="Faltas y ajustes">
-                <CalendarIcon class="w-4 h-4" />
-              </button>
-              <button @click="abrirAdelanto(e)" class="p-1.5 text-gray-300 hover:text-green-600 transition-colors" aria-label="Adelanto de sueldo" title="Adelanto de sueldo">
-                <ClockIcon class="w-4 h-4" />
-              </button>
-              <button @click="abrirPrestamos(e)" class="p-1.5 text-gray-300 hover:text-purple-600 transition-colors" aria-label="Préstamos">
-                <BanknotesIcon class="w-4 h-4" />
-              </button>
               <button @click="abrirEditarEmpleado(e)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
                 <PencilSquareIcon class="w-4 h-4" />
               </button>
@@ -1723,6 +1730,24 @@ async function quitarAjuste(id) {
                 <TrashIcon class="w-4 h-4" />
               </button>
             </div>
+          </div>
+
+          <!-- Lo que se le anota a la persona, con nombre: antes eran íconos
+               grises sin texto y nadie sabía que las horas extra iban en el
+               del calendario. -->
+          <div class="mt-2.5 flex flex-wrap gap-1.5">
+            <button @click="abrirNovedades(e)" class="flex items-center gap-1 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors">
+              <CalendarIcon class="w-3.5 h-3.5" /> Faltas y novedades
+            </button>
+            <button @click="abrirNovedades(e, 'horas')" class="flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors">
+              <ClockIcon class="w-3.5 h-3.5" /> Horas extra
+            </button>
+            <button @click="abrirAdelanto(e)" class="flex items-center gap-1 text-xs font-semibold text-green-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors">
+              <BanknotesIcon class="w-3.5 h-3.5" /> Adelanto
+            </button>
+            <button @click="abrirPrestamos(e)" class="flex items-center gap-1 text-xs font-semibold text-purple-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors">
+              <CreditCardIcon class="w-3.5 h-3.5" /> Préstamos
+            </button>
           </div>
 
           <!-- Lo que lleva devengado en el ciclo en curso -->
@@ -1979,6 +2004,21 @@ async function quitarAjuste(id) {
 
     <!-- ═══════════ SUELDOS ═══════════ -->
     <template v-else-if="tab === 'sueldos'">
+      <!-- Antes las horas extra y los aportes estaban debajo de todos los
+           sueldos, donde nadie los encontraba: ahora viven en Ajustes (botón
+           de arriba) y aquí queda el acceso, de primero. -->
+      <button type="button" @click="abrirAjustesNomina"
+        class="w-full mb-3 bg-white rounded-xl shadow-sm p-3.5 flex items-center gap-3 text-left">
+        <span class="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+          <Cog6ToothIcon class="w-5 h-5 text-gray-600" />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm font-semibold text-gray-800">Ajustes de nómina</span>
+          <span class="block text-xs text-gray-400">Horas extra y recargos · aportes y prestaciones</span>
+        </span>
+        <ChevronRightIcon class="w-4 h-4 text-gray-300 shrink-0" />
+      </button>
+
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs text-gray-400">Se crean una vez y se reutilizan al dar de alta trabajadores.</p>
         <button
@@ -2036,9 +2076,6 @@ async function quitarAjuste(id) {
           </div>
         </template>
 
-        <!-- Aportes y prestaciones: lo que la empresa paga por detrás. -->
-        <CostoEmpleadorConfig class="mt-4" @guardado="cargarPendientes" />
-        <TiposHoraExtraConfig class="mt-4" @guardado="() => { tiposHoraExtra = []; cargarPendientes() }" />
       </div>
 
       <!-- Nuevo / editar sueldo -->
@@ -3227,6 +3264,45 @@ async function quitarAjuste(id) {
               <p v-else class="text-sm text-gray-500 text-center py-6">
                 Ya están todos en nómina.
               </p>
+            </div>
+          </div>
+        </div>
+      </Transition>
+      <!-- Ajustes de nómina: todo lo que se configura una vez, junto y a la mano. -->
+      <Transition
+        enter-active-class="transition-opacity duration-150" enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+      >
+        <div v-if="mostrarAjustesNomina" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarAjustesNomina = false">
+          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <Cog6ToothIcon class="w-5 h-5 text-gray-600" />
+                </div>
+                <div class="min-w-0">
+                  <p class="font-semibold text-gray-800 truncate">Ajustes de nómina</p>
+                  <p class="text-xs text-gray-400">Lo que se configura una vez</p>
+                </div>
+              </div>
+              <button @click="mostrarAjustesNomina = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0" aria-label="Cerrar">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="p-4 space-y-3">
+              <TiposHoraExtraConfig abierto-inicial class="border border-gray-100" @guardado="() => { tiposHoraExtra = []; cargarPendientes() }" />
+              <CostoEmpleadorConfig class="border border-gray-100" @guardado="cargarPendientes" />
+              <button type="button" @click="irAPrestaciones"
+                class="w-full bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex items-center gap-2.5 text-left">
+                <span class="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <CalendarIcon class="w-5 h-5 text-gray-600" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block font-semibold text-sm text-gray-800">Prima, cesantías y vacaciones</span>
+                  <span class="block text-xs text-gray-400">Fechas límite, días de vacaciones, indemnización · en Prestaciones → Ajustes</span>
+                </span>
+                <ChevronRightIcon class="w-4 h-4 text-gray-300 shrink-0" />
+              </button>
             </div>
           </div>
         </div>
