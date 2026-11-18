@@ -87,6 +87,50 @@ class NominaHoraExtraController extends Controller
         return response()->json($this->comoJson($hora) + ['aviso' => $this->avisoDeTopes($empleado->id, $fecha)], 201);
     }
 
+    /**
+     * PATCH /api/nomina/horas-extra/{id} — corregir lo anotado (tipo, fecha,
+     * horas, nota) mientras no se haya pagado. El valor lo vuelve a sacar la
+     * liquidación: aquí no se escribe plata.
+     */
+    public function update(Request $request, int $id)
+    {
+        $h = NominaHoraExtra::with('pago')->findOrFail($id);
+
+        if ($h->estaPagada()) {
+            return response()->json([
+                'message' => 'Esas horas ya se pagaron (' . $h->pago->nombreCiclo() . '): para corregirlas, deshaz ese pago.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'tipo_id' => ['sometimes', 'required', Rule::exists('nomina_tipos_hora_extra', 'id')->where('activo', true)],
+            'fecha'   => 'sometimes|required|date',
+            'horas'   => 'sometimes|required|numeric|min:0.25|max:24',
+            'nota'    => 'sometimes|nullable|string|max:160',
+        ], [
+            'tipo_id.exists' => 'Ese tipo de hora extra no existe o está apagado.',
+            'horas.min'      => 'Mínimo un cuarto de hora (0,25).',
+        ]);
+
+        $empleado = Usuario::with('sueldo')->findOrFail($h->usuario_id);
+        if (isset($data['fecha'])) {
+            $fecha = CicloNomina::fecha($data['fecha']);
+            if ($pago = $this->pagoQueCubre($empleado->id, $fecha)) {
+                return response()->json([
+                    'message' => "Esa fecha ya se le pagó a {$empleado->nombre} ({$pago->nombreCiclo()}).",
+                ], 422);
+            }
+            $data['fecha'] = $fecha->toDateString();
+        }
+
+        $h->update($data);
+        $h->load('tipo.tarifas');
+        $h->setRelation('trabajador', $empleado);
+        $h->setRelation('pago', null);
+
+        return response()->json($this->comoJson($h) + ['aviso' => $this->avisoDeTopes($empleado->id, CicloNomina::fecha($h->fecha))]);
+    }
+
     /** DELETE /api/nomina/horas-extra/{id} — solo si no se ha pagado. */
     public function destroy(int $id)
     {
@@ -141,13 +185,19 @@ class NominaHoraExtraController extends Controller
         return response()->json($this->tipoComoJson($tipo->load('tarifas'), CicloNomina::hoy()), 201);
     }
 
-    /** PATCH /api/nomina/horas-extra/tipos/{id} — nombre o apagarlo. El % va por tarifas. */
+    /**
+     * PATCH /api/nomina/horas-extra/tipos/{id} — nombre, apagarlo o cómo se
+     * calcula (extra = hora + %, recargo = solo el %). El % va por tarifas.
+     * Cambiar el cálculo mueve las horas sin pagar de ese tipo; lo pagado no
+     * (cada pago guardó su cálculo).
+     */
     public function editarTipo(Request $request, int $id)
     {
         $tipo = NominaTipoHoraExtra::findOrFail($id);
         $data = $request->validate([
-            'nombre' => 'sometimes|required|string|max:80',
-            'activo' => 'sometimes|boolean',
+            'nombre'  => 'sometimes|required|string|max:80',
+            'activo'  => 'sometimes|boolean',
+            'calculo' => ['sometimes', Rule::in(NominaTipoHoraExtra::CALCULOS)],
         ]);
         $tipo->update($data);
 

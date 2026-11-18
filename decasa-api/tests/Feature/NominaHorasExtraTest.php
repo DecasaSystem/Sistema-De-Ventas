@@ -147,6 +147,32 @@ class NominaHorasExtraTest extends TestCase
         $this->assertEquals(15 * 80000, $p['costo_empleador']['base_salarial']);
     }
 
+    public function test_se_corrige_lo_anotado_mientras_no_se_pague(): void
+    {
+        $id = $this->anotar('extra_diurna', '2026-11-05', 2)->json('id');
+
+        // Era nocturna y fueron 3 horas: 3 × 10.000 × 1,75.
+        $this->actingAs($this->jefa())->patchJson("/api/nomina/horas-extra/{$id}", [
+            'tipo_id' => $this->tipo('extra_nocturna'), 'horas' => 3,
+        ])->assertOk()->assertJsonPath('monto', 52500)->assertJsonPath('tipo', 'Extra nocturna');
+        $this->assertEquals(52500, $this->primerPendiente()['horas_extra']);
+
+        // Pagada ya no se corrige.
+        $this->actingAs($this->jefa())->postJson('/api/nomina/pagos', ['usuario_id' => 2, 'fecha_inicio' => '2026-11-01'])->assertCreated();
+        $this->actingAs($this->jefa())->patchJson("/api/nomina/horas-extra/{$id}", ['horas' => 1])->assertStatus(422);
+    }
+
+    public function test_el_calculo_del_tipo_se_cambia_desde_nomina(): void
+    {
+        $this->anotar('recargo_nocturno', '2026-11-05', 2); // recargo: 2 × 10.000 × 0,35 = 7.000
+
+        $this->actingAs($this->jefa())->patchJson('/api/nomina/horas-extra/tipos/' . $this->tipo('recargo_nocturno'), ['calculo' => 'extra'])
+            ->assertOk()->assertJsonPath('calculo', 'extra');
+
+        // Ahora es hora + 35 %: 2 × 10.000 × 1,35.
+        $this->assertEquals(27000, $this->primerPendiente()['horas_extra']);
+    }
+
     public function test_un_tipo_apagado_no_se_puede_anotar(): void
     {
         $this->actingAs($this->jefa())->patchJson('/api/nomina/horas-extra/tipos/' . $this->tipo('extra_nocturna'), ['activo' => false])->assertOk();

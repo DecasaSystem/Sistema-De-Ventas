@@ -15,7 +15,7 @@ import {
   crearAusencia, crearIncapacidad, getAusencias, eliminarAusencia,
   getAjustes, crearAjuste, eliminarAjuste,
   getProducciones, crearProduccion, eliminarProduccion,
-  getHorasExtra, crearHoraExtra, eliminarHoraExtra, getTiposHoraExtra,
+  getHorasExtra, crearHoraExtra, editarHoraExtra, eliminarHoraExtra, getTiposHoraExtra,
   getBonificaciones, actualizarBonificacion, eliminarBonificacion,
   guardarCuadroBono,
 } from '@/api/nomina'
@@ -1061,6 +1061,29 @@ function irAHorasExtra() {
   formAjuste.value.nombre = ''
 }
 
+// Las horas que se están corrigiendo (desde el historial). null = anotar nuevas.
+const editandoHoraExtra = ref(null)
+
+/** Lleva unas horas sin pagar al formulario para corregirlas. */
+function corregirHoraExtra(h) {
+  editandoHoraExtra.value = h.id
+  formHoraExtra.value = { fecha: h.fecha, tipo_id: h.tipo_id, horas: h.horas, nota: h.nota || '' }
+  novedadTab.value = 'horas'
+  document.querySelector('[data-hoja-novedades]')?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function cancelarCorreccionHoraExtra() {
+  editandoHoraExtra.value = null
+  const tipo = formHoraExtra.value.tipo_id
+  resetFormsNovedad()
+  formHoraExtra.value.tipo_id = tipo
+}
+
+/** Se cambió un tipo o un porcentaje desde aquí mismo: todo lo que se ve se recalcula. */
+async function alCambiarTiposHoraExtra() {
+  await Promise.all([cargarTiposHoraExtra(), cargarNovedades(), cargarPendientes()])
+}
+
 async function guardarHoraExtra() {
   if (!formHoraExtra.value.tipo_id) {
     toast.error('Escoge el tipo de hora extra')
@@ -1072,16 +1095,20 @@ async function guardarHoraExtra() {
   }
   guardandoNovedad.value = true
   try {
-    const { data } = await crearHoraExtra({
-      usuario_id: empleadoNovedades.value.id,
+    const payload = {
       tipo_id: formHoraExtra.value.tipo_id,
       fecha: formHoraExtra.value.fecha,
       horas: formHoraExtra.value.horas,
       nota: formHoraExtra.value.nota.trim() || null,
-    })
+    }
+    const corrigiendo = editandoHoraExtra.value
+    const { data } = corrigiendo
+      ? await editarHoraExtra(corrigiendo, payload)
+      : await crearHoraExtra({ usuario_id: empleadoNovedades.value.id, ...payload })
     // El tope de ley se avisa, no frena (lo decide quien lo anota).
     if (data.aviso) toast.info(`Guardado. ${data.aviso}`, 7000)
-    else toast.success(`Horas extra registradas: ${formatoPesos(data.monto)}`)
+    else toast.success(`${corrigiendo ? 'Horas corregidas' : 'Horas extra registradas'}: ${formatoPesos(data.monto)}`)
+    editandoHoraExtra.value = null
     const tipo = formHoraExtra.value.tipo_id
     resetFormsNovedad()
     formHoraExtra.value.tipo_id = tipo
@@ -1104,6 +1131,7 @@ async function quitarHoraExtra(id) {
 
 async function abrirNovedades(e) {
   empleadoNovedades.value = e
+  editandoHoraExtra.value = null
   // Si aplica para bonificación, lo que más se va a registrar es producción.
   novedadTab.value = e.nomina_bonificacion_id ? 'produccion' : 'falta'
   resetFormsNovedad()
@@ -1118,6 +1146,7 @@ function resetFormsNovedad() {
   formAjuste.value      = { fecha: hoyISO(), nombre: '', monto: 0, signo: 1 }
   formProduccion.value  = { fecha: hoyISO(), concepto: '', valor_unitario: 0, cantidad: 1 }
   formHoraExtra.value   = { fecha: hoyISO(), tipo_id: formHoraExtra.value?.tipo_id ?? null, horas: 1, nota: '' }
+  editandoHoraExtra.value = null
 }
 
 const totalProduccionForm = computed(() =>
@@ -2410,7 +2439,7 @@ async function quitarAjuste(id) {
         leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
       >
         <div v-if="mostrarNovedades" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarNovedades = false">
-          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+          <div data-hoja-novedades class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
             <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
               <div class="flex items-center gap-2.5 min-w-0">
                 <div class="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
@@ -2565,6 +2594,10 @@ async function quitarAjuste(id) {
 
             <!-- Registrar horas extra o recargo -->
             <div v-else-if="novedadTab === 'horas'" class="p-5 space-y-4 border-b border-gray-100">
+              <div v-if="editandoHoraExtra" class="flex items-center justify-between gap-2 text-xs text-indigo-700 border border-indigo-200 rounded-lg px-3 py-2">
+                <span class="font-semibold">Corrigiendo horas anotadas</span>
+                <button type="button" @click="cancelarCorreccionHoraExtra" class="font-semibold text-gray-500">Cancelar</button>
+              </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1.5">Tipo *</label>
                 <select v-model="formHoraExtra.tipo_id" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
@@ -2604,8 +2637,16 @@ async function quitarAjuste(id) {
               >
                 <span v-if="guardandoNovedad" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                 <ClockIcon v-else class="w-4 h-4" />
-                {{ guardandoNovedad ? 'Registrando...' : 'Registrar horas extra' }}
+                {{ guardandoNovedad ? 'Guardando...' : (editandoHoraExtra ? 'Guardar cambios' : 'Registrar horas extra') }}
               </button>
+
+              <!-- Los tipos y sus porcentajes, aquí mismo: si el cálculo no cuadra se
+                   corrige sin salir de Novedades (es el mismo panel de Sueldos). -->
+              <TiposHoraExtraConfig
+                class="border border-gray-100 shadow-none"
+                subtitulo="¿El cálculo no cuadra? Cambia el % o cómo se calcula"
+                @guardado="alCambiarTiposHoraExtra"
+              />
             </div>
 
             <!-- Registrar bono o descuento -->
@@ -2702,9 +2743,14 @@ async function quitarAjuste(id) {
                     </div>
                     <div class="flex flex-col items-end gap-1 shrink-0">
                       <p class="text-sm font-semibold text-indigo-600">+{{ formatoPesos(h.monto) }}</p>
-                      <button v-if="!h.pagada" @click="quitarHoraExtra(h.id)" class="text-gray-300 hover:text-red-600 transition-colors" aria-label="Quitar horas extra">
-                        <XMarkIcon class="w-4 h-4" />
-                      </button>
+                      <div v-if="!h.pagada" class="flex items-center gap-2">
+                        <button @click="corregirHoraExtra(h)" class="text-gray-300 hover:text-indigo-600 transition-colors" aria-label="Corregir horas extra">
+                          <PencilSquareIcon class="w-4 h-4" />
+                        </button>
+                        <button @click="quitarHoraExtra(h.id)" class="text-gray-300 hover:text-red-600 transition-colors" aria-label="Quitar horas extra">
+                          <XMarkIcon class="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <p class="text-[11px] font-semibold mt-1.5" :class="h.pagada ? 'text-green-600' : 'text-indigo-500'">

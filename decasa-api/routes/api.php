@@ -298,6 +298,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/horas-extra/tarifas/{id}',      [\App\Http\Controllers\NominaHoraExtraController::class, 'quitarTarifa'])->whereNumber('id');
         Route::get('/horas-extra',                      [\App\Http\Controllers\NominaHoraExtraController::class, 'index']);
         Route::post('/horas-extra',                     [\App\Http\Controllers\NominaHoraExtraController::class, 'store']);
+        Route::patch('/horas-extra/{id}',               [\App\Http\Controllers\NominaHoraExtraController::class, 'update'])->whereNumber('id');
         Route::delete('/horas-extra/{id}',              [\App\Http\Controllers\NominaHoraExtraController::class, 'destroy'])->whereNumber('id');
 
         // Lo que el trabajador produjo, que es lo que suma para el bono.

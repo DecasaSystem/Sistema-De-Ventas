@@ -931,6 +931,11 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   dominical subiendo por etapas (Ley 2466). Topes de ley (2 al día, 12 a la semana): se
   avisan, no frenan. En Ajustes, escribir "hora extra" o "recargo" como bono manda a la
   pestaña nueva. Tests en `NominaHorasExtraTest`.
+  Desde la misma pestaña (2026-11-18): el panel de tipos y porcentajes está ahí abajo
+  (el mismo de Sueldos) y en cada tipo se cambia también **cómo se calcula** (extra ↔
+  recargo; mueve las horas sin pagar de ese tipo, lo pagado no). Las horas sin pagar se
+  corrigen con el lápiz del historial (`PATCH /nomina/horas-extra/{id}`: tipo, fecha,
+  horas, nota; nunca el valor, que lo saca la liquidación).
 - **Deshacer un pago**: solo el último de la persona (del más nuevo al más viejo) y
   nunca uno que hizo una liquidación al retiro (se anula la liquidación). Los
   pendientes arrancan después del último pago: uno del medio quedaba sin pagar y

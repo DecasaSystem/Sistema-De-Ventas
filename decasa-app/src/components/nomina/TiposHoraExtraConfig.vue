@@ -11,6 +11,10 @@ import {
 } from '@/api/nomina'
 import { useToast } from '@/composables/useToast'
 
+const props = defineProps({
+  // Debajo del título. En Novedades se dice otra cosa que en Sueldos.
+  subtitulo: { type: String, default: 'Tipos y porcentajes · se anotan en Novedades' },
+})
 const emit  = defineEmits(['guardado'])
 const toast = useToast()
 
@@ -118,6 +122,15 @@ async function guardarTipo(t, cambios) {
   }
 }
 
+async function cambiarCalculo(t, calculo) {
+  if (t.calculo === calculo) return
+  const texto = calculo === 'recargo'
+    ? `"${t.nombre}" pasará a sumar solo el ${pct(t.porcentaje)} (la hora ya va en el sueldo).`
+    : `"${t.nombre}" pasará a pagar la hora completa más el ${pct(t.porcentaje)}.`
+  if (!confirm(`${texto}\n\nCambia las horas de este tipo que no se han pagado. ¿Seguir?`)) return
+  await guardarTipo(t, { calculo })
+}
+
 async function crear() {
   if (!formNuevo.value.nombre.trim()) {
     toast.error('Ponle un nombre')
@@ -148,7 +161,7 @@ async function crear() {
         </span>
         <span class="min-w-0">
           <span class="block font-semibold text-sm text-gray-800">Horas extra y recargos</span>
-          <span class="block text-xs text-gray-400">Tipos y porcentajes · se anotan en Novedades</span>
+          <span class="block text-xs text-gray-400">{{ props.subtitulo }}</span>
         </span>
       </span>
       <component :is="abierto ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-300 shrink-0" />
@@ -210,6 +223,17 @@ async function crear() {
                     <button v-if="x.desde > hoyISO()" type="button" @click="quitarTarifa(t, x)" class="text-[11px] text-red-500">Quitar</button>
                   </span>
                 </div>
+              </div>
+
+              <div>
+                <p class="text-xs font-semibold text-gray-500 mb-1">Cómo se calcula</p>
+                <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+                  <button type="button" @click="cambiarCalculo(t, 'extra')" :disabled="guardando"
+                    :class="['flex-1 text-xs font-semibold rounded-lg py-1.5', t.calculo === 'extra' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']">Extra (hora + %)</button>
+                  <button type="button" @click="cambiarCalculo(t, 'recargo')" :disabled="guardando"
+                    :class="['flex-1 text-xs font-semibold rounded-lg py-1.5', t.calculo === 'recargo' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']">Recargo (solo %)</button>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-1">Cambia las horas de este tipo que no se han pagado; lo pagado no se mueve.</p>
               </div>
 
               <div class="space-y-2">

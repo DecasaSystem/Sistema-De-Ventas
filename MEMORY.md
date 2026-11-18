@@ -1298,6 +1298,10 @@ Decisiones del dueño del 2026-10-08:
   "Bonificación" en Ajustes y "hora extra"/"recargo" escritos ahí mandan a la pestaña nueva (los
   ajustes viejos con ese nombre no se tocaron). La jornada nocturna (desde qué hora) no la calcula el
   sistema: la persona escoge el tipo.
+  **Mismo día, pedido del usuario: los cálculos se editan desde el módulo** (**subido a `main`** ese día, sin migración):
+  el panel de tipos y porcentajes va también dentro de Novedades → Horas extra, cada tipo cambia de
+  extra a recargo y viceversa, y las horas sin pagar se corrigen con el lápiz del historial. El valor
+  nunca se escribe a mano: lo calcula la liquidación.
 - **Nómina "Marcar todos como pagados" daba 502** (2026-11-10, **subido a `main`** ese día, commit 923786f, sin migración, rama
   `claude/nomina-pago-lote-502-503-38cb6e`). Una sola petición con ~25 consultas por trabajador
   (×200 ms) pasaba de los ~100 s y Render la cortaba: los pagos quedaban hechos, pero la pantalla

@@ -40,6 +40,7 @@ export const eliminarAjuste    = (id) => api.delete(`/nomina/ajustes/${id}`)
 // servidor (valor hora × factor del tipo ese día) al liquidar el ciclo.
 export const getHorasExtra        = (params = {}) => api.get('/nomina/horas-extra', { params })
 export const crearHoraExtra       = (payload) => api.post('/nomina/horas-extra', payload)
+export const editarHoraExtra      = (id, payload) => api.patch(`/nomina/horas-extra/${id}`, payload)
 export const eliminarHoraExtra    = (id) => api.delete(`/nomina/horas-extra/${id}`)
 export const getTiposHoraExtra    = (incluirInactivos = false) =>
   api.get('/nomina/horas-extra/tipos', { params: incluirInactivos ? { incluir_inactivos: 1 } : {} })
