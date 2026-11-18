@@ -68,7 +68,9 @@ class FuenteNomina
         });
 
         foreach ($pagos as $p) {
-            $costo = CostoEmpleador::dePago($p);
+            // Sin los intereses de cesantías: van aparte, con la fórmula de ley
+            // (ver sumarInteresesDeLey, al final).
+            $costo = self::sinIntereses(CostoEmpleador::dePago($p));
             $bruto = (float) $p->subtotal + (float) $p->auxilio_transporte - (float) $p->descuento_faltas
                    - (float) $p->descuento_incapacidad + (float) $p->bonificacion + (float) $p->total_ajustes
                    + (float) ($p->horas_extra ?? 0);
@@ -133,20 +135,26 @@ class FuenteNomina
 
         // Lo devengado que todavía no se paga: los ciclos cerrados sin cobrar
         // y lo que lleva el ciclo en curso. Va marcado como estimado.
+        // Lo mismo, guardado para los intereses de ley (no se vuelve a liquidar).
+        $sinPagar = [];
         if ($incluirSinPagar) {
             $hoy = CicloNomina::hoy();
             $empleados = self::empleados()->keyBy('id');
 
             foreach (self::pendientes() as $l) {
                 self::sumarLiquidacion($out, $meses, $l, $empleados[$l['usuario_id']] ?? null, $l['fecha_fin']);
+                $sinPagar[] = $l + ['fecha_corte' => $l['fecha_fin']];
             }
             foreach ($empleados as $e) {
                 $l = NominaLiquidador::cicloActual($e, $hoy);
                 // Si cerró hoy ya salió en pendientes.
                 if ($l['cerrado'] || $l['dias'] <= 0) continue;
                 self::sumarLiquidacion($out, $meses, $l + ['usuario_id' => $e->id], $e, $hoy->toDateString());
+                $sinPagar[] = $l + ['usuario_id' => $e->id, 'fecha_corte' => $hoy->toDateString()];
             }
         }
+
+        self::sumarInteresesDeLey($out, $meses, $ini, $fin, $sinPagar);
 
         foreach ($out as &$m) {
             $m['personas'] = count($m['personas']);
@@ -274,7 +282,113 @@ class FuenteNomina
         $bruto = $l['subtotal'] + $l['auxilio_transporte'] - $l['descuento_faltas']
                - $l['descuento_incapacidad'] + $l['bonificacion'] + $l['total_ajustes'] + ($l['horas_extra'] ?? 0);
         $fin = min($l['fecha_fin'], $hasta);
-        self::sumar($out, $meses, $l['fecha_inicio'], $fin, $bruto, $l['costo_empleador'], self::areaDe($e), $l['usuario_id'], true);
+        self::sumar($out, $meses, $l['fecha_inicio'], $fin, $bruto, self::sinIntereses($l['costo_empleador']), self::areaDe($e), $l['usuario_id'], true);
+    }
+
+    /** El costo del empleador de un ciclo sin la línea de intereses de cesantías. */
+    private static function sinIntereses(array $costo): array
+    {
+        $monto = 0.0;
+        foreach ($costo['lineas'] ?? [] as $l) {
+            if (($l['clave'] ?? null) === 'intereses_cesantias') $monto += (float) $l['monto'];
+        }
+        if ($monto == 0.0) return $costo;
+
+        $costo['prestaciones'] = (float) ($costo['prestaciones'] ?? 0) - $monto;
+        $costo['total'] = (float) ($costo['total'] ?? 0) - $monto;
+
+        return $costo;
+    }
+
+    /**
+     * El costo de los intereses de cesantías mes a mes, con la fórmula de ley.
+     *
+     * Antes cada pago provisionaba el 12 % de sus cesantías. En un año completo
+     * da lo de ley, pero en uno incompleto el doble o más (medio año: $119.952
+     * en vez de $59.973), y Finanzas mostraba más costo del que se paga.
+     *
+     * Ahora: lo que se debe de intereses al cierre de cada mes es
+     *   cesantías del año hasta ese mes × días trabajados (máx. 360) × % ÷ 360
+     * (lo mismo que Prestaciones::interesesDeLey) y el costo del mes es lo que
+     * creció esa deuda desde el mes anterior. Se reinicia cada enero. El total
+     * del año es lo que se paga; mes a mes sube, porque el interés corre sobre
+     * el saldo que se va juntando. Lo sin pagar entra como estimado.
+     *
+     * Una consulta más: los pagos desde el 1 de enero del primer año del rango.
+     */
+    private static function sumarInteresesDeLey(array &$out, array $meses, Carbon $ini, Carbon $fin, array $sinPagar): void
+    {
+        $desdeAnio = $ini->copy()->startOfYear()->toDateString();
+        $hastaDia = $fin->toDateString();
+
+        $pagos = NominaPago::with(CostoEmpleador::relacionesDePago('trabajador.rolAsignado'))
+            ->whereDate('fecha_fin', '>=', $desdeAnio)
+            ->whereDate('fecha_inicio', '<=', $hastaDia)
+            ->get();
+
+        // [usuario_id][mes] => cesantías y días que caen en ese mes.
+        $porMes = [];
+        $gente = [];
+        $estimado = [];
+        $anotar = function (int $uid, $desde, $hasta, array $costo, float $dias, bool $esEstimado) use (&$porMes, &$estimado, $desdeAnio, $hastaDia) {
+            $ces = 0.0;
+            foreach ($costo['lineas'] ?? [] as $l) {
+                if (($l['clave'] ?? null) === 'cesantias') $ces += (float) $l['monto'];
+            }
+            if ($ces == 0.0 && $dias == 0.0) return;
+            foreach (Periodo::repartir($desde, $hasta) as $mes => $f) {
+                if ($mes < substr($desdeAnio, 0, 7) || $mes > substr($hastaDia, 0, 7)) continue;
+                $porMes[$uid][$mes]['ces'] = ($porMes[$uid][$mes]['ces'] ?? 0) + $ces * $f;
+                $porMes[$uid][$mes]['dias'] = ($porMes[$uid][$mes]['dias'] ?? 0) + $dias * $f;
+                if ($esEstimado) $estimado[$mes] = true;
+            }
+        };
+
+        foreach ($pagos as $p) {
+            $anotar($p->usuario_id, $p->fecha_inicio, $p->fecha_fin, CostoEmpleador::dePago($p), (float) $p->dias, false);
+            $gente[$p->usuario_id] ??= $p->trabajador;
+        }
+        $empleados = $sinPagar ? self::empleados()->keyBy('id') : collect();
+        foreach ($sinPagar as $l) {
+            $anotar($l['usuario_id'], $l['fecha_inicio'], min($l['fecha_fin'], $l['fecha_corte']), $l['costo_empleador'], (float) $l['dias'], true);
+            $gente[$l['usuario_id']] ??= $empleados[$l['usuario_id']] ?? null;
+        }
+
+        foreach ($porMes as $uid => $deMeses) {
+            $u = $gente[$uid] ?? null;
+            $area = self::areaDe($u);
+            ksort($deMeses);
+            $anio = null;
+            $ces = $dias = $antes = 0.0;
+            foreach (Periodo::meses(substr($desdeAnio, 0, 7), substr($hastaDia, 0, 7)) as $mes) {
+                if (substr($mes, 0, 4) !== $anio) {
+                    // Año nuevo: los intereses se liquidan por año calendario.
+                    $anio = substr($mes, 0, 4);
+                    $ces = $dias = $antes = 0.0;
+                }
+                $ces  += (float) ($deMeses[$mes]['ces'] ?? 0);
+                $dias += (float) ($deMeses[$mes]['dias'] ?? 0);
+                $deuda = $ces * min(360.0, $dias) / 360 * self::porcentajeIntereses($u, Periodo::limites($mes)[1]) / 100;
+                $delMes = $deuda - $antes;
+                $antes = $deuda;
+
+                if (! isset($meses[$mes]) || abs($delMes) < 0.005) continue;
+                $out[$mes] ??= self::vacio();
+                $out[$mes]['prestaciones'] += $delMes;
+                $out[$mes]['por_area'][$area] = ($out[$mes]['por_area'][$area] ?? 0) + $delMes;
+                $out[$mes]['por_usuario'][$uid] = ($out[$mes]['por_usuario'][$uid] ?? 0) + $delMes;
+                if (! empty($estimado[$mes])) $out[$mes]['estimado'] = true;
+            }
+        }
+    }
+
+    /** El % de intereses de cesantías de esa persona ese día (12 de ley, o su excepción). */
+    private static function porcentajeIntereses(?Usuario $u, Carbon $fecha): float
+    {
+        if (! $u) return 12.0;
+        $c = collect(CostoEmpleador::conceptosDe($u, $fecha))->firstWhere('clave', 'intereses_cesantias');
+
+        return $c ? ($c['aplica'] ? (float) $c['porcentaje'] : 0.0) : 12.0;
     }
 
     private static function sumar(array &$out, array $meses, $desde, $hasta, float $bruto, array $costo, string $area, int $usuarioId, bool $estimado): void

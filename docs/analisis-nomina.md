@@ -120,7 +120,7 @@ no en febrero. **Pregunta para el dueño/contador**: ¿febrero se paga con 15/30
 Colombia es sí). Lo mismo pasa con quien entra a mitad de un mes de 31 (entra el 20: 12 días
 corridos, por convención 11).
 
-**A4. Los intereses de cesantías se provisionan al doble (o más) en años incompletos** · **ARREGLADO 2026-11-18** (pedido del usuario): lo que se debe y la liquidación usan cesantías × días × % ÷ 360 (`Prestaciones::interesesDeLey`). Finanzas sigue con la provisión de cada pago, que en el año completo da lo mismo.
+**A4. Los intereses de cesantías se provisionan al doble (o más) en años incompletos** · **ARREGLADO 2026-11-18** (pedido del usuario): lo que se debe y la liquidación usan cesantías × días × % ÷ 360 (`Prestaciones::interesesDeLey`). Finanzas también: cada mes suma lo que creció la deuda de ley (`FuenteNomina::sumarInteresesDeLey`).
 `CostoEmpleador.php:69` y la migración `2026_10_19_000001_costo_empleador_en_nomina.php:45`:
 intereses = 12 % de las cesantías de cada ciclo. La ley (Ley 52/1975) es
 `cesantías × días × 12 % / 360`. En un año completo da lo mismo; en uno incompleto no:

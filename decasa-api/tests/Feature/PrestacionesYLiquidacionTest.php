@@ -136,6 +136,26 @@ class PrestacionesYLiquidacionTest extends TestCase
         $this->assertEquals(239892, $int['saldo']);
     }
 
+    /**
+     * Finanzas ve el costo de los intereses con la misma fórmula de ley: en
+     * medio año suma 59.973 (no 12 × 9.996 = 119.952) y lo demás no se mueve.
+     */
+    public function test_finanzas_cuenta_los_intereses_con_la_formula_de_ley(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2027-01-02 10:00', 'America/Bogota'));
+
+        $n = \App\Services\Finanzas\FuenteNomina::porMes('2026-07', '2026-12', false);
+        $prestaciones = array_sum(array_column($n, 'prestaciones'));
+
+        // Prima, cesantías y vacaciones sin cambio (12 × 203.096) + intereses de ley.
+        $this->assertEqualsWithDelta(12 * (213092 - 9996) + 59973, $prestaciones, 1);
+        // Suben mes a mes: el interés corre sobre el saldo que se va juntando.
+        $intereses = fn (string $mes) => $n[$mes]['prestaciones'] - 2 * (213092 - 9996);
+        $this->assertLessThan($intereses('2026-12'), $intereses('2026-07'));
+        // Y el total del mes sale de lo mismo: bruto + aportes + prestaciones.
+        $this->assertEquals(round($n['2026-12']['bruto'] + $n['2026-12']['aportes'] + $n['2026-12']['prestaciones']), $n['2026-12']['costo']);
+    }
+
     public function test_vacaciones_en_dias(): void
     {
         Carbon::setTestNow(Carbon::parse('2027-01-02 10:00', 'America/Bogota'));

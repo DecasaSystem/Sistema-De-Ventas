@@ -1293,8 +1293,14 @@ Decisiones del dueño del 2026-10-08:
   migración):** lo que se debe (Prestaciones) y la liquidación usan la fórmula de ley, cesantías ×
   días (máx. 360) × % del concepto ÷ 360 (`Prestaciones::interesesDeLey`). Antes sumaban el 12 % de
   cada quincena: el doble en medio año (Jul–Dic: $59.973 y no $119.952). En año completo da lo mismo.
-  Finanzas sigue viendo el costo como provisión de cada pago (sin tocar `CostoEmpleador`): en años
-  incompletos su costo de intereses queda por encima de lo que se paga. Lo ya pagado no cambia.
+  Lo ya pagado no cambia. **Finanzas también** (pedido del usuario, mismo día, **subido a `main`** ese día, sin
+  migración): `FuenteNomina` quita la línea de intereses de la provisión de cada pago y suma, mes a
+  mes, lo que crece la deuda de ley (`sumarInteresesDeLey`: cesantías del año hasta el mes × días ÷
+  360 × %, reinicia cada enero). El total del año es lo que se paga; mes a mes sube (enero poco,
+  diciembre más). Una consulta más por carga (pagos desde el 1 de enero). Sin tocar: la proyección
+  de meses futuros (sigue con la provisión de cada pago) y lo congelado en `costo_empleador_detalle`.
+  Ojo: un mes **cerrado** en Finanzas conserva su foto vieja; si 2026 tiene meses cerrados con la
+  provisión de antes, el total de intereses de ese año en Finanzas queda algo por encima (solo ese año).
   **Visual, mismo día (queja del usuario: "re difícil de encontrar", estaba al final de los
   sueldos):** botón **Ajustes** (pastilla) en el encabezado de Nómina abre una hoja con Horas extra
   y recargos (abierto), Lo que paga la empresa y un acceso a Prestaciones; Sueldos tiene el acceso
