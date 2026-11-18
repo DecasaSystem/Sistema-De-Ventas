@@ -111,7 +111,7 @@ vacía. La persona nunca cobra esa quincena y la pantalla dijo "El ciclo vuelve 
 (no se revisa). Recomendación: permitir deshacer solo el último pago de la persona (o hacer que
 pendientes busque huecos desde el piso de 90 días), y frenar los que pertenecen a una liquidación.
 
-**A3. La segunda quincena de febrero y el mes de febrero se pagan con 13 y 28 días** — [verificado]
+**A3. La segunda quincena de febrero y el mes de febrero se pagan con 13 y 28 días** — [verificado] · **ARREGLADO 2026-11-18** (pedido del usuario): quincenas y meses cuentan con meses de 30 (`CicloNomina::diasEntre`): febrero 15 y 30 días, el 31 no suma.
 `NominaLiquidador.php:73-75`: `dias = min(días corridos, 15)`. El comentario de
 `CicloNomina::diasPagados` (`CicloNomina.php:70-75`) dice lo contrario ("la del 16 al 28 de febrero,
 que son 13, se pagan 15"). Con el mínimo, cada febrero son ~2 días menos (~$117.000 por persona

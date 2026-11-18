@@ -85,6 +85,35 @@ class CicloNomina
     }
 
     /**
+     * Cuántos días se pagan de $desde a $hasta (los dos incluidos).
+     *
+     * Quincenal y mensual van con la convención de 30 días (meses de 30): el
+     * 31 no suma y el último día de febrero cuenta hasta el 30. Así la
+     * quincena del 16 al 28 de febrero paga 15 (antes 13: el comentario de
+     * diasPagados ya lo decía, pero el código contaba días corridos) y
+     * febrero entero paga 30 (antes 28). Quien entra el 20 de enero cobra de
+     * la segunda quincena 11 días (20 al 30), no 12.
+     *
+     * Diario, semanal y cada 20 días no tienen mes de por medio: días corridos.
+     */
+    public static function diasEntre(string $periodicidad, CarbonInterface $desde, CarbonInterface $hasta): int
+    {
+        if ($hasta->lessThan($desde)) {
+            return 0;
+        }
+
+        if (! in_array($periodicidad, ['quincenal', 'mensual'], true)) {
+            return (int) self::fecha($desde)->diffInDays(self::fecha($hasta)) + 1;
+        }
+
+        $dia = fn (CarbonInterface $f) => ($f->month === 2 && $f->day === $f->daysInMonth) ? 30 : min($f->day, 30);
+
+        return max(0, ($hasta->year - $desde->year) * 360
+            + ($hasta->month - $desde->month) * 30
+            + ($dia($hasta) - $dia($desde)) + 1);
+    }
+
+    /**
      * El ciclo de calendario en el que cae $fecha.
      *
      * @return array{0: Carbon, 1: Carbon} [inicio, fin], ambos a las 00:00

@@ -913,6 +913,10 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   sumando 30). `registrar` acepta ese inicio y frena cualquier ciclo que se cruce
   con un pago ya hecho. Lo usan pendientes, el ciclo en curso, adelantos, la
   liquidación y la proyección de Finanzas.
+- **Días de quincenas y meses** (2026-11-18): se cuentan con meses de 30
+  (`CicloNomina::diasEntre`): la segunda quincena de febrero paga 15 y febrero 30; el 31
+  no suma (quien entra el 20 de un mes de 31 cobra 11 días de esa quincena). Diario,
+  semanal y cada 20 días van con días corridos.
 - **Cuotas de préstamo** (2026-11-18): se descuenta como máximo lo que el ciclo deja
   (el pago nunca queda negativo; lo que falta sigue en el saldo) y, con varios ciclos
   pendientes, cada uno sobre el saldo que deja el anterior (`liquidar(..., &$cuotasPrevias)`,

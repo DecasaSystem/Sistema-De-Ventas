@@ -79,7 +79,9 @@ class NominaLiquidador
         $desde = $inicio->greaterThan($alta) ? $inicio->copy() : $alta->copy();
         $hasta = $fin->lessThan($hoy) ? $fin->copy() : $hoy->copy();
 
-        $diasCorridos = $hasta->greaterThanOrEqualTo($desde) ? ((int) $desde->diffInDays($hasta)) + 1 : 0;
+        // Con la convención de 30 días en quincenas y meses (CicloNomina::diasEntre):
+        // la segunda quincena de febrero paga 15, no 13.
+        $diasCorridos = CicloNomina::diasEntre($empleado->periodicidad, $desde, $hasta);
         $diasCiclo    = CicloNomina::diasPagados($empleado->periodicidad);
         // Un ciclo que no arranca en su inicio de calendario es el del cambio
         // de frecuencia (rangoSinLoPagado): los días de antes ya los pagó la

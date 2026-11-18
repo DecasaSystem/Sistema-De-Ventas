@@ -1283,9 +1283,13 @@ Decisiones del dueño del 2026-10-08:
   resto sigue en el saldo y sale en el próximo; la pantalla avisa "no alcanza la cuota completa"), y
   (4) con **varios ciclos pendientes** cada uno descuenta sobre el saldo que deja el anterior
   (`liquidar(..., &$cuotasPrevias)`, igual en la liquidación al retiro); al pagar se guarda la cuota
-  que calculó la liquidación, no la fija. Pendiente de preguntar (no tocado): febrero con 13/28 días
-  (A3) e intereses de cesantías al doble en años incompletos (A4). Tests en
-  `NominaCambioDeFrecuenciaYDeshacerTest`.
+  que calculó la liquidación, no la fija. Tests en `NominaCambioDeFrecuenciaYDeshacerTest`.
+  **Febrero (A3), pedido del usuario el mismo día (subido a `main` ese día, sin migración):** quincenas y meses
+  cuentan con la convención de 30 días (`CicloNomina::diasEntre`): la segunda quincena de febrero
+  paga 15 (antes 13), febrero 30 (antes 28), el 31 no suma. Consecuencia: quien entra a mitad de un
+  mes de 31 cobra un día menos que antes (entra el 20 → 11 días, no 12). Diario, semanal y cada 20
+  días siguen con días corridos. Tests en `NominaDiasDeFebreroTest`. Pendiente de preguntar (no
+  tocado): intereses de cesantías al doble en años incompletos (A4).
 - **Horas extra en Nómina** (2026-11-18, **subido a `main`** ese día, misma rama, trae **migración**
   `2026_11_19_000001_horas_extra_en_nomina`: crea 3 tablas y agrega `nomina_pagos.horas_extra(_detalle)`).
   Antes solo había una pastilla "Hora extra" en Ajustes con el valor a mano, fuera de la base salarial.
