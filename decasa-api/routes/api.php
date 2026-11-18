@@ -290,6 +290,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/ajustes',             [NominaAjusteController::class, 'store']);
         Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
 
+        // Horas extra y recargos, y sus tipos con el % por fechas.
+        Route::get('/horas-extra/tipos',                [\App\Http\Controllers\NominaHoraExtraController::class, 'tipos']);
+        Route::post('/horas-extra/tipos',               [\App\Http\Controllers\NominaHoraExtraController::class, 'crearTipo']);
+        Route::patch('/horas-extra/tipos/{id}',         [\App\Http\Controllers\NominaHoraExtraController::class, 'editarTipo'])->whereNumber('id');
+        Route::post('/horas-extra/tipos/{id}/tarifas',  [\App\Http\Controllers\NominaHoraExtraController::class, 'agregarTarifa'])->whereNumber('id');
+        Route::delete('/horas-extra/tarifas/{id}',      [\App\Http\Controllers\NominaHoraExtraController::class, 'quitarTarifa'])->whereNumber('id');
+        Route::get('/horas-extra',                      [\App\Http\Controllers\NominaHoraExtraController::class, 'index']);
+        Route::post('/horas-extra',                     [\App\Http\Controllers\NominaHoraExtraController::class, 'store']);
+        Route::delete('/horas-extra/{id}',              [\App\Http\Controllers\NominaHoraExtraController::class, 'destroy'])->whereNumber('id');
+
         // Lo que el trabajador produjo, que es lo que suma para el bono.
         Route::get('/producciones',         [NominaProduccionController::class, 'index']);
         Route::post('/producciones',        [NominaProduccionController::class, 'store']);

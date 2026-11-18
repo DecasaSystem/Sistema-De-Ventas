@@ -60,11 +60,17 @@ class LiquidacionContrato
         // 1. Ciclos sin pagar hasta el retiro.
         $ciclos = [];
         $piso = $ultimoFin ? CicloNomina::fecha($ultimoFin)->addDay() : $ingreso->copy();
-        [$ini, $fin] = CicloNomina::rango($u->periodicidad, $piso);
+        // Tras un cambio de frecuencia, el primer ciclo arranca después del
+        // último pago (no se vuelven a pagar días ya pagados).
+        [$ini, $fin] = NominaLiquidador::rangoSinLoPagado($u, $piso, $ultimoFin);
         $pagados = NominaPago::where('usuario_id', $u->id)->pluck('fecha_inicio')->map(fn ($f) => CicloNomina::fecha($f)->toDateString())->flip();
+        // Las cuotas de préstamo, ciclo por ciclo sobre el saldo que deja el
+        // anterior: así el salario pendiente y el saldo que se descuenta abajo
+        // cuadran con lo que de verdad se registra al pagar.
+        $cuotasPrevias = [];
         for ($i = 0; $i < 400 && $ini->lessThanOrEqualTo($retiro); $i++) {
             if (! $pagados->has($ini->toDateString())) {
-                $l = NominaLiquidador::liquidar($u, $ini, $fin, $retiro);
+                $l = NominaLiquidador::liquidar($u, $ini, $fin, $retiro, $cuotasPrevias);
                 if ($l['dias'] > 0) {
                     $corte = $fin->lessThan($retiro) ? $fin : $retiro;
                     $ciclos[] = $l + ['usuario_id' => $u->id, 'fecha_corte' => $corte->toDateString()];
@@ -321,6 +327,9 @@ class LiquidacionContrato
                 \App\Models\NominaAusencia::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);
                 \App\Models\NominaAjuste::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);
                 \App\Models\NominaProduccion::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);
+                if (\App\Support\Esquema::tabla('nomina_horas_extra')) {
+                    \App\Models\NominaHoraExtra::where('nomina_pago_id', $pagoId)->update(['nomina_pago_id' => null]);
+                }
                 NominaPrestamoCuota::where('nomina_pago_id', $pagoId)->delete();
                 NominaPago::where('id', $pagoId)->delete();
             }

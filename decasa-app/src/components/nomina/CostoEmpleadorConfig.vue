@@ -20,6 +20,7 @@ const abierto        = ref(false)
 const cargando       = ref(false)
 const conceptos      = ref([])
 const bonoEsSalario  = ref(false)
+const horasExtraEsSalario = ref(true)
 const verInactivos   = ref(false)
 const editando       = ref(null)   // id del concepto abierto
 const guardando      = ref(false)
@@ -66,6 +67,7 @@ async function cargar() {
     const { data } = await getConceptosEmpleador(true)
     conceptos.value = data.conceptos
     bonoEsSalario.value = data.bono_es_salario
+    horasExtraEsSalario.value = data.horas_extra_es_salario ?? true
   } catch {
     toast.error('No se pudieron cargar los conceptos')
   } finally {
@@ -158,6 +160,17 @@ async function crear() {
     toast.error(e.response?.data?.message || 'No se pudo crear')
   } finally {
     guardando.value = false
+  }
+}
+
+async function cambiarHorasExtra() {
+  const nuevo = !horasExtraEsSalario.value
+  try {
+    await guardarAjustesConceptos({ horas_extra_es_salario: nuevo })
+    horasExtraEsSalario.value = nuevo
+    emit('guardado')
+  } catch {
+    toast.error('No se pudo guardar')
   }
 }
 
@@ -340,6 +353,17 @@ async function cambiarBono() {
           <span class="text-sm text-gray-700">
             El bono de producción cuenta como salario
             <span class="block text-xs text-gray-400">Apagado si se pactó como no salarial (lo usual).</span>
+          </span>
+        </label>
+
+        <label class="flex items-start gap-2.5 cursor-pointer select-none">
+          <button type="button" @click="cambiarHorasExtra"
+            :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0 mt-0.5', horasExtraEsSalario ? 'bg-blue-600' : 'bg-gray-300']">
+            <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', horasExtraEsSalario ? 'translate-x-5' : 'translate-x-0.5']" />
+          </button>
+          <span class="text-sm text-gray-700">
+            Las horas extra y recargos cuentan como salario
+            <span class="block text-xs text-gray-400">Prendido de fábrica: por ley son salario (aportes, prima y cesantías).</span>
           </span>
         </label>
       </template>

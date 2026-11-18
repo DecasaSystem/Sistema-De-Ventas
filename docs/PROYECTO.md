@@ -905,6 +905,36 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   configurable) y descuenta préstamos; queda en `nomina_liquidaciones`, con PDF, y
   se puede anular (deshace todo). Valores (SMMLV, fechas, días) en
   `configuracion.nomina_prestaciones_config`. Finanzas lee lo pagado.
+- **Cambio de frecuencia de pago** (2026-11-18): el primer ciclo con la frecuencia
+  nueva arranca el día siguiente al último pago, no en su inicio de calendario
+  (`NominaLiquidador::rangoSinLoPagado`): semanal pagado del 2 al 8 y pasado a
+  quincenal → "9 al 15" con 7 días; quincenal pagado del 1 al 15 y pasado a mensual
+  → "16 al 30" con 15. El tope de días baja en los ya pagados (un mes de 31 sigue
+  sumando 30). `registrar` acepta ese inicio y frena cualquier ciclo que se cruce
+  con un pago ya hecho. Lo usan pendientes, el ciclo en curso, adelantos, la
+  liquidación y la proyección de Finanzas.
+- **Cuotas de préstamo** (2026-11-18): se descuenta como máximo lo que el ciclo deja
+  (el pago nunca queda negativo; lo que falta sigue en el saldo) y, con varios ciclos
+  pendientes, cada uno sobre el saldo que deja el anterior (`liquidar(..., &$cuotasPrevias)`,
+  también en la liquidación al retiro). Al pagar se guarda la cuota calculada, no la fija.
+- **Horas extra y recargos** (2026-11-18, migración `2026_11_19_000001_horas_extra_en_nomina`,
+  `NominaHoraExtraController`, rutas `/nomina/horas-extra*`). Se anotan en Novedades →
+  Horas extra (fecha, tipo, horas, nota). El valor = horas × valor hora del sueldo ×
+  factor del tipo el día trabajado: **extra** = 1 + % (hora completa más el recargo),
+  **recargo** = solo el % (la hora ya va en el sueldo). Se calcula al liquidar el ciclo,
+  se suma al total y se congela en `nomina_pagos.horas_extra(_detalle)`; las filas quedan
+  enganchadas al pago (`nomina_horas_extra.nomina_pago_id`), como las faltas. Cuentan
+  como **salario** para el costo del empleador (interruptor en "Lo que paga la empresa",
+  clave `nomina_horas_extra_es_salario`, de fábrica sí) y Finanzas las suma al bruto.
+  Tipos y porcentajes con fecha "desde" en Sueldos → Horas extra y recargos
+  (`nomina_tipos_hora_extra`, `nomina_tipo_hora_extra_tarifas`); vienen los de ley con el
+  dominical subiendo por etapas (Ley 2466). Topes de ley (2 al día, 12 a la semana): se
+  avisan, no frenan. En Ajustes, escribir "hora extra" o "recargo" como bono manda a la
+  pestaña nueva. Tests en `NominaHorasExtraTest`.
+- **Deshacer un pago**: solo el último de la persona (del más nuevo al más viejo) y
+  nunca uno que hizo una liquidación al retiro (se anula la liquidación). Los
+  pendientes arrancan después del último pago: uno del medio quedaba sin pagar y
+  sin aparecer. Análisis completo del módulo: [`analisis-nomina.md`](analisis-nomina.md).
 
 ### 6.14 Encargos (herramientas a cargo)
 `EncargoController`, `RevisionEncargos`. Qué herramientas/equipos tiene cada

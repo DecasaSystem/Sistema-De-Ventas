@@ -36,6 +36,18 @@ export const getAjustes        = (params = {}) => api.get('/nomina/ajustes', { p
 export const crearAjuste       = (payload) => api.post('/nomina/ajustes', payload)
 export const eliminarAjuste    = (id) => api.delete(`/nomina/ajustes/${id}`)
 
+// Horas extra y recargos: se anotan horas con su tipo; el valor lo calcula el
+// servidor (valor hora × factor del tipo ese día) al liquidar el ciclo.
+export const getHorasExtra        = (params = {}) => api.get('/nomina/horas-extra', { params })
+export const crearHoraExtra       = (payload) => api.post('/nomina/horas-extra', payload)
+export const eliminarHoraExtra    = (id) => api.delete(`/nomina/horas-extra/${id}`)
+export const getTiposHoraExtra    = (incluirInactivos = false) =>
+  api.get('/nomina/horas-extra/tipos', { params: incluirInactivos ? { incluir_inactivos: 1 } : {} })
+export const crearTipoHoraExtra   = (payload) => api.post('/nomina/horas-extra/tipos', payload)
+export const editarTipoHoraExtra  = (id, payload) => api.patch(`/nomina/horas-extra/tipos/${id}`, payload)
+export const agregarTarifaHoraExtra = (id, payload) => api.post(`/nomina/horas-extra/tipos/${id}/tarifas`, payload)
+export const quitarTarifaHoraExtra  = (tarifaId) => api.delete(`/nomina/horas-extra/tarifas/${tarifaId}`)
+
 // Lo que el trabajador produjo, que es lo que suma para el bono.
 export const getProducciones     = (params = {}) => api.get('/nomina/producciones', { params })
 export const crearProduccion     = (payload) => api.post('/nomina/producciones', payload)

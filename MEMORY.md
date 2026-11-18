@@ -1269,6 +1269,35 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
+- **Análisis de Nómina + 2 arreglos** (2026-11-18, **subido a `main`** ese día, sin migración, rama
+  `claude/dazzling-shaw-39a885`). Informe en `docs/analisis-nomina.md` (problemas A1–E, preguntas
+  para el dueño/contador). Arreglados A1 y A2 (pedido del usuario): (1) **cambiar la frecuencia de
+  pago** pagaba días dos veces (semanal → quincenal: la quincena del 1 al 15 se pagaba entera
+  encima de la semana del 2 al 8) o se los comía (quincenal → mensual: del 16 al 30 nunca salía,
+  el mes figuraba pagado por la fecha de inicio). Ahora el ciclo de transición arranca el día
+  siguiente al último pago (`NominaLiquidador::rangoSinLoPagado`), con el tope de días rebajado, y
+  `registrar` frena todo ciclo que se cruce con un pago hecho. (2) **Deshacer un pago** solo el
+  último de la persona y nunca uno de una liquidación. No cambió ninguna regla de plata: con la
+  misma frecuencia todo da igual que antes. Mismo día, también A5 y A6 (pedido del usuario): (3) la
+  **cuota del préstamo** se descuenta como máximo lo que el ciclo deja (nunca un pago negativo; el
+  resto sigue en el saldo y sale en el próximo; la pantalla avisa "no alcanza la cuota completa"), y
+  (4) con **varios ciclos pendientes** cada uno descuenta sobre el saldo que deja el anterior
+  (`liquidar(..., &$cuotasPrevias)`, igual en la liquidación al retiro); al pagar se guarda la cuota
+  que calculó la liquidación, no la fija. Pendiente de preguntar (no tocado): febrero con 13/28 días
+  (A3) e intereses de cesantías al doble en años incompletos (A4). Tests en
+  `NominaCambioDeFrecuenciaYDeshacerTest`.
+- **Horas extra en Nómina** (2026-11-18, **subido a `main`** ese día, misma rama, trae **migración**
+  `2026_11_19_000001_horas_extra_en_nomina`: crea 3 tablas y agrega `nomina_pagos.horas_extra(_detalle)`).
+  Antes solo había una pastilla "Hora extra" en Ajustes con el valor a mano, fuera de la base salarial.
+  Diseño aprobado por el usuario: tipos con % por fecha (como el costo del empleador), se anotan horas,
+  el valor sale del valor hora × factor, cuentan como salario, se congelan en el pago. Detalle en
+  `docs/PROYECTO.md` §6.13. Por defecto mío (**falta que el contador confirme**): los porcentajes
+  de arranque (extra diurna 25, nocturna 75, recargo nocturno 35, dominical 75→80→90→100 por la Ley
+  2466, extras dominicales = dominical + extra); los topes de 2/día y 12/semana solo avisan; las
+  horas valen con el sueldo del ciclo en que se pagan (no del día en que se anotan). La pantalla dice
+  "Bonificación" en Ajustes y "hora extra"/"recargo" escritos ahí mandan a la pestaña nueva (los
+  ajustes viejos con ese nombre no se tocaron). La jornada nocturna (desde qué hora) no la calcula el
+  sistema: la persona escoge el tipo.
 - **Nómina "Marcar todos como pagados" daba 502** (2026-11-10, **subido a `main`** ese día, commit 923786f, sin migración, rama
   `claude/nomina-pago-lote-502-503-38cb6e`). Una sola petición con ~25 consultas por trabajador
   (×200 ms) pasaba de los ~100 s y Render la cortaba: los pagos quedaban hechos, pero la pantalla

@@ -52,6 +52,13 @@ class CostoEmpleador
     public const CLAVE_BONO = 'nomina_bono_es_salario';
 
     /**
+     * En `configuracion`: si las horas extra y recargos entran a la base
+     * salarial. De fábrica sí (por ley son salario, CST art. 127); se puede
+     * apagar si el contador dice otra cosa.
+     */
+    public const CLAVE_HORAS_EXTRA = 'nomina_horas_extra_es_salario';
+
+    /**
      * Los de ley 2026, iguales a los que siembra la migración. Solo rigen si
      * no existen las tablas (pruebas que arman el trabajador sin base): el
      * cálculo no puede tumbar una liquidación.
@@ -73,6 +80,7 @@ class CostoEmpleador
     private static ?Collection $conceptos = null;
     private static ?bool $hayTablas = null;
     private static ?bool $bono = null;
+    private static ?bool $horasExtra = null;
     /** dePago() de los pagos sin costo congelado: Finanzas pasa por el mismo pago varias veces por petición. */
     private static array $porPago = [];
     /** @var array<string, string> [día => porcentajes vigentes de cada concepto] */
@@ -87,6 +95,7 @@ class CostoEmpleador
         self::$conceptos = null;
         self::$hayTablas = null;
         self::$bono      = null;
+        self::$horasExtra = null;
         self::$porPago   = [];
         self::$firmas    = [];
         self::$conceptosCalculo = [];
@@ -146,6 +155,32 @@ class CostoEmpleador
         }
 
         return self::$bono = $valor === '1';
+    }
+
+    public static function horasExtraSonSalario(): bool
+    {
+        if (self::$horasExtra !== null) return self::$horasExtra;
+
+        try {
+            $valor = \App\Support\Esquema::tabla('configuracion')
+                ? \App\Support\Configuracion::valor(self::CLAVE_HORAS_EXTRA, \App\Support\Configuracion::DE_FINANZAS)
+                : null;
+        } catch (\Throwable) {
+            $valor = null;
+        }
+
+        // Sin guardar = sí: solo un "0" explícito las saca de la base.
+        return self::$horasExtra = $valor !== '0';
+    }
+
+    public static function guardarHorasExtraSonSalario(bool $si): void
+    {
+        DB::table('configuracion')->updateOrInsert(
+            ['clave' => self::CLAVE_HORAS_EXTRA],
+            ['valor' => $si ? '1' : '0', 'updated_at' => now()]
+        );
+        self::$horasExtra = $si;
+        \App\Support\Configuracion::olvidar();
     }
 
     public static function guardarBonoEsSalario(bool $si): void
@@ -218,6 +253,7 @@ class CostoEmpleador
             faltas:   (float) $l['descuento_faltas'],
             auxilio:  (float) $l['auxilio_transporte'] - (float) $l['descuento_incapacidad'],
             bono:     (float) ($l['bonificacion'] ?? 0),
+            horasExtra: (float) ($l['horas_extra'] ?? 0),
         );
     }
 
@@ -267,12 +303,14 @@ class CostoEmpleador
             faltas:   (float) $p->descuento_faltas,
             auxilio:  (float) $p->auxilio_transporte - (float) $p->descuento_incapacidad,
             bono:     (float) $p->bonificacion,
+            horasExtra: (float) ($p->horas_extra ?? 0),
         ) + ['calculado_despues' => true];
     }
 
-    private static function desglose(Usuario $e, CarbonInterface|string $fecha, float $subtotal, float $faltas, float $auxilio, float $bono): array
+    private static function desglose(Usuario $e, CarbonInterface|string $fecha, float $subtotal, float $faltas, float $auxilio, float $bono, float $horasExtra = 0.0): array
     {
-        $salario = max(0.0, $subtotal - $faltas) + (self::bonoEsSalario() ? $bono : 0.0);
+        $salario = max(0.0, $subtotal - $faltas) + (self::bonoEsSalario() ? $bono : 0.0)
+            + (self::horasExtraSonSalario() ? $horasExtra : 0.0);
         $bases   = ['salario' => $salario, 'salario_auxilio' => $salario + max(0.0, $auxilio)];
 
         ['pasos' => $pasos, 'orden' => $orden] = self::conceptosParaCalcular($e, $fecha);

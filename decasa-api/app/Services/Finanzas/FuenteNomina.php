@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  * Dos cifras distintas, y no se mezclan (docs/plan-gestion-financiera.md §3.3):
  *
  * - COSTO (estado de resultados): devengado bruto + lo que pone la empresa.
- *     bruto = sueldo + auxilio − faltas − incapacidad + bono ± ajustes
+ *     bruto = sueldo + auxilio − faltas − incapacidad + bono ± ajustes + horas extra
  *   El `total` del pago NO sirve: es lo que recibe la persona, ya sin su
  *   seguridad social ni las cuotas de préstamo (devolver un préstamo no es
  *   un gasto). Un ciclo que cruza de mes se reparte por días.
@@ -70,7 +70,8 @@ class FuenteNomina
         foreach ($pagos as $p) {
             $costo = CostoEmpleador::dePago($p);
             $bruto = (float) $p->subtotal + (float) $p->auxilio_transporte - (float) $p->descuento_faltas
-                   - (float) $p->descuento_incapacidad + (float) $p->bonificacion + (float) $p->total_ajustes;
+                   - (float) $p->descuento_incapacidad + (float) $p->bonificacion + (float) $p->total_ajustes
+                   + (float) ($p->horas_extra ?? 0);
             self::sumar($out, $meses, $p->fecha_inicio, $p->fecha_fin, $bruto, $costo, self::areaDe($p->trabajador), $p->usuario_id, false);
         }
 
@@ -174,7 +175,8 @@ class FuenteNomina
         $meses = [];
         $pagos = [];
         foreach ($empleados as $e) {
-            [$inicio, $fin] = CicloNomina::rango($e->periodicidad, $hoy);
+            // El primero, sin los días que ya cubre un pago (cambio de frecuencia).
+            [$inicio, $fin] = NominaLiquidador::rangoSinLoPagado($e, $hoy);
             for ($i = 0; $i < 400 && $inicio->lessThanOrEqualTo($hasta); $i++) {
                 // El ciclo completo, como si ya hubiera cerrado.
                 $l = NominaLiquidador::liquidar($e, $inicio, $fin, $fin);
@@ -183,7 +185,7 @@ class FuenteNomina
                 $l['total'] += $bono;
                 $costo = CostoEmpleador::deLiquidacion($e, $l, $fin);
                 $bruto = $l['subtotal'] + $l['auxilio_transporte'] - $l['descuento_faltas']
-                       - $l['descuento_incapacidad'] + $bono + $l['total_ajustes'];
+                       - $l['descuento_incapacidad'] + $bono + $l['total_ajustes'] + ($l['horas_extra'] ?? 0);
 
                 $mesesTodos = array_flip(Periodo::meses(Periodo::mesDe($inicio), Periodo::mesDe($fin)));
                 self::sumar($meses, $mesesTodos, $inicio, $fin, $bruto, $costo, self::areaDe($e), $e->id, true);
@@ -198,7 +200,9 @@ class FuenteNomina
                     'aportes'      => $costo['aportes'],
                 ];
 
-                [$inicio, $fin] = CicloNomina::siguiente($e->periodicidad, $inicio);
+                // Desde el fin y no desde el inicio: el primero puede arrancar
+                // después del fin si un pago ya lo cubrió entero.
+                [$inicio, $fin] = CicloNomina::rango($e->periodicidad, $fin->copy()->addDay());
             }
         }
 
@@ -268,7 +272,7 @@ class FuenteNomina
     private static function sumarLiquidacion(array &$out, array $meses, array $l, ?Usuario $e, string $hasta): void
     {
         $bruto = $l['subtotal'] + $l['auxilio_transporte'] - $l['descuento_faltas']
-               - $l['descuento_incapacidad'] + $l['bonificacion'] + $l['total_ajustes'];
+               - $l['descuento_incapacidad'] + $l['bonificacion'] + $l['total_ajustes'] + ($l['horas_extra'] ?? 0);
         $fin = min($l['fecha_fin'], $hasta);
         self::sumar($out, $meses, $l['fecha_inicio'], $fin, $bruto, $l['costo_empleador'], self::areaDe($e), $l['usuario_id'], true);
     }

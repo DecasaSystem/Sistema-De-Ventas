@@ -6,6 +6,7 @@ import InputPesos from '@/components/common/InputPesos.vue'
 import CostoEmpleadorDetalle from '@/components/nomina/CostoEmpleadorDetalle.vue'
 import CostoEmpleadorConfig from '@/components/nomina/CostoEmpleadorConfig.vue'
 import PrestacionesPanel from '@/components/nomina/PrestacionesPanel.vue'
+import TiposHoraExtraConfig from '@/components/nomina/TiposHoraExtraConfig.vue'
 import { getEmpleados, actualizarEmpleado, eliminarEmpleado, asignarEnLote } from '@/api/empleados'
 import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo, abonarPrestamo, quitarAbonoPrestamo, getAdelantos, darAdelanto, quitarAdelanto } from '@/api/nomina'
 import {
@@ -14,6 +15,7 @@ import {
   crearAusencia, crearIncapacidad, getAusencias, eliminarAusencia,
   getAjustes, crearAjuste, eliminarAjuste,
   getProducciones, crearProduccion, eliminarProduccion,
+  getHorasExtra, crearHoraExtra, eliminarHoraExtra, getTiposHoraExtra,
   getBonificaciones, actualizarBonificacion, eliminarBonificacion,
   guardarCuadroBono,
 } from '@/api/nomina'
@@ -1015,7 +1017,90 @@ function irAPrestamos() {
   mostrarNovedades.value = false
   if (e) abrirPrestamos(e)
 }
-const CONCEPTOS_BONO      = ['Hora extra', 'Bonificación', 'Recargo']
+// "Hora extra" y "Recargo" ya no van como bono escrito a mano: van por la
+// pestaña Horas extra, que saca el valor del valor hora y cuenta como salario.
+const CONCEPTOS_BONO      = ['Bonificación']
+
+/** Si escriben "hora extra" o "recargo" como bono, se manda a su pestaña. */
+const ajusteEsHoraExtra = computed(() =>
+  formAjuste.value.signo === 1 && /hora.{0,3}extra|recargo|dominical|nocturn/i.test(formAjuste.value.nombre || '')
+)
+
+// ── Horas extra y recargos ────────────────────────────────────────────────
+const tiposHoraExtra      = ref([])
+const formHoraExtra       = ref({ fecha: '', tipo_id: null, horas: 1, nota: '' })
+const historialHorasExtra = ref([])
+
+async function cargarTiposHoraExtra() {
+  try {
+    const { data } = await getTiposHoraExtra()
+    tiposHoraExtra.value = data
+    if (!formHoraExtra.value.tipo_id && data.length) formHoraExtra.value.tipo_id = data[0].id
+  } catch {
+    toast.error('No se pudieron cargar los tipos de hora extra')
+  }
+}
+
+const tipoHoraExtraElegido = computed(() => tiposHoraExtra.value.find(t => t.id === formHoraExtra.value.tipo_id) || null)
+
+/** Lo que vale con el sueldo y el porcentaje de hoy. Al pagar se recalcula con los del ciclo. */
+const valorHoraExtraForm = computed(() => {
+  const t = tipoHoraExtraElegido.value
+  if (!t) return 0
+  const factor = t.calculo === 'recargo' ? t.porcentaje / 100 : 1 + t.porcentaje / 100
+  return Math.round((Number(formHoraExtra.value.horas) || 0) * (Number(empleadoNovedades.value?.valor_hora_efectivo) || 0) * factor)
+})
+
+function textoTipoHoraExtra(t) {
+  if (!t) return ''
+  return t.calculo === 'recargo' ? `recargo del ${t.porcentaje} %` : `hora + ${t.porcentaje} %`
+}
+
+function irAHorasExtra() {
+  novedadTab.value = 'horas'
+  formAjuste.value.nombre = ''
+}
+
+async function guardarHoraExtra() {
+  if (!formHoraExtra.value.tipo_id) {
+    toast.error('Escoge el tipo de hora extra')
+    return
+  }
+  if (!(Number(formHoraExtra.value.horas) > 0)) {
+    toast.error('¿Cuántas horas?')
+    return
+  }
+  guardandoNovedad.value = true
+  try {
+    const { data } = await crearHoraExtra({
+      usuario_id: empleadoNovedades.value.id,
+      tipo_id: formHoraExtra.value.tipo_id,
+      fecha: formHoraExtra.value.fecha,
+      horas: formHoraExtra.value.horas,
+      nota: formHoraExtra.value.nota.trim() || null,
+    })
+    // El tope de ley se avisa, no frena (lo decide quien lo anota).
+    if (data.aviso) toast.info(`Guardado. ${data.aviso}`, 7000)
+    else toast.success(`Horas extra registradas: ${formatoPesos(data.monto)}`)
+    const tipo = formHoraExtra.value.tipo_id
+    resetFormsNovedad()
+    formHoraExtra.value.tipo_id = tipo
+    await Promise.all([cargarNovedades(), cargarPendientes(), cargarEmpleados()])
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudieron registrar las horas')
+  } finally {
+    guardandoNovedad.value = false
+  }
+}
+
+async function quitarHoraExtra(id) {
+  try {
+    await eliminarHoraExtra(id)
+    await Promise.all([cargarNovedades(), cargarPendientes(), cargarEmpleados()])
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo quitar')
+  }
+}
 
 async function abrirNovedades(e) {
   empleadoNovedades.value = e
@@ -1023,7 +1108,7 @@ async function abrirNovedades(e) {
   novedadTab.value = e.nomina_bonificacion_id ? 'produccion' : 'falta'
   resetFormsNovedad()
   mostrarNovedades.value = true
-  await cargarNovedades()
+  await Promise.all([cargarNovedades(), tiposHoraExtra.value.length ? null : cargarTiposHoraExtra()])
 }
 
 function resetFormsNovedad() {
@@ -1032,6 +1117,7 @@ function resetFormsNovedad() {
   formIncapacidad.value = { fecha_inicio: hoyISO(), fecha_fin: '', motivo: '' }
   formAjuste.value      = { fecha: hoyISO(), nombre: '', monto: 0, signo: 1 }
   formProduccion.value  = { fecha: hoyISO(), concepto: '', valor_unitario: 0, cantidad: 1 }
+  formHoraExtra.value   = { fecha: hoyISO(), tipo_id: formHoraExtra.value?.tipo_id ?? null, horas: 1, nota: '' }
 }
 
 const totalProduccionForm = computed(() =>
@@ -1042,15 +1128,17 @@ async function cargarNovedades() {
   if (!empleadoNovedades.value) return
   cargandoHistorial.value = true
   try {
-    const [f, a, p] = await Promise.all([
+    const [f, a, p, h] = await Promise.all([
       getAusencias({ usuario_id: empleadoNovedades.value.id }),
       getAjustes({ usuario_id: empleadoNovedades.value.id }),
       getProducciones({ usuario_id: empleadoNovedades.value.id }),
+      getHorasExtra({ usuario_id: empleadoNovedades.value.id }),
     ])
     historialFaltas.value        = f.data.filter(x => x.tipo !== 'incapacidad')
     historialIncapacidades.value = f.data.filter(x => x.tipo === 'incapacidad')
     historialAjustes.value = a.data
     historialProd.value    = p.data
+    historialHorasExtra.value = h.data
   } catch {
     toast.error('No se pudo cargar el historial')
   } finally {
@@ -1361,6 +1449,7 @@ async function quitarAjuste(id) {
                         · {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes
                       </span>
                       <span v-if="p.bonificacion" class="text-green-600 font-medium">· +{{ formatoPesos(p.bonificacion) }} bono</span>
+                      <span v-if="p.horas_extra" class="text-indigo-600 font-medium">· +{{ formatoPesos(p.horas_extra) }} horas extra</span>
                       <span v-if="p.adelantos" class="text-purple-600 font-medium">· −{{ formatoPesos(p.adelantos) }} adelantado</span>
                       <span v-if="p.dias_vacaciones" class="text-blue-600 font-medium">· {{ p.dias_vacaciones }} días de vacaciones</span>
                     </p>
@@ -1402,11 +1491,22 @@ async function quitarAjuste(id) {
                     </div>
                   </div>
 
+                  <div v-if="p.horas_extra_detalle?.length">
+                    <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Horas extra ({{ formatoPesos(p.valor_hora) }}/hora)</p>
+                    <div v-for="h in p.horas_extra_detalle" :key="h.id" class="flex justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-1.5 mb-1">
+                      <span class="text-gray-600 truncate">
+                        {{ formatoFechaCorta(h.fecha) }} · {{ h.tipo }} · {{ h.horas }}h · {{ h.calculo === 'recargo' ? `${h.porcentaje} %` : `+${h.porcentaje} %` }}
+                      </span>
+                      <span class="text-indigo-600 font-semibold shrink-0 ml-2">+{{ formatoPesos(h.monto) }}</span>
+                    </div>
+                  </div>
+
                   <div v-if="p.prestamos?.length">
                     <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Préstamos</p>
                     <div v-for="pr in p.prestamos" :key="pr.id" class="flex justify-between text-xs bg-purple-50 rounded-lg px-2.5 py-1.5 mb-1">
-                      <span class="text-gray-600 truncate">
-                        {{ pr.motivo || 'Préstamo' }} · queda {{ formatoPesos(pr.saldo) }}
+                      <span :class="['text-gray-600 min-w-0', pr.recortada ? '' : 'truncate']">
+                        {{ pr.motivo || 'Préstamo' }} · debe {{ formatoPesos(pr.saldo) }}
+                        <span v-if="pr.recortada" class="text-amber-700"> · no alcanza la cuota completa: el resto sigue en el saldo</span>
                       </span>
                       <span class="text-red-600 font-semibold shrink-0 ml-2">−{{ formatoPesos(pr.cuota_ahora) }}</span>
                     </div>
@@ -1909,6 +2009,7 @@ async function quitarAjuste(id) {
 
         <!-- Aportes y prestaciones: lo que la empresa paga por detrás. -->
         <CostoEmpleadorConfig class="mt-4" @guardado="cargarPendientes" />
+        <TiposHoraExtraConfig class="mt-4" @guardado="() => { tiposHoraExtra = []; cargarPendientes() }" />
       </div>
 
       <!-- Nuevo / editar sueldo -->
@@ -2338,6 +2439,10 @@ async function quitarAjuste(id) {
                   :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', novedadTab === 'incapacidad' ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-500']"
                 >Incapacidad</button>
                 <button
+                  type="button" @click="novedadTab = 'horas'"
+                  :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 whitespace-nowrap transition-colors', novedadTab === 'horas' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500']"
+                >Horas extra</button>
+                <button
                   type="button" @click="novedadTab = 'ajuste'"
                   :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', novedadTab === 'ajuste' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
                 >Bono</button>
@@ -2458,6 +2563,51 @@ async function quitarAjuste(id) {
               </button>
             </div>
 
+            <!-- Registrar horas extra o recargo -->
+            <div v-else-if="novedadTab === 'horas'" class="p-5 space-y-4 border-b border-gray-100">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Tipo *</label>
+                <select v-model="formHoraExtra.tipo_id" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                  <option v-for="t in tiposHoraExtra" :key="t.id" :value="t.id">{{ t.nombre }} · {{ textoTipoHoraExtra(t) }}</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Fecha *</label>
+                  <input v-model="formHoraExtra.fecha" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Horas *</label>
+                  <input
+                    v-model.number="formHoraExtra.horas" type="number" step="0.25" min="0.25" max="24"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nota</label>
+                <input v-model="formHoraExtra.nota" placeholder="Entrega de la cama Bali, inventario..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+              </div>
+              <p v-if="tipoHoraExtraElegido" class="text-xs text-gray-500 -mt-1">
+                {{ formHoraExtra.horas || 0 }} h × {{ formatoPesos(empleadoNovedades?.valor_hora_efectivo || 0) }}
+                × {{ tipoHoraExtraElegido.calculo === 'recargo' ? (tipoHoraExtraElegido.porcentaje / 100).toLocaleString('es-CO') : (1 + tipoHoraExtraElegido.porcentaje / 100).toLocaleString('es-CO') }}
+                = <span class="font-bold text-indigo-600">{{ formatoPesos(valorHoraExtraForm) }}</span>
+              </p>
+              <p class="text-[11px] text-gray-400 -mt-2">
+                <template v-if="tipoHoraExtraElegido?.calculo === 'recargo'">La hora ya va en el sueldo: solo se suma el recargo. </template>
+                Entra en el ciclo de esa fecha y cuenta como salario (aportes, prima y cesantías). El valor final sale con el sueldo del ciclo.
+                Tope de ley: 2 al día y 12 a la semana (se avisa, no se frena).
+              </p>
+              <button
+                @click="guardarHoraExtra" :disabled="guardandoNovedad || !tiposHoraExtra.length"
+                class="w-full bg-indigo-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <span v-if="guardandoNovedad" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                <ClockIcon v-else class="w-4 h-4" />
+                {{ guardandoNovedad ? 'Registrando...' : 'Registrar horas extra' }}
+              </button>
+            </div>
+
             <!-- Registrar bono o descuento -->
             <div v-else class="p-5 space-y-4 border-b border-gray-100">
               <div class="flex gap-2 bg-gray-100 rounded-xl p-1">
@@ -2482,13 +2632,16 @@ async function quitarAjuste(id) {
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1.5">Concepto *</label>
-                <input v-model="formAjuste.nombre" :placeholder="formAjuste.signo === 1 ? 'Hora extra, bonificación...' : 'Herramienta, daño...'" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                <input v-model="formAjuste.nombre" :placeholder="formAjuste.signo === 1 ? 'Bonificación, auxilio...' : 'Herramienta, daño...'" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                 <div class="flex flex-wrap gap-1.5 mt-1.5">
                   <button
                     v-for="c in (formAjuste.signo === 1 ? CONCEPTOS_BONO : CONCEPTOS_DESCUENTO)" :key="c"
                     type="button" @click="formAjuste.nombre = c"
                     class="text-[11px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
                   >{{ c }}</button>
+                  <button v-if="formAjuste.signo === 1" type="button" @click="irAHorasExtra"
+                    class="text-[11px] font-medium text-indigo-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
+                  >Hora extra o recargo → Horas extra</button>
                   <button v-if="formAjuste.signo !== 1" type="button" @click="irAAdelanto"
                     class="text-[11px] font-medium text-green-700 bg-gray-100 hover:bg-gray-200 rounded-full px-2.5 py-1 transition-colors"
                   >Anticipo → Adelanto de sueldo</button>
@@ -2497,7 +2650,12 @@ async function quitarAjuste(id) {
                   >Préstamo → Préstamos</button>
                 </div>
               </div>
-              <div v-if="ajusteVaAOtroLado === 'adelanto'" class="text-[11px] text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
+              <div v-if="ajusteEsHoraExtra" class="text-[11px] text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
+                Las horas extra y los recargos se anotan en <strong>Horas extra</strong>, por horas: el sistema saca el valor
+                del sueldo y cuentan como salario para aportes y prestaciones.
+                <button type="button" @click="irAHorasExtra" class="block mt-1 font-semibold text-indigo-700">Ir a Horas extra →</button>
+              </div>
+              <div v-else-if="ajusteVaAOtroLado === 'adelanto'" class="text-[11px] text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
                 Un anticipo se registra en <strong>Adelanto de sueldo</strong>, no como descuento: así se descuenta solo
                 el día de pago y Finanzas no ve la nómina más barata.
                 <button type="button" @click="irAAdelanto" class="block mt-1 font-semibold text-green-700">Ir a Adelanto de sueldo →</button>
@@ -2511,7 +2669,7 @@ async function quitarAjuste(id) {
                 Entra en el ciclo que contenga esa fecha, igual que una falta.
               </p>
               <button
-                @click="guardarAjuste" :disabled="guardandoNovedad || !!ajusteVaAOtroLado"
+                @click="guardarAjuste" :disabled="guardandoNovedad || !!ajusteVaAOtroLado || ajusteEsHoraExtra"
                 :class="['w-full text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5', formAjuste.signo === 1 ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700']"
               >
                 <span v-if="guardandoNovedad" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -2528,9 +2686,31 @@ async function quitarAjuste(id) {
               </div>
 
               <template v-else>
-                <p v-if="!historialFaltas.length && !historialIncapacidades.length && !historialAjustes.length && !historialProd.length" class="text-center py-6 text-gray-400 text-sm">
-                  Sin producción, faltas ni ajustes registrados todavía.
+                <p v-if="!historialFaltas.length && !historialIncapacidades.length && !historialAjustes.length && !historialProd.length && !historialHorasExtra.length" class="text-center py-6 text-gray-400 text-sm">
+                  Sin producción, faltas, horas extra ni ajustes registrados todavía.
                 </p>
+
+                <div v-for="h in historialHorasExtra" :key="'h' + h.id" class="bg-gray-50 rounded-xl px-3.5 py-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-gray-800">{{ h.tipo }} · {{ formatoFecha(h.fecha) }} · {{ h.horas }}h</p>
+                      <p class="text-xs text-gray-500 mt-0.5">
+                        {{ formatoPesos(h.valor_hora) }}/hora · {{ h.calculo === 'recargo' ? `recargo ${h.porcentaje} %` : `+${h.porcentaje} %` }}
+                      </p>
+                      <p v-if="h.nota" class="text-xs text-gray-500 italic mt-0.5">{{ h.nota }}</p>
+                      <p class="text-[11px] text-gray-400 mt-1">Registrada el {{ formatoFechaHora(h.registrada_en) }}</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1 shrink-0">
+                      <p class="text-sm font-semibold text-indigo-600">+{{ formatoPesos(h.monto) }}</p>
+                      <button v-if="!h.pagada" @click="quitarHoraExtra(h.id)" class="text-gray-300 hover:text-red-600 transition-colors" aria-label="Quitar horas extra">
+                        <XMarkIcon class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-[11px] font-semibold mt-1.5" :class="h.pagada ? 'text-green-600' : 'text-indigo-500'">
+                    {{ h.pagada ? `Ya pagada · ${h.ciclo}` : `Se paga en: ${h.ciclo}` }}
+                  </p>
+                </div>
 
                 <div v-for="p in historialProd" :key="'p' + p.id" class="bg-purple-50/60 rounded-xl px-3.5 py-3">
                   <div class="flex items-start justify-between gap-2">
@@ -2663,6 +2843,10 @@ async function quitarAjuste(id) {
                       <span v-if="p.descuento_seguridad_social">· −{{ formatoPesos(p.descuento_seguridad_social) }} seg. social</span>
                       <span v-if="p.total_ajustes">· {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes</span>
                       <span v-if="p.bonificacion">· +{{ formatoPesos(p.bonificacion) }} bono</span>
+                      <span v-if="p.horas_extra">· +{{ formatoPesos(p.horas_extra) }} horas extra</span>
+                    </p>
+                    <p v-if="p.horas_extra_detalle?.length" class="text-[10px] text-gray-400 mt-0.5">
+                      {{ p.horas_extra_detalle.map(h => `${h.tipo} ${h.horas}h`).join(' · ') }}
                     </p>
                     <p v-if="p.bonificacion_nombre" class="text-[11px] text-purple-500 mt-0.5">{{ p.bonificacion_nombre }}</p>
                     <p v-if="p.bonificacion_detalle" class="text-[10px] text-gray-400 mt-0.5">{{ p.bonificacion_detalle }}</p>

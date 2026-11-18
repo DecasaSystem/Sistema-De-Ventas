@@ -41,6 +41,7 @@ class NominaConceptoEmpleadorController extends Controller
         return response()->json([
             'conceptos' => $q->get()->map(fn (NominaConceptoEmpleador $c) => $this->comoJson($c, $hoy, (int) ($excepciones[$c->id] ?? 0))),
             'bono_es_salario' => CostoEmpleador::bonoEsSalario(),
+            'horas_extra_es_salario' => CostoEmpleador::horasExtraSonSalario(),
         ]);
     }
 
@@ -175,10 +176,21 @@ class NominaConceptoEmpleadorController extends Controller
     /** PUT /api/nomina/conceptos-empleador/ajustes — si el bono es salario. */
     public function guardarAjustes(Request $request)
     {
-        $data = $request->validate(['bono_es_salario' => 'required|boolean']);
-        CostoEmpleador::guardarBonoEsSalario($data['bono_es_salario']);
+        $data = $request->validate([
+            'bono_es_salario'         => 'sometimes|boolean',
+            'horas_extra_es_salario'  => 'sometimes|boolean',
+        ]);
+        if (array_key_exists('bono_es_salario', $data)) {
+            CostoEmpleador::guardarBonoEsSalario($data['bono_es_salario']);
+        }
+        if (array_key_exists('horas_extra_es_salario', $data)) {
+            CostoEmpleador::guardarHorasExtraSonSalario($data['horas_extra_es_salario']);
+        }
 
-        return response()->json(['bono_es_salario' => CostoEmpleador::bonoEsSalario()]);
+        return response()->json([
+            'bono_es_salario'        => CostoEmpleador::bonoEsSalario(),
+            'horas_extra_es_salario' => CostoEmpleador::horasExtraSonSalario(),
+        ]);
     }
 
     private function comoJson(NominaConceptoEmpleador $c, $hoy, int $excepciones): array

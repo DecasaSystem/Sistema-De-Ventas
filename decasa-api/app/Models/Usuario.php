@@ -208,6 +208,22 @@ class Usuario extends Authenticatable
         return $this->hasMany(NominaPrestamo::class, 'usuario_id');
     }
 
+    /**
+     * El pago de nómina que llega más lejos. La liquidación lo usa para no
+     * volver a pagar días que ya cubrió cuando cambió la frecuencia de pago
+     * (NominaLiquidador::rangoSinLoPagado).
+     */
+    public function ultimoPagoNomina()
+    {
+        return $this->hasOne(NominaPago::class, 'usuario_id')->ofMany('fecha_fin', 'max');
+    }
+
+    /** Horas extra y recargos anotados (Nómina → Novedades → Horas extra). */
+    public function horasExtra()
+    {
+        return $this->hasMany(NominaHoraExtra::class, 'usuario_id');
+    }
+
     public function ajustes()
     {
         return $this->hasMany(NominaAjuste::class, 'usuario_id');

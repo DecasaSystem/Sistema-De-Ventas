@@ -7,10 +7,12 @@ use App\Models\NominaAjuste;
 use App\Models\NominaPrestamo;
 use App\Models\NominaAusencia;
 use App\Models\NominaBonificacion;
+use App\Models\NominaHoraExtra;
 use App\Models\NominaPago;
 use App\Models\NominaProduccion;
 use App\Models\NominaSueldo;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -54,7 +56,14 @@ class NominaLiquidador
      * hoy: quien entró a mitad de quincena cobra proporcional, y un ciclo
      * en curso muestra lo que lleva devengado, no el ciclo completo.
      */
-    public static function liquidar(Usuario $empleado, Carbon $inicio, Carbon $fin, Carbon $hoy): array
+    /**
+     * @param array<int, float> $cuotasPrevias  [prestamo_id => lo que ya descontaron
+     *        ciclos anteriores de este mismo recorrido, sin pagar todavía]. Quien
+     *        liquida varios ciclos seguidos (pendientes, la liquidación al retiro)
+     *        pasa el mismo arreglo: cada ciclo descuenta sobre el saldo que le dejó
+     *        el anterior y lo deja anotado para el siguiente.
+     */
+    public static function liquidar(Usuario $empleado, Carbon $inicio, Carbon $fin, Carbon $hoy, array &$cuotasPrevias = []): array
     {
         // Todo a la misma zona antes de restar días: mezclar medianoches de
         // husos distintos da diferencias con decimales que truncan mal.
@@ -72,6 +81,15 @@ class NominaLiquidador
 
         $diasCorridos = $hasta->greaterThanOrEqualTo($desde) ? ((int) $desde->diffInDays($hasta)) + 1 : 0;
         $diasCiclo    = CicloNomina::diasPagados($empleado->periodicidad);
+        // Un ciclo que no arranca en su inicio de calendario es el del cambio
+        // de frecuencia (rangoSinLoPagado): los días de antes ya los pagó la
+        // frecuencia vieja, así que el tope baja en esos días. Pagada la
+        // quincena del 1 al 15 de octubre y pasado a mensual, octubre paga 15
+        // (no 16): el mes sigue sumando 30.
+        [$inicioCalendario] = CicloNomina::rango($empleado->periodicidad, $inicio);
+        if ($inicio->greaterThan($inicioCalendario)) {
+            $diasCiclo = max(0, $diasCiclo - (int) $inicioCalendario->diffInDays($inicio));
+        }
         $dias         = min($diasCorridos, $diasCiclo);
 
         $valorDia        = $empleado->valorDiaEfectivo();
@@ -127,12 +145,28 @@ class NominaLiquidador
         $descuentoIncapacidad  = round($incapacidades->count() * $valorAuxilioDia);
         $totalAjustes          = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
 
+        // Horas extra y recargos: horas × valor hora × factor del tipo el día
+        // que se trabajaron (1,25 la extra diurna, 0,35 el recargo nocturno…).
+        // Se calculan aquí y no al anotarlas: si el sueldo cambia antes de
+        // pagar, valen con el sueldo del ciclo, como las faltas.
+        $horasExtra = self::enVentana(
+            $empleado->relationLoaded('horasExtra') ? $empleado->horasExtra : collect(), $inicio, $hasta
+        );
+        $detalleHorasExtra = $horasExtra->map(fn (NominaHoraExtra $h) => self::horaExtraComoJson($h, $valorHora))->values();
+        $totalHorasExtra   = (float) $detalleHorasExtra->sum('monto');
+
         // Los préstamos se descuentan solos: una cuota por pago, hasta saldar.
         // Se calculan aquí y no se guardan, para que lo que se ve antes de
         // pagar sea exactamente lo que se va a descontar.
-        $prestamos = ($empleado->relationLoaded('prestamos') ? $empleado->prestamos : collect())
-            ->filter(fn (NominaPrestamo $pr) => $pr->activo && ! $pr->saldado());
-        $totalCuotas = $prestamos->sum(fn (NominaPrestamo $pr) => $pr->cuotaDelProximoPago());
+        //
+        // Dos topes:
+        // - El saldo que dejaron los ciclos anteriores sin pagar ($cuotasPrevias):
+        //   con tres quincenas pendientes y un préstamo de una sola cuota, las
+        //   tres mostraban la cuota y el total a pagar salía corto.
+        // - Lo que gana en el ciclo: la cuota no deja el pago en negativo. Una
+        //   quincena de $875.000 con cuota de $2.000.000 quedaba en −$1.124.547;
+        //   ahora se descuenta lo que alcanza y el resto sigue en el saldo.
+        // Del préstamo más viejo al más nuevo. (Se calculan abajo, con el bono.)
 
         // Lo producido dentro del ciclo — es lo que se muestra en el detalle.
         // La bonificación puede medirse sobre otra ventana (ver abajo).
@@ -140,6 +174,27 @@ class NominaLiquidador
         $produccionTotal = (float) $producciones->sum(fn (NominaProduccion $p) => (float) $p->total);
 
         $bono = self::evaluarBono($empleado, $inicio, $fin, $hasta);
+
+        $alcanza = max(0.0, $subtotal + (float) $auxilioTransporte
+            - (float) $descuentoFaltas - (float) $descuentoIncapacidad
+            - (float) $seguridadSocial + (float) $totalAjustes + (float) $bono['monto'] + $totalHorasExtra);
+        $prestamos = ($empleado->relationLoaded('prestamos') ? $empleado->prestamos : collect())
+            ->filter(fn (NominaPrestamo $pr) => $pr->activo && ! $pr->saldado())
+            ->sortBy(fn (NominaPrestamo $pr) => sprintf('%s|%010d', $pr->fecha?->toDateString() ?? '', $pr->id))
+            ->values();
+        $totalCuotas = 0.0;
+        $cuotas = [];
+        foreach ($prestamos as $pr) {
+            $saldo = max(0.0, round($pr->saldo() - (float) ($cuotasPrevias[$pr->id] ?? 0), 2));
+            $normal = min((float) $pr->valor_cuota, $saldo);
+            $cuota = round(min($normal, $alcanza), 2);
+            $alcanza = round($alcanza - $cuota, 2);
+            $totalCuotas += $cuota;
+            $cuotasPrevias[$pr->id] = round((float) ($cuotasPrevias[$pr->id] ?? 0) + $cuota, 2);
+            $cuotas[$pr->id] = ['saldo' => $saldo, 'cuota' => $cuota, 'recortada' => $cuota < $normal];
+        }
+        // Sin saldo para este ciclo (lo descontaron los anteriores), no se muestra.
+        $prestamos = $prestamos->filter(fn (NominaPrestamo $pr) => $cuotas[$pr->id]['saldo'] > 0)->values();
 
         // Lo que la empresa pone por detrás (aportes y prestaciones). No toca
         // el `total`: eso sigue siendo lo que recibe la persona. Lo lee
@@ -150,6 +205,7 @@ class NominaLiquidador
             'auxilio_transporte'    => $auxilioTransporte,
             'descuento_incapacidad' => $descuentoIncapacidad,
             'bonificacion'          => $bono['monto'],
+            'horas_extra'           => $totalHorasExtra,
         ], $fin);
 
         return [
@@ -199,15 +255,23 @@ class NominaLiquidador
                 'cuotas'      => (int) $pr->cuotas,
                 'valor_cuota' => (float) $pr->valor_cuota,
                 'abonado'     => $pr->abonado(),
-                'saldo'       => $pr->saldo(),
-                'cuota_ahora' => $pr->cuotaDelProximoPago(),
+                // Lo que debe al llegar a este ciclo (ya sin lo de los ciclos
+                // anteriores sin pagar) y lo que se le descuenta en él.
+                'saldo'       => $cuotas[$pr->id]['saldo'],
+                'cuota_ahora' => $cuotas[$pr->id]['cuota'],
+                // No le alcanzó el pago para la cuota completa: el resto sigue
+                // en el saldo para el próximo.
+                'recortada'   => $cuotas[$pr->id]['recortada'],
             ])->values(),
             // sueldo + auxilio − faltas − incapacidad (solo el auxilio de esos
-            // días) − seguridad social ± ajustes + bono − cuotas de préstamo.
+            // días) − seguridad social ± ajustes + bono + horas extra − cuotas de préstamo.
             'total'              => $subtotal + (float) $auxilioTransporte
                                     - (float) $descuentoFaltas - (float) $descuentoIncapacidad
                                     - (float) $seguridadSocial
-                                    + (float) $totalAjustes + $bono['monto'] - (float) $totalCuotas,
+                                    + (float) $totalAjustes + $bono['monto'] + $totalHorasExtra - (float) $totalCuotas,
+            // Horas extra y recargos del ciclo, cada una con su tipo y su %.
+            'horas_extra'         => $totalHorasExtra,
+            'horas_extra_detalle' => $detalleHorasExtra,
             // Por detrás: no se le paga al trabajador (ver CostoEmpleador).
             'costo_empleador'    => $costoEmpleador,
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
@@ -342,9 +406,47 @@ class NominaLiquidador
     /** El ciclo en curso de un trabajador — lo que lleva devengado hoy. */
     public static function cicloActual(Usuario $empleado, Carbon $hoy): array
     {
-        [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $hoy);
+        [$inicio, $fin] = self::rangoSinLoPagado($empleado, $hoy);
 
         return self::liquidar($empleado, $inicio, $fin, $hoy);
+    }
+
+    /**
+     * El ciclo que contiene $fecha, sin los días que ya cubre un pago.
+     *
+     * Con la misma frecuencia de siempre es el ciclo de calendario tal cual:
+     * el último pago termina justo antes de que empiece. Cuando la persona
+     * cambia de frecuencia, el ciclo nuevo puede empezar antes del último
+     * pago: semanal pagado del 2 al 8 de noviembre y pasado a quincenal, la
+     * quincena del 1 al 15 se pagaba completa y los días 2 a 8 salían dos
+     * veces. De quincenal a mensual, el mes arrancaba el 1 —que ya figuraba
+     * pagado— y del 16 al 30 no se pagaba nunca. Aquí el ciclo arranca al día
+     * siguiente del último pago (del 9 al 15, del 16 al 30).
+     *
+     * `$ultimoFin` = false: se toma de la relación `ultimoPagoNomina` si está
+     * cargada (NominaLiquidador::relaciones()); sin ella, el ciclo de calendario.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    public static function rangoSinLoPagado(Usuario $empleado, CarbonInterface|string $fecha, $ultimoFin = false): array
+    {
+        [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $fecha);
+
+        if ($ultimoFin === false) {
+            $ultimoFin = $empleado->relationLoaded('ultimoPagoNomina')
+                ? $empleado->ultimoPagoNomina?->fecha_fin
+                : null;
+        }
+        if ($ultimoFin) {
+            $siguiente = CicloNomina::fecha($ultimoFin)->addDay();
+            // Si el pago cubre todo el ciclo, el inicio queda después del fin
+            // y la liquidación da 0 días (no hay nada que pagar).
+            if ($siguiente->greaterThan($inicio)) {
+                $inicio = $siguiente;
+            }
+        }
+
+        return [$inicio, $fin];
     }
 
     /**
@@ -387,17 +489,20 @@ class NominaLiquidador
             // Lo adelantado se descuenta del ciclo más viejo primero, como
             // hace el pago al registrarse (NominaPagoController::registrar).
             $adelantoRestante = self::adelantosPendientes($empleado);
+            // Y las cuotas de préstamo, igual: cada ciclo sobre el saldo que le
+            // deja el anterior (al pagarlos en orden se descuenta eso mismo).
+            $cuotasPrevias = [];
             $piso = self::pisoDe($empleado, $ultimoFin[$empleado->id] ?? null, $pisoGlobal);
 
             if ($piso->greaterThan($hoy)) {
                 continue;
             }
 
-            [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $piso);
+            [$inicio, $fin] = self::rangoSinLoPagado($empleado, $piso, $ultimoFin[$empleado->id] ?? null);
 
             for ($vuelta = 0; $vuelta < self::MAX_CICLOS && $fin->lessThanOrEqualTo($hoy); $vuelta++) {
                 if (! $yaPagados->has($empleado->id . '|' . $inicio->toDateString())) {
-                    $liquidacion = self::liquidar($empleado, $inicio, $fin, $hoy);
+                    $liquidacion = self::liquidar($empleado, $inicio, $fin, $hoy, $cuotasPrevias);
 
                     if ($liquidacion['dias'] > 0) {
                         $pendientes[] = [
@@ -517,10 +622,13 @@ class NominaLiquidador
         $pagos = NominaPago::where('usuario_id', $empleado->id)->get(['fecha_inicio', 'fecha_fin']);
         $yaPagados = $pagos->map(fn (NominaPago $p) => $p->fecha_inicio->toDateString())->flip();
 
-        $piso = self::pisoDe($empleado, $pagos->max(fn (NominaPago $p) => $p->fecha_fin->toDateString()), $pisoGlobal);
+        $ultimoFin = $pagos->max(fn (NominaPago $p) => $p->fecha_fin->toDateString());
+        $piso = self::pisoDe($empleado, $ultimoFin, $pisoGlobal);
         $alta = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
 
-        [$i, $f] = CicloNomina::rango($empleado->periodicidad, $piso);
+        // Igual que pendientes(): tras un cambio de frecuencia el primer ciclo
+        // arranca después del último pago, no en su inicio de calendario.
+        [$i, $f] = self::rangoSinLoPagado($empleado, $piso, $ultimoFin);
 
         for ($vuelta = 0; $vuelta < self::MAX_CICLOS && $f->lessThanOrEqualTo($hoy) && $i->lessThan($inicio); $vuelta++) {
             if (! $yaPagados->has($i->toDateString()) && $f->greaterThanOrEqualTo($alta)) {
@@ -577,6 +685,9 @@ class NominaLiquidador
             'ajustes'      => $sinCobrar,
             'prestamos'    => $prestamosVivos,
             'producciones' => $recientes,
+            // Hasta dónde se le pagó: el ciclo en curso no vuelve a contar días
+            // ya pagados tras un cambio de frecuencia (rangoSinLoPagado).
+            'ultimoPagoNomina',
         ] + (\App\Support\Esquema::tabla('nomina_prestaciones_pagos')
             // Las vacaciones en las que descansa: la quincena tiene que saber
             // qué días fueron (sin auxilio de transporte esos días).
@@ -587,6 +698,10 @@ class NominaLiquidador
         ) + (\App\Support\Esquema::tabla('nomina_adelantos')
             // Lo adelantado que ningún pago ha descontado todavía.
             ? ['adelantos' => fn ($q) => $q->whereNull('nomina_pago_id')->whereNull('liquidacion_id')->orderBy('fecha')->orderBy('id')]
+            : []
+        ) + (\App\Support\Esquema::tabla('nomina_horas_extra')
+            // Horas extra sin cobrar, con su tipo y los porcentajes por fecha.
+            ? ['horasExtra' => fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha')->orderBy('id')->with('tipo.tarifas')]
             : []
         ) + (CostoEmpleador::hayTablas()
             // Sus excepciones a lo que paga la empresa por detrás, de una vez
@@ -603,6 +718,25 @@ class NominaLiquidador
 
             return $f->greaterThanOrEqualTo($desde) && $f->lessThanOrEqualTo($hasta);
         })->values();
+    }
+
+    /** Una hora extra con su valor: es también lo que se congela en el pago. */
+    public static function horaExtraComoJson(NominaHoraExtra $h, float $valorHora): array
+    {
+        $tipo = $h->tipo;
+
+        return [
+            'id'          => $h->id,
+            'fecha'       => $h->fecha->toDateString(),
+            'tipo_id'     => $h->tipo_id,
+            'tipo'        => $tipo?->nombre,
+            'calculo'     => $tipo?->calculo,
+            'porcentaje'  => $tipo ? $tipo->porcentajeEn($h->fecha) : 0.0,
+            'horas'       => (float) $h->horas,
+            'valor_hora'  => $valorHora,
+            'nota'        => $h->nota,
+            'monto'       => $h->valorCon($valorHora),
+        ];
     }
 
     private static function faltaComoJson(NominaAusencia $a, float $valorHora): array

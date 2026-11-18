@@ -6,6 +6,7 @@ use App\Models\Usuario;
 use App\Models\NominaAdelanto;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
+use App\Models\NominaHoraExtra;
 use App\Models\NominaPago;
 use App\Models\NominaPrestamo;
 use App\Models\NominaPrestamoCuota;
@@ -202,10 +203,40 @@ class NominaPagoController extends Controller
     {
         $pago = NominaPago::findOrFail($id);
 
+        // Solo el último pago de la persona. Los pendientes arrancan después
+        // del último pago: deshacer uno del medio (16–31 oct con 1–15 nov ya
+        // pagado) lo dejaba sin pagar para siempre y sin aparecer en ningún
+        // lado, aunque el aviso dijera que volvía a quedar pendiente.
+        $posterior = NominaPago::where('usuario_id', $pago->usuario_id)
+            ->whereDate('fecha_inicio', '>', $pago->fecha_inicio->toDateString())
+            ->orderByDesc('fecha_inicio')->first();
+        if ($posterior) {
+            return response()->json([
+                'message' => "Después de este hay otro pago ({$posterior->nombreCiclo()}). "
+                           . 'Se deshacen del más nuevo al más viejo: primero deshaz ese.',
+            ], 422);
+        }
+
+        // Un pago que hizo una liquidación al retiro se deshace anulando la
+        // liquidación: si no, ella seguiría contándolo como pagado.
+        if (\App\Support\Esquema::tabla('nomina_liquidaciones')) {
+            $liquidacion = \App\Models\NominaLiquidacion::where('usuario_id', $pago->usuario_id)
+                ->where('estado', '!=', 'anulada')->get()
+                ->first(fn ($l) => in_array($pago->id, $l->detalle['nomina_pagos_ids'] ?? [], false));
+            if ($liquidacion) {
+                return response()->json([
+                    'message' => 'Este pago es parte de la liquidación al retiro: para deshacerlo, anula la liquidación.',
+                ], 422);
+            }
+        }
+
         DB::transaction(function () use ($pago) {
             NominaAusencia::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             NominaAjuste::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             NominaProduccion::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
+            if (\App\Support\Esquema::tabla('nomina_horas_extra')) {
+                NominaHoraExtra::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
+            }
             // Se borran, no se desligan: una cuota sin pago no significa nada,
             // y dejarla suelta descontaria dos veces al volver a pagar.
             NominaPrestamoCuota::where('nomina_pago_id', $pago->id)->delete();
@@ -232,9 +263,19 @@ class NominaPagoController extends Controller
         $hoy = $corte ? CicloNomina::fecha($corte) : $this->hoy();
         [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $fechaInicio);
 
-        // El inicio tiene que ser el de un ciclo real de esta frecuencia:
-        // si no, una fecha cualquiera armaría un rango que no le
-        // corresponde y se pagaría de más o de menos.
+        // Tras un cambio de frecuencia, el ciclo empieza el día siguiente al
+        // último pago, no en su inicio de calendario (ver
+        // NominaLiquidador::rangoSinLoPagado). Se lee aquí y no de lo cargado:
+        // en un lote, el pago anterior de la misma persona acaba de registrarse.
+        $ultimoFin = NominaPago::where('usuario_id', $empleado->id)->max('fecha_fin');
+        if ($ultimoFin && $fechaInicio->greaterThan($inicio) && $fechaInicio->lessThanOrEqualTo($fin)
+            && $fechaInicio->isSameDay(CicloNomina::fecha($ultimoFin)->addDay())) {
+            $inicio = $fechaInicio->copy();
+        }
+
+        // El inicio tiene que ser el de un ciclo real de esta frecuencia: si
+        // no, una fecha cualquiera armaría un rango que no le corresponde y
+        // se pagaría de más o de menos.
         if (! $inicio->isSameDay($fechaInicio)) {
             throw ValidationException::withMessages([
                 'fecha_inicio' => ["Ese no es el inicio de un ciclo {$empleado->labelPeriodicidad()} de {$empleado->nombre}."],
@@ -254,6 +295,18 @@ class NominaPagoController extends Controller
         if (NominaPago::where('usuario_id', $empleado->id)->whereDate('fecha_inicio', $inicio->toDateString())->exists()) {
             throw ValidationException::withMessages([
                 'fecha_inicio' => ["Ese ciclo de {$empleado->nombre} ya estaba pagado."],
+            ]);
+        }
+
+        // Ningún día se paga dos veces, aunque el pago que los cubre sea de
+        // otra frecuencia (la persona cambió de semanal a quincenal, etc.).
+        $choca = NominaPago::where('usuario_id', $empleado->id)
+            ->whereDate('fecha_inicio', '<=', $fin->toDateString())
+            ->whereDate('fecha_fin', '>=', $inicio->toDateString())
+            ->orderBy('fecha_inicio')->first();
+        if ($choca) {
+            throw ValidationException::withMessages([
+                'fecha_inicio' => ["A {$empleado->nombre} ya se le pagaron días de ese ciclo ({$choca->nombreCiclo()})."],
             ]);
         }
 
@@ -314,6 +367,11 @@ class NominaPagoController extends Controller
         ] : []) + (\App\Support\Esquema::columna('nomina_pagos', 'dias_vacaciones') ? [
             // Cuántos días del ciclo estuvo de vacaciones (sin auxilio esos días).
             'dias_vacaciones' => $l['dias_vacaciones'] ?? 0,
+        ] : []) + (\App\Support\Esquema::columna('nomina_pagos', 'horas_extra') ? [
+            // Horas extra con su tipo, % y valor hora: si cambia la ley o el
+            // sueldo, este pago se sigue explicando solo.
+            'horas_extra'         => $l['horas_extra'],
+            'horas_extra_detalle' => $l['horas_extra_detalle']->all() ?: null,
         ] : []));
 
         // Mismo rango que usó la liquidación (el ciclo está cerrado, así
@@ -331,16 +389,27 @@ class NominaPagoController extends Controller
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
 
+        // Las que se sumaron (las mismas filas del detalle, no "las del rango":
+        // una anotada entre la liquidación y este punto no se pagó).
+        $idsHorasExtra = $l['horas_extra_detalle']->pluck('id')->all();
+        if ($idsHorasExtra) {
+            NominaHoraExtra::whereIn('id', $idsHorasExtra)->whereNull('nomina_pago_id')
+                ->update(['nomina_pago_id' => $pago->id]);
+        }
+
         // La cuota del préstamo se anota como una fila propia, atada a ESTE
         // pago: así el saldo sale de sumarlas, y deshacer el pago devuelve la
         // deuda sola en vez de dejarla mal para siempre.
-        foreach (NominaPrestamo::with('cuotasPagadas')
-                     ->where('usuario_id', $empleado->id)->where('activo', true)->get() as $prestamo) {
-            $cuota = $prestamo->cuotaDelProximoPago();
+        //
+        // El monto es el que calculó la liquidación (con el tope de lo que gana
+        // en el ciclo), no la cuota fija: lo descontado del total y lo que baja
+        // la deuda tienen que ser lo mismo.
+        foreach ($l['prestamos'] as $pr) {
+            $cuota = round((float) $pr['cuota_ahora'], 2);
             if ($cuota <= 0) continue;
 
             NominaPrestamoCuota::create([
-                'prestamo_id'    => $prestamo->id,
+                'prestamo_id'    => $pr['id'],
                 'nomina_pago_id' => $pago->id,
                 'monto'          => $cuota,
                 'fecha'          => $pago->fecha ?? \App\Services\RangoFechas::hoyTexto(),
@@ -485,6 +554,8 @@ class NominaPagoController extends Controller
             'bonificacion'         => (float) $p->bonificacion,
             'bonificacion_nombre'  => $p->bonificacion_nombre,
             'bonificacion_detalle' => $p->bonificacion_detalle,
+            'horas_extra'          => (float) ($p->horas_extra ?? 0),
+            'horas_extra_detalle'  => $p->horas_extra_detalle ?? [],
             'total'               => (float) $p->total,
             // Lo que ya se le había adelantado y lo que se le entregó ese día.
             'adelantos'           => (float) ($p->adelantos ?? 0),

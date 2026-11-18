@@ -28,6 +28,8 @@ class NominaPago extends Model
         'adelantos', 'dias_vacaciones',
         // Lo que la empresa puso por detrás (CostoEmpleador), congelado.
         'costo_empleador', 'costo_empleador_detalle',
+        // Horas extra y recargos del ciclo (NominaHoraExtra), congelados con su detalle.
+        'horas_extra', 'horas_extra_detalle',
     ];
 
     protected function casts(): array
@@ -52,6 +54,8 @@ class NominaPago extends Model
             'total'            => 'decimal:2',
             'costo_empleador'  => 'decimal:2',
             'costo_empleador_detalle' => 'array',
+            'horas_extra'      => 'decimal:2',
+            'horas_extra_detalle' => 'array',
             'pagado_at'        => 'datetime',
         ];
     }
@@ -74,6 +78,11 @@ class NominaPago extends Model
     public function producciones()
     {
         return $this->hasMany(NominaProduccion::class);
+    }
+
+    public function horasExtra()
+    {
+        return $this->hasMany(NominaHoraExtra::class, 'nomina_pago_id');
     }
 
     public function nombreCiclo(): string

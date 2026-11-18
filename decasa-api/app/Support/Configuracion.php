@@ -22,6 +22,7 @@ class Configuracion
     public const DE_FINANZAS = [
         \App\Services\Finanzas\ConfigFinanzas::CLAVE,
         \App\Services\CostoEmpleador::CLAVE_BONO,
+        \App\Services\CostoEmpleador::CLAVE_HORAS_EXTRA,
         \App\Services\Prestaciones::CLAVE,
     ];
 

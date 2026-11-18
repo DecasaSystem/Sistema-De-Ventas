@@ -116,7 +116,8 @@ class NominaAdelantoController extends Controller
         $pendientes = NominaLiquidador::pendientes($hoy, collect([$empleado]));
         $sinPagar = (float) array_sum(array_map(fn ($p) => max(0.0, (float) $p['total']), $pendientes));
 
-        [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $hoy);
+        // Sin los días que ya cubre un pago (cambio de frecuencia).
+        [$inicio, $fin] = NominaLiquidador::rangoSinLoPagado($empleado, $hoy);
         $yaEnPendientes = collect($pendientes)->contains('fecha_inicio', $inicio->toDateString());
         $ganadoHoy = NominaLiquidador::liquidar($empleado, $inicio, $fin, $hoy);
         $completo  = NominaLiquidador::liquidar($empleado, $inicio, $fin, $fin);
