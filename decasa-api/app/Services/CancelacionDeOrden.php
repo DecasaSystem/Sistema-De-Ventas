@@ -39,6 +39,11 @@ class CancelacionDeOrden
      */
     public static function alCancelar(Orden $orden, Usuario $usuario, bool $correrNumeracion = false): array
     {
+        // La bonificación que ya se pagó por esta venta: foto de la cuenta del
+        // mes antes de tocar nada, y al guardar se descuenta del próximo pago
+        // lo cobrado de más (usuario, 2026-11-19; ver BonificacionCobradaDeMas).
+        BonificacionCobradaDeMas::alCancelar($orden, $usuario);
+
         // Avisar al taller ANTES de cancelarlas: después ya no se ve que
         // había trabajo vivo, y es justo lo que hay que decirle.
         AvisoProduccion::ordenCancelada($orden, $usuario);
@@ -80,7 +85,8 @@ class CancelacionDeOrden
         // pagable, y peor: su valor le seguía sumando a la meta de la tienda,
         // empujándola sobre el objetivo con una venta que no existió y
         // destrabando el pool de todo el equipo. Las ya pagadas no se tocan:
-        // esa plata ya salió y borrar el registro sería perder el rastro.
+        // esa plata ya salió y borrar el registro sería perder el rastro. Lo
+        // cobrado de más se descuenta aparte (BonificacionCobradaDeMas).
         Comision::where('orden_id', $orden->id)
             ->where('estado', '!=', 'pagada')
             ->delete();

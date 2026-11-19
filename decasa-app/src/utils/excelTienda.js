@@ -243,7 +243,7 @@ function hojaPersona(wb, ctx, p) {
 
   if ((p.anticipos_detalle ?? []).length) {
     seccion(ws, 'Anticipos y abonos que se le descuentan', 'Ya se le dieron; se descuentan del más viejo al más nuevo.')
-    explicar(ws, p.anticipos_detalle.map(a => `• ${mesEnPalabras(a.mes)} · ${a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`))
+    explicar(ws, p.anticipos_detalle.map(a => `• ${mesEnPalabras(a.mes)} · ${a.es_cobro_de_mas ? 'cobrado de más' : a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`))
   }
 
   const filas = renglonesDe(d, p)
@@ -454,7 +454,7 @@ function hojaIndependiente(wb, ctx) {
 
   if ((d.anticipos_detalle ?? []).length) {
     seccion(ws, 'Anticipos y abonos que se le descuentan', 'Ya se le dieron; se descuentan del más viejo al más nuevo.')
-    explicar(ws, d.anticipos_detalle.map(a => `• ${mesEnPalabras(a.mes)} · ${a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`))
+    explicar(ws, d.anticipos_detalle.map(a => `• ${mesEnPalabras(a.mes)} · ${a.es_cobro_de_mas ? 'cobrado de más' : a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`))
   }
 
   const filas = renglonesDe(d, d, { independiente: true })

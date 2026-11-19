@@ -1130,6 +1130,8 @@ class ComisionController extends Controller
                 ->map(function ($m) {
                     // Un abono no se corrige como el anticipo del mes: se quita.
                     $m->es_abono = AnticiposComision::esAbono($m->clave);
+                    // Lo cobrado de más por una venta cancelada: no se corrige como el anticipo del mes.
+                    $m->es_cobro_de_mas = \App\Services\BonificacionCobradaDeMas::esCobroDeMas($m->clave);
                     unset($m->vendedor_id, $m->clave);
                     return $m;
                 })->values();

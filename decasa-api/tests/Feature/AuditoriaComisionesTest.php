@@ -334,6 +334,157 @@ class AuditoriaComisionesTest extends TestCase
         $this->assertEqualsWithDelta(0, $this->loQueCobraCadaUno()['Manuela'] ?? 0, 1, 'y vale $0');
     }
 
+    // ─────────── Lo cobrado de más por una venta cancelada (2026-11-19) ───────────
+
+    /** Las tablas del libro de anticipos y lo que avisa la cancelación. */
+    private function conLibroDeAnticipos(): void
+    {
+        Schema::create('comision_anticipos_config', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('vendedor_id'); $t->char('desde_mes', 7);
+            $t->decimal('monto', 15, 2)->default(0); $t->boolean('activo')->default(true);
+            $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+        });
+        Schema::create('comision_anticipos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('vendedor_id'); $t->string('tipo', 12); $t->char('mes', 7);
+            $t->decimal('monto', 15, 2); $t->string('clave', 40)->nullable()->unique();
+            $t->unsignedBigInteger('comision_id')->nullable(); $t->boolean('editado_a_mano')->default(false);
+            $t->string('nota', 200)->nullable(); $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+        });
+        Schema::create('orden_mensajes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+            $t->text('mensaje'); $t->string('imagen_url')->nullable(); $t->json('mencionados')->nullable(); $t->timestamps();
+        });
+        Schema::create('notificaciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id')->nullable(); $t->string('tipo', 50);
+            $t->string('titulo', 200); $t->string('mensaje', 500); $t->boolean('leida')->default(false);
+            $t->boolean('urgente')->default(false); $t->json('datos')->nullable(); $t->timestamps();
+        });
+        \App\Services\AnticiposComision::olvidarEsquema();
+    }
+
+    /** Cancela como CancelacionDeOrden: foto antes, estado, se borra lo no pagado. */
+    private function cancelar(Orden $orden): void
+    {
+        $quien = \App\Models\Usuario::find(self::PAOLA);
+        DB::transaction(function () use ($orden, $quien) {
+            \App\Services\BonificacionCobradaDeMas::alCancelar($orden, $quien);
+            DB::table('ordenes')->where('id', $orden->id)->update(['estado' => 'cancelado']);
+            Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->delete();
+        });
+    }
+
+    /** [nombre => lo anotado como cobrado de más] */
+    private function cobradoDeMas(): array
+    {
+        $n = DB::table('usuarios')->pluck('nombre', 'id')->all();
+        $out = [];
+        foreach (DB::table('comision_anticipos')->where('clave', 'like', 'demas:%')->get() as $f) {
+            $out[$n[$f->vendedor_id]] = ($out[$n[$f->vendedor_id]] ?? 0) + (float) $f->monto;
+        }
+        return $out;
+    }
+
+    public function test_venta_cancelada_despues_de_pagar_el_pool_se_le_descuenta_al_equipo(): void
+    {
+        $this->conLibroDeAnticipos();
+        // Norte vende 70M (meta 40M): pool 1.260.504, 420.168 a cada una.
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->pagarTodoLoListo();
+
+        $this->cancelar($deMarta);
+
+        // Sin la de Marta el pool es 840.336 (280.112 c/u): cada una cobró 140.056 de más.
+        $deMas = $this->cobradoDeMas();
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(140_056, $deMas[$quien] ?? 0, 2, "a {$quien} se le descuenta su parte");
+        }
+        $this->assertArrayNotHasKey('Gladys', $deMas, 'El Edén no tiene nada que ver');
+        $this->assertSame(3, DB::table('notificaciones')->where('titulo', 'Se te descuenta una bonificación')->count());
+        $this->assertSame(1, DB::table('orden_mensajes')->where('orden_id', $deMarta->id)->count());
+    }
+
+    public function test_si_sin_la_venta_no_llegaba_a_la_meta_se_descuenta_el_pool_entero(): void
+    {
+        $this->conLibroDeAnticipos();
+        // 45M contra meta de 40M: pool 210.084 (70.028 c/u). Sin los 10M de Marta, 35M: no hay pool.
+        $this->orden(self::PAOLA, self::NORTE, 35_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->pagarTodoLoListo();
+
+        $this->cancelar($deMarta);
+
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(70_028, $this->cobradoDeMas()[$quien] ?? 0, 2, $quien);
+        }
+    }
+
+    public function test_en_el_5_directo_se_descuenta_lo_que_se_pago_por_esa_orden_en_el_proximo_pago(): void
+    {
+        $this->conLibroDeAnticipos();
+        $cancelada = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
+        $this->pagarTodoLoListo();
+
+        $this->cancelar($cancelada);
+        $this->assertEqualsWithDelta(500_000, $this->cobradoDeMas()['Manuela'] ?? 0, 1);
+
+        // La próxima venta: se le paga y el libro descuenta lo que debe.
+        $this->orden(self::MANUELA, self::VIRTUAL, 23_800_000);
+        $this->pagarTodoLoListo();
+        $descontado = (float) DB::table('comision_anticipos')->where('vendedor_id', self::MANUELA)
+            ->where('tipo', 'descuento')->sum('monto');
+        $this->assertEqualsWithDelta(500_000, $descontado, 1, 'se le descuenta del pago de su próxima venta');
+        $this->assertEqualsWithDelta(0, \App\Services\AnticiposComision::debeHasta(self::MANUELA, self::MES), 1);
+    }
+
+    public function test_la_venta_cancelada_de_un_independiente_se_le_descuenta_a_el(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->sedeDeIndependientes();
+        // Como arriba: 500.000 de su venta + 50.000 del bolsón, ya pagados.
+        $venta = $this->orden(self::HENRY, self::NORTE, 11_900_000, abonaA: self::NORTE);
+        $restauracion = $this->orden(self::HENRY, self::NORTE, 1_000_000, restauracion: true);
+        $this->llamar('pagarIndependiente', self::HENRY, self::MES, \App\Models\Usuario::find(self::PAOLA));
+
+        // Se cancela la restauración: el bolsón queda vacío, cobró 50.000 de más.
+        $this->cancelar($restauracion);
+        $this->assertEqualsWithDelta(50_000, $this->cobradoDeMas()['Henry'] ?? 0, 1, 'su parte del bolsón');
+
+        // Y la venta: los 500.000 de esa orden.
+        $this->cancelar($venta);
+        $this->assertEqualsWithDelta(550_000, $this->cobradoDeMas()['Henry'] ?? 0, 1, 'más su 5 % de la venta');
+    }
+
+    public function test_si_no_se_habia_pagado_no_se_descuenta_nada(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+
+        $this->cancelar($deMarta);
+
+        $this->assertSame([], $this->cobradoDeMas());
+    }
+
+    public function test_cancelar_una_venta_de_otra_tienda_no_le_descuenta_a_este_equipo(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000);
+        $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $deGladys = $this->orden(self::GLADYS, self::EDEN, 30_000_000);
+        $this->pagarTodoLoListo();
+
+        $this->cancelar($deGladys);
+
+        $deMas = $this->cobradoDeMas();
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertArrayNotHasKey($quien, $deMas, "{$quien} no pierde nada");
+        }
+        // El Edén: sin la de Gladys no llega a la meta de 20M: pierden su pool entero.
+        $this->assertGreaterThan(0, $deMas['Gladys'] ?? 0);
+        $this->assertEqualsWithDelta($deMas['Gladys'], $deMas['Sebastián'] ?? 0, 2);
+    }
+
     // ─────────── C2: renglón de "no vendió" repetido ───────────
 
     public function test_la_base_no_deja_abrir_dos_renglones_de_no_vendio(): void

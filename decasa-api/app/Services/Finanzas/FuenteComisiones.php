@@ -97,7 +97,11 @@ class FuenteComisiones
 
             $consulta->unionAll(DB::table('comision_anticipos')->where('tipo', 'anticipo')
                 ->where(fn ($q) => $q->whereNull('clave')
-                    ->orWhere('clave', 'not like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%'))
+                    ->orWhere(fn ($q) => $q->where('clave', 'not like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%')
+                        // Lo cobrado de más por una venta cancelada no es
+                        // plata que salió: es una deuda que se descuenta al
+                        // pagar (y ese descuento ya resta en "descuentos").
+                        ->where('clave', 'not like', \App\Services\BonificacionCobradaDeMas::PREFIJO . '%')))
                 ->whereBetween('mes', [$desde, $hasta])
                 ->selectRaw("'anticipos' AS tipo, mes, SUM(monto) AS total")->groupBy('mes'));
 

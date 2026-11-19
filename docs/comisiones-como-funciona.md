@@ -11,7 +11,9 @@ Todas las cifras de abajo son **las de hoy** y se pueden cambiar en **Comisiones
 ## 1. De dónde sale una comisión
 
 - Al confirmar una orden se crea su comisión: vendedor, tienda, mes de la venta y valor.
-  Cotizaciones y borradores no comisionan; las canceladas tampoco.
+  Cotizaciones y borradores no comisionan; las canceladas tampoco. Si la venta se cancela
+  **después** de pagar la bonificación, lo cobrado de más se descuenta del próximo pago (al
+  equipo, si era de una tienda con meta). Ver `BonificacionCobradaDeMas` (2026-11-19).
 - **Venta compartida:** la mitad para cada uno (regla "Parte de quien registra").
 - **Base:** lo que vale la orden menos lo que se llevó la franquicia de lo pagado con tarjeta o
   Addi (5,5 %). Sobre eso nadie comisiona.

@@ -696,7 +696,7 @@ export async function armarLibroListas({ porPagar, reglas = {}, generadoPor }) {
 
 /** Cada anticipo o abono que se le descuenta, en una línea: "agosto 2026 · abono del 18/10/2026: $50.000 (nota)". */
 function anticiposTexto(p) {
-  return (p.anticipos_detalle ?? []).map(a => `${mesEnPalabras(a.mes)} · ${a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`)
+  return (p.anticipos_detalle ?? []).map(a => `${mesEnPalabras(a.mes)} · ${a.es_cobro_de_mas ? 'cobrado de más' : a.es_abono ? `abono del ${fecha(a.fecha)}` : 'anticipo del mes'}: ${pesos(a.monto)}${a.nota ? ` (${a.nota})` : ''}`)
 }
 
 // ── Comprobantes ──────────────────────────────────────────────────────────────

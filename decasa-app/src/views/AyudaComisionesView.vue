@@ -649,11 +649,11 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             </div>
             <div>
               <dt>Se canceló una orden que ya me pagaron.</dt>
-              <dd>Lo pagado no se cambia solo. Si hay que corregirlo, un supervisor deshace el pago y queda en el historial.</dd>
+              <dd>Lo pagado no se borra, pero lo que se cobró de más se descuenta del próximo pago, como un anticipo. En una tienda con meta esa venta ayudó a armar el pool de todo el equipo: se rehace la cuenta del mes sin ella y a cada uno se le descuenta lo que cobró de más según sus días (si sin ella no se llegaba a la meta, es el pool entero). En el 5 % directo es lo que se pagó por esa orden. Si el próximo pago no alcanza, sigue debiendo el resto; nunca queda un pago negativo. Te llega un aviso y queda escrito en la orden. En las tiendas trimestrales no aplica: el trimestre queda fijo al pagarse.</dd>
             </div>
             <div>
               <dt>¿Por qué me descontaron algo si el cliente pagó todo?</dt>
-              <dd>Si pagó con {{ medios }}, se descuenta el {{ pct('franquicia_pct') }} de la franquicia sobre lo pagado así. O puede ser un anticipo que ya te habías llevado.</dd>
+              <dd>Si pagó con {{ medios }}, se descuenta el {{ pct('franquicia_pct') }} de la franquicia sobre lo pagado así. O puede ser un anticipo que ya te habías llevado, o una bonificación que se te pagó por una venta que después se canceló.</dd>
             </div>
             <div>
               <dt>¿Qué mes es una cotización que el cliente aceptó después?</dt>

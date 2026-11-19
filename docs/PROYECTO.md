@@ -560,6 +560,13 @@ entregada"). Solo supervisor.
 Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones-como-funciona.md) (el
 `explicacion_modulo_comisiones.txt` de la raíz quedó como histórico). Para los usuarios: Comisiones → Ayuda.
 
+**Venta cancelada después de pagar** (2026-11-19): `Services/BonificacionCobradaDeMas`, llamado desde
+`CancelacionDeOrden::alCancelar`. Saca la cuenta del mes (`resumenDelMes`) antes y después de cancelar
+y a cada persona le anota lo que cobró de más como un anticipo (clave `demas:` en
+`comision_anticipos`) que se descuenta solo en su próximo pago. En pool, a todo el equipo según sus
+días; en 5 % directo, lo pagado por esa orden; en el bolsón de independientes, su parte. No aplica a
+trimestrales ni a "cancelar lo que falta". Finanzas no lo cuenta como salida de caja.
+
 **Cómo funciona hoy, en corto:** cada orden confirmada crea su comisión; la tienda con meta reparte un
 pool por días entre su equipo, medido solo con ventas que tienen la mitad pagada; las demás cobran un %
 fijo; las restauraciones van aparte; todo se cobra el día de pago si se cumplen las 3 condiciones.

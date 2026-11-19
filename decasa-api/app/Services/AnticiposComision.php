@@ -276,6 +276,7 @@ class AnticiposComision
                 'mes'      => $f->mes,
                 'monto'    => round($monto - $usado),
                 'es_abono' => self::esAbono($f->clave),
+                'es_cobro_de_mas' => BonificacionCobradaDeMas::esCobroDeMas($f->clave),
                 'nota'     => $f->nota,
                 'fecha'    => $f->created_at ? substr((string) $f->created_at, 0, 10) : null,
             ];

@@ -328,7 +328,7 @@ escribiendo precios (Fase 1b).
     cancelada sí cuenta (`Orden::ESTADOS_FUERA_DE_LO_COBRADO`): el anticipo el día que
     entró, la devolución resta el día que sale (antes el anticipo desaparecía del mes en
     que entró y la devolución no se veía). Lo vendido y lo de cada persona siguen sin
-    ella. **Sin subir**, sin migración, rama `claude/order-cancellation-money-deduction-1549da`.
+    ella. **Subido a `main`** el 2026-11-19 (commit 7e50509e), sin migración.
     Ojo: un mes cerrado en Finanzas conserva su foto vieja.
   - **La nómina cuesta más de lo que se le paga al trabajador**: aportes del empleador y
     prestaciones se calculan **por detrás** en Nómina (`Services/CostoEmpleador`), sin tocar
@@ -1105,6 +1105,22 @@ escribiendo precios (Fase 1b).
   `acceso_surtir` (fábrica → tiendas). A los no supervisores se les quitó `acceso_surtir` (solo lo
   tenían por la API; en pantalla hacían traslados) y quedaron con `acceso_traslado`. Con esto
   quedan hechas las 7 fases del plan de roles; pendiente aparte: palabras de muebles en pantalla.
+- **Bonificación cobrada de más por una venta cancelada** (2026-11-19, **sin subir**, sin migración,
+  rama `claude/order-cancellation-money-deduction-1549da`). Antes lo pagado de una venta cancelada
+  se quedaba con quien lo cobró. Decisiones del usuario: **se le descuenta al equipo** (en tienda con
+  meta se rehace el pool del mes sin la venta y a cada uno se le descuenta lo que cobró de más por
+  días; si sin ella no llegaba a la meta, el pool entero; en 5 % directo, lo pagado por esa orden; en
+  el bolsón de independientes, su parte), **solo del próximo pago** (renglón `anticipo` con clave
+  `demas:` en `comision_anticipos`, se resta solo al pagar; si no alcanza sigue debiendo; nunca pago
+  negativo) y **solo cancelaciones desde ese día**. `Services/BonificacionCobradaDeMas`: foto con
+  `resumenDelMes` antes de cancelar (dentro de una transacción que se deshace) y otra al guardar
+  (`DB::afterCommit`); cobra `max(0, pagado − después) − max(0, pagado − antes)`, así lo que ya
+  estaba de más por otra razón no se le carga a esta orden. Entra por `CancelacionDeOrden::alCancelar`
+  (botón Cancelar, Devoluciones, Garantías). No entra: trimestrales (su pool queda quieto al pagarse)
+  ni "cancelar lo que falta" de una orden con algo entregado (es el hueco 3: el renglón pagado no
+  actualiza su `valor_orden`). Finanzas no cuenta ese renglón como plata que salió. Por defecto mío
+  (**falta confirmar**): aviso a cada persona y mensaje en la orden; no hay botón para perdonarlo.
+  Tests al final de la sección "cobrado de más" de `AuditoriaComisionesTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -1587,7 +1603,8 @@ Decisiones del dueño del 2026-10-08:
   solo acepta devoluciones de lo no entregado; (8) Devoluciones y Cancelar en Producción mueven
   combinación y medida; (9) los rankings de lo vendido (Reportes, Estadísticas, Qué fabricar) no
   cuentan renglones devueltos (`OrdenItem::vivos`); al covendedor le llega la cancelación. Sigue
-  igual (decisión vieja): la comisión ya pagada de una venta cancelada no se recupera;
+  igual (decisión vieja): la comisión ya pagada de una venta cancelada no se recupera
+  (**cambiado el 2026-11-19**: ver "Bonificación cobrada de más" en §3);
   **una orden "lista para entregar" también se cancela desde el detalle** (usuario, mismo día; antes
   había que devolverla a espera), solo si nadie la está despachando; "en camino" sigue bloqueada;
   **el vendedor que la subió (o el covendedor) pide cancelarla** y la aprueba un supervisor (usuario,

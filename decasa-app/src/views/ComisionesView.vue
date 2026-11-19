@@ -1609,6 +1609,7 @@ onMounted(async () => {
               <span class="text-gray-600">
                 {{ m.mes }} ·
                 <template v-if="m.es_abono">abono a esa bonificación <span class="text-gray-400">({{ diaDelAbono(m.created_at) }})</span></template>
+                <template v-else-if="m.es_cobro_de_mas">cobrado de más, se descuenta</template>
                 <template v-else-if="m.tipo === 'anticipo'">se llevó<span v-if="m.editado_a_mano" class="text-amber-600"> (corregido)</span></template>
                 <template v-else>descontado de su bonificación</template>
                 <span v-if="m.nota" class="text-gray-400"> — {{ m.nota }}</span>
@@ -1623,7 +1624,7 @@ onMounted(async () => {
                   class="text-[10px] font-semibold text-red-600 hover:text-red-800"
                 >Quitar</button>
                 <button
-                  v-else-if="m.tipo === 'anticipo' && auth.usuario?.rol === 'supervisor'"
+                  v-else-if="m.tipo === 'anticipo' && !m.es_cobro_de_mas && auth.usuario?.rol === 'supervisor'"
                   @click="corregirAnticipoMes(a, m.mes, m.monto)"
                   class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
                 >Editar</button>
