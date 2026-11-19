@@ -24,19 +24,19 @@ const routes = [
   { path: '/c', name: 'catalogos-portada', component: () => import('@/views/CatalogosPortadaView.vue') },
   { path: '/c/:slug', name: 'catalogo-visor', component: () => import('@/views/CatalogoVisorView.vue') },
   { path: '/',        name: 'dashboard',  component: () => import('@/views/DashboardView.vue'),  meta: { requiresAuth: true } },
-  { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true, restauraSolo: true } },
+  { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true, restauraSolo: true, requiresOrdenes: true } },
   { path: '/ordenes/:id', name: 'orden-detalle', component: () => import('@/views/OrdenDetalleView.vue'), meta: { requiresAuth: true } },
-  { path: '/ordenes/nueva', name: 'nueva-orden', component: () => import('@/views/NuevaOrdenView.vue'), meta: { requiresAuth: true } },
+  { path: '/ordenes/nueva', name: 'nueva-orden', component: () => import('@/views/NuevaOrdenView.vue'), meta: { requiresAuth: true, requiresNuevaOrden: true } },
   // Historial de las que borró un supervisor.
   { path: '/ordenes/eliminadas', name: 'ordenes-eliminadas', component: () => import('@/views/OrdenesEliminadasView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
-  { path: '/clientes', name: 'clientes',  component: () => import('@/views/ClientesView.vue'),   meta: { requiresAuth: true } },
-  { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true } },
+  { path: '/clientes', name: 'clientes',  component: () => import('@/views/ClientesView.vue'),   meta: { requiresAuth: true, requiresClientes: true } },
+  { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true, requiresClientes: true } },
   { path: '/inventario', name: 'inventario', component: () => import('@/views/InventarioView.vue'), meta: { requiresAuth: true } },
   { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresProduccion: true } },
   // Cuánto trabajo hay: supervisor o quien ve producción (el backend lo vuelve a mirar).
   { path: '/carga-trabajo', name: 'carga-trabajo', component: () => import('@/views/CargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
   { path: '/carga-trabajo/ayuda', name: 'carga-trabajo-ayuda', component: () => import('@/views/AyudaCargaTrabajoView.vue'), meta: { requiresAuth: true, requiresCargaTrabajo: true } },
-  { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true } },
+  { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true, requiresEstadisticas: true } },
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
@@ -71,8 +71,8 @@ const routes = [
   // tiene Comisiones; cambiarlas pide el permiso "Reglas de comisión".
   { path: '/comisiones/reglas', name: 'comisiones-reglas', component: () => import('@/views/ReglasComisionView.vue'), meta: { requiresAuth: true, requiresComisiones: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
-  { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true } },
-  { path: '/cotizaciones/:id', name: 'cotizacion-detalle', component: () => import('@/views/CotizacionDetalleView.vue'), meta: { requiresAuth: true } },
+  { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true, requiresCotizaciones: true } },
+  { path: '/cotizaciones/:id', name: 'cotizacion-detalle', component: () => import('@/views/CotizacionDetalleView.vue'), meta: { requiresAuth: true, requiresCotizaciones: true } },
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/consultas-costo/:id', name: 'consulta-detalle', component: () => import('@/views/ConsultaDetalleView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/telas', name: 'telas', component: () => import('@/views/TelasView.vue'), meta: { requiresAuth: true, requiresTelas: true } },
@@ -186,7 +186,14 @@ export function puedeAbrir(to, auth) {
   // entra igual: ahí ve sus propios pedidos.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return false
   if (to.meta.requiresCargaTrabajo && !(auth.isSupervisor || auth.puedeProduccion)) return false
-  if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return false
+  // Vender como módulos: cada pantalla con su interruptor (ModulosDeVenta).
+  if (to.meta.requiresNuevaOrden   && !auth.puedeNuevaOrden)   return false
+  if (to.meta.requiresOrdenes      && !auth.puedeOrdenes)      return false
+  if (to.meta.requiresClientes     && !auth.puedeClientes)     return false
+  if (to.meta.requiresCotizaciones && !auth.puedeCotizaciones) return false
+  if (to.meta.requiresEstadisticas && !auth.puedeEstadisticas) return false
+  // Consultar costo: quien pide (el módulo) o quien responde (Costos).
+  if (to.meta.requiresConsultas && !auth.puedeConsultarCosto && !auth.puedeCostos) return false
   if (to.meta.requiresReserva && !auth.puedeReserva) return false
   if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return false
   // Si la lista de módulos todavía no llegó (se abrió el enlace directo), se
@@ -196,7 +203,7 @@ export function puedeAbrir(to, auth) {
     const entra = plantilla && ENTRA_A_PLANTILLA[plantilla]
     if (entra && !entra(auth)) return false
   }
-  if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return false
+  if (to.meta.requiresCaja && !auth.puedeCaja) return false
   return true
 }
 

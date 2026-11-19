@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { getTiendasAdmin, crearTienda, actualizarTienda, eliminarTienda } from '@/api/tiendas'
 import { getRoles, crearRol, actualizarRol, eliminarRol } from '@/api/roles'
+import { useAuthStore } from '@/stores/auth'
+import { MODULOS_DE_VENTA, modulosDelRol } from '@/utils/modulosDeVenta'
 import {
   Cog6ToothIcon,
   BuildingStorefrontIcon,
@@ -54,7 +56,16 @@ const roles         = ref([])
 const cargandoRoles = ref(true)
 const mostrarFormRol = ref(false)
 const editandoRol    = ref(null)
-const formRol         = ref({ nombre: '', arquetipo: 'vendedor' })
+const formRol         = ref({ nombre: '', arquetipo: 'vendedor', modulos_venta: modulosDelRol({ arquetipo: 'vendedor' }) })
+// Rangos: con super admin, los roles los crea y los cambia solo él (el
+// servidor lo vuelve a mirar). Sin super admin, como antes.
+const auth = useAuthStore()
+const puedeTocarRoles = computed(() => !auth.usuario?.hay_super_admin || !!auth.usuario?.es_super_admin)
+const nombreModulo = (c) => MODULOS_DE_VENTA.find(m => m.campo === c)?.nombre ?? c
+function alternarModuloRol(c) {
+  const l = formRol.value.modulos_venta
+  formRol.value.modulos_venta = l.includes(c) ? l.filter(x => x !== c) : [...l, c]
+}
 const guardandoRol    = ref(false)
 
 async function cargarRoles() {
@@ -76,13 +87,13 @@ function etiquetaArquetipo(valor) {
 
 function abrirNuevoRol() {
   editandoRol.value = null
-  formRol.value = { nombre: '', arquetipo: 'vendedor' }
+  formRol.value = { nombre: '', arquetipo: 'vendedor', modulos_venta: modulosDelRol({ arquetipo: 'vendedor' }) }
   mostrarFormRol.value = true
 }
 
 function abrirEditarRol(r) {
   editandoRol.value = r.id
-  formRol.value = { nombre: r.nombre, arquetipo: r.arquetipo }
+  formRol.value = { nombre: r.nombre, arquetipo: r.arquetipo, modulos_venta: [...modulosDelRol(r)] }
   mostrarFormRol.value = true
 }
 
@@ -95,10 +106,10 @@ async function guardarRol() {
   try {
     if (editandoRol.value) {
       // El arquetipo no se puede cambiar después de creado.
-      await actualizarRol(editandoRol.value, { nombre: formRol.value.nombre.trim() })
+      await actualizarRol(editandoRol.value, { nombre: formRol.value.nombre.trim(), modulos_venta: formRol.value.modulos_venta })
       toast.success('Rol actualizado')
     } else {
-      await crearRol({ nombre: formRol.value.nombre.trim(), arquetipo: formRol.value.arquetipo })
+      await crearRol({ nombre: formRol.value.nombre.trim(), arquetipo: formRol.value.arquetipo, modulos_venta: formRol.value.modulos_venta })
       toast.success('Rol creado')
     }
     mostrarFormRol.value = false
@@ -276,12 +287,15 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs text-gray-400">Los puestos de trabajo del negocio. Cada uno determina qué pantalla y qué permisos trae por defecto.</p>
         <button
+          v-if="puedeTocarRoles"
           @click="abrirNuevoRol"
           class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
         >
           <PlusIcon class="w-4 h-4" /> Nuevo
         </button>
       </div>
+
+      <p v-if="!puedeTocarRoles" class="text-xs text-gray-500 bg-gray-100 rounded-xl px-3 py-2 mb-3">Los roles los crea y los cambia el super admin.</p>
 
       <div v-if="cargandoRoles" class="flex justify-center py-12">
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -293,8 +307,9 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
             <div class="min-w-0">
               <p class="font-semibold text-sm text-gray-800 truncate">{{ r.nombre }}</p>
               <p class="text-xs text-gray-500 mt-0.5">{{ etiquetaArquetipo(r.arquetipo) }}</p>
+              <p v-if="modulosDelRol(r).length" class="text-[11px] text-gray-400 mt-1">Trae: {{ modulosDelRol(r).map(nombreModulo).join(' · ') }}</p>
             </div>
-            <div class="flex items-center gap-1 shrink-0">
+            <div v-if="puedeTocarRoles" class="flex items-center gap-1 shrink-0">
               <button @click="abrirEditarRol(r)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
                 <PencilSquareIcon class="w-4 h-4" />
               </button>
@@ -309,7 +324,7 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
           <p class="text-xs font-semibold text-gray-400 uppercase pt-2">Desactivados</p>
           <div v-for="r in rolesInactivos" :key="r.id" class="bg-gray-50 rounded-xl p-4 flex items-center justify-between gap-2">
             <p class="text-sm text-gray-500 truncate">{{ r.nombre }}</p>
-            <button @click="reactivarRol(r)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
+            <button v-if="puedeTocarRoles" @click="reactivarRol(r)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
           </div>
         </template>
       </div>
@@ -322,7 +337,8 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
         >
           <div v-if="mostrarFormRol" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormRol = false">
             <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
-              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
+              <!-- bg-white sólido: bg-white/95 no tiene versión en modo oscuro. -->
+              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl sm:rounded-t-2xl">
                 <div class="flex items-center gap-2.5">
                   <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
                     <UserGroupIcon class="w-5 h-5 text-blue-600" />
@@ -350,6 +366,19 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
                   </select>
                   <p class="text-[11px] text-gray-400 mt-1">
                     {{ editandoRol ? 'No se puede cambiar después de creado.' : 'Define el cálculo de bonificaciones, caja y demás — elige el que más se parezca al puesto real.' }}
+                  </p>
+                </div>
+                <div>
+                  <p class="block text-xs font-semibold text-gray-500 mb-1.5">Módulos de venta que trae</p>
+                  <div class="space-y-1">
+                    <label v-for="m in MODULOS_DE_VENTA" :key="m.campo" class="flex items-center gap-2.5 py-1 cursor-pointer">
+                      <input type="checkbox" :checked="formRol.modulos_venta.includes(m.campo)" @change="alternarModuloRol(m.campo)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                      <span class="text-sm text-gray-700">{{ m.nombre }}</span>
+                    </label>
+                  </div>
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    Le salen a todos los que tienen este rol. A cada persona se le puede agregar o quitar
+                    en su ficha; lo que no se le cambió sigue al rol.
                   </p>
                 </div>
               </div>

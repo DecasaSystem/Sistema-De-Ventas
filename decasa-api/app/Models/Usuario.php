@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ModulosDeVenta;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -16,7 +17,8 @@ class Usuario extends Authenticatable
 
     /**
      * `rol` (el string) sigue siendo una columna real, sincronizada sola con
-     * la `clave` del rol asignado. Así, los ~40 sitios del código que ya
+     * el rol asignado: su clave en los de fábrica, la palabra de su arquetipo
+     * en los que crea la empresa (Rol::rolEnElCodigo). Así, los sitios que ya
      * comparan `$usuario->rol === 'ebanista'` —o lo hacen en una consulta
      * SQL, como `Usuario::where('rol', 'ebanista')`— siguen funcionando
      * exactamente igual, sin enterarse de que el rol ahora es configurable.
@@ -25,7 +27,9 @@ class Usuario extends Authenticatable
     {
         static::saving(function (Usuario $usuario) {
             if ($usuario->isDirty('rol_id') && $usuario->rol_id) {
-                $usuario->rol = Rol::find($usuario->rol_id)?->clave ?? $usuario->rol;
+                // La palabra con la que se comporta, no la clave: un rol nuevo
+                // de tipo supervisor tiene que ser `supervisor` (Rol::rolEnElCodigo).
+                $usuario->rol = Rol::find($usuario->rol_id)?->rolEnElCodigo() ?? $usuario->rol;
             }
         });
     }
@@ -61,6 +65,12 @@ class Usuario extends Authenticatable
         // Ve Finanzas (además de ser supervisor): la utilidad de la empresa.
         'acceso_finanzas',
         'acceso_compras',
+        // Vender como módulos (App\Support\ModulosDeVenta).
+        'acceso_nueva_orden', 'acceso_ordenes', 'acceso_clientes', 'acceso_cotizaciones',
+        'acceso_caja', 'acceso_consultas_costo', 'acceso_estadisticas',
+        // Lo que se le agregó o quitó encima de su rol, y la marca de super
+        // admin (la cuida RangoDeUsuarios).
+        'modulos_ajustados', 'es_super_admin',
         // Encargos: responder por herramientas es una cosa (`lleva_encargos`,
         // que le sirve hasta a quien no entra al programa) y administrar el
         // módulo es otra (`acceso_encargos`).
@@ -134,6 +144,15 @@ class Usuario extends Authenticatable
             'acceso_nomina'       => 'boolean',
             'acceso_finanzas'     => 'boolean',
             'acceso_compras'      => 'boolean',
+            'acceso_nueva_orden'     => 'boolean',
+            'acceso_ordenes'         => 'boolean',
+            'acceso_clientes'        => 'boolean',
+            'acceso_cotizaciones'    => 'boolean',
+            'acceso_caja'            => 'boolean',
+            'acceso_consultas_costo' => 'boolean',
+            'acceso_estadisticas'    => 'boolean',
+            'es_super_admin'         => 'boolean',
+            'modulos_ajustados'      => 'array',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
             'revisa_encargos'     => 'boolean',
@@ -352,6 +371,23 @@ class Usuario extends Authenticatable
     public function soloVeSusOrdenes(): bool
     {
         return $this->rol === 'vendedor' && ! $this->ve_todas_ordenes;
+    }
+
+    /**
+     * ¿Tiene prendido este permiso? Lo usa el middleware `permiso:`.
+     *
+     * Los módulos de venta (ModulosDeVenta) son columnas nuevas: si la fila
+     * no las trae (esquema de pruebas montado a mano, o antes de migrar), vale
+     * lo de antes —los tenía todo el que no fuera conductor ni despachador—,
+     * para que el cambio no le cierre la venta a nadie por un descuido.
+     */
+    public function tienePermiso(string $columna): bool
+    {
+        if (ModulosDeVenta::es($columna) && ! array_key_exists($columna, $this->getAttributes())) {
+            return ModulosDeVenta::comoAntes($this->rol);
+        }
+
+        return (bool) $this->getAttribute($columna);
     }
 
     /**

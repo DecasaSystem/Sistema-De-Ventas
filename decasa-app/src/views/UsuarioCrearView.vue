@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
+import { MODULOS_DE_VENTA, modulosDeVentaDeArranque } from '@/utils/modulosDeVenta'
 
 const router = useRouter()
 
@@ -46,6 +47,8 @@ const form = ref({
   // arranca encendida por la misma razón que Surtir, para no dejar a nadie
   // nuevo sin algo que el módulo ya daba por hecho.
   acceso_compras: true,
+  // Vender como módulos: arrancan según el rol escogido (ver el watch de abajo).
+  ...modulosDeVentaDeArranque(null),
   // Encargos: responder por herramientas es una cosa y administrar el módulo
   // es otra. Ambas arrancan apagadas — a la mayoría no se le entrega nada.
   lleva_encargos: false,
@@ -73,6 +76,8 @@ const mostrarConfirm = ref(false)
 // en sí puede ser cualquier nombre que la empresa haya inventado.
 const rolSeleccionado = computed(() => roles.value.find(r => r.id === form.value.rol_id))
 const arquetipo = computed(() => rolSeleccionado.value?.arquetipo ?? '')
+// Al escoger el rol, los módulos de venta arrancan con lo de ese rol.
+watch(rolSeleccionado, (r) => Object.assign(form.value, modulosDeVentaDeArranque(r)))
 const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
 
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
@@ -163,6 +168,7 @@ async function submit() {
       acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
       acceso_finanzas: arquetipo.value === 'supervisor' ? form.value.acceso_finanzas : false,
       acceso_compras: form.value.acceso_compras,
+      ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, !form.value.no_usa_programa && form.value[m.campo]])),
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
       puede_fv2_sin_iva: ['vendedor', 'supervisor'].includes(arquetipo.value) ? form.value.puede_fv2_sin_iva : false,
@@ -596,6 +602,20 @@ async function submit() {
             qué se descuenta. <strong>El aviso del día del chequeo le llega solo a él.</strong>
           </p>
         </div>
+      </div>
+
+      <!-- Vender como módulos (ModulosDeVenta): arrancan prendidos para
+           vendedor y supervisor, y se pueden cambiar para cualquiera. -->
+      <div v-if="!form.no_usa_programa" class="py-2 px-3 border border-gray-200 rounded-xl space-y-1">
+        <p class="text-sm font-semibold text-gray-800">Ventas</p>
+        <p class="text-xs text-gray-500">Lo que puede usar para vender. Se prende o se apaga por persona, sea cual sea su rol.</p>
+        <label v-for="m in MODULOS_DE_VENTA" :key="m.campo" class="flex items-start gap-3 py-1 cursor-pointer">
+          <input type="checkbox" v-model="form[m.campo]" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <span>
+            <span class="text-sm font-medium text-gray-700">{{ m.nombre }}</span>
+            <span class="block text-xs text-gray-500">{{ m.ayuda }}</span>
+          </span>
+        </label>
       </div>
 
       <!-- Reserva / Fábrica (vendedor y supervisor) -->

@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Rol;
 use App\Models\Usuario;
+use App\Support\Esquema;
+use App\Support\ModulosDeVenta;
+use App\Support\RangoDeUsuarios;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -36,11 +39,14 @@ class RolController extends Controller
         if ($request->user()->rol !== 'supervisor') {
             return response()->json(['message' => 'Solo un supervisor puede crear roles.'], 403);
         }
+        if (! RangoDeUsuarios::puedeTocarRoles($request->user())) {
+            return response()->json(['message' => 'Los roles los crea y los cambia el super admin.'], 403);
+        }
 
         $data = $request->validate([
             'nombre'    => 'required|string|max:80',
             'arquetipo' => ['required', Rule::in(self::ARQUETIPOS)],
-        ] + $this->reglasBanderas());
+        ] + $this->reglasBanderas() + $this->reglasModulos());
 
         $clave = $this->claveLibre($data['nombre']);
 
@@ -50,7 +56,7 @@ class RolController extends Controller
             'arquetipo' => $data['arquetipo'],
             'orden'     => (int) (Rol::max('orden') ?? 0) + 10,
             'activo'    => true,
-        ] + $this->soloBanderas($data));
+        ] + $this->soloBanderas($data) + $this->soloModulos($data));
 
         return response()->json($rol, 201);
     }
@@ -67,6 +73,9 @@ class RolController extends Controller
         if ($request->user()->rol !== 'supervisor') {
             return response()->json(['message' => 'Solo un supervisor puede cambiar roles.'], 403);
         }
+        if (! RangoDeUsuarios::puedeTocarRoles($request->user())) {
+            return response()->json(['message' => 'Los roles los crea y los cambia el super admin.'], 403);
+        }
 
         $rol = Rol::findOrFail($id);
 
@@ -74,9 +83,17 @@ class RolController extends Controller
             'nombre' => 'sometimes|required|string|max:80',
             'orden'  => 'sometimes|integer|min:0|max:9999',
             'activo' => 'sometimes|boolean',
-        ] + $this->reglasBanderas(sometimes: true));
+        ] + $this->reglasBanderas(sometimes: true) + $this->reglasModulos());
 
-        $rol->update($data);
+        $cambianModulos = array_key_exists('modulos_venta', $data);
+        $rol->update(array_diff_key($data, ['modulos_venta' => 1]) + $this->soloModulos($data));
+
+        // El rol manda en sus módulos: a todos los que lo tienen se les
+        // vuelven a poner, respetando lo que a cada uno se le ajustó a mano.
+        if ($cambianModulos) {
+            Usuario::where('rol_id', $rol->id)->with('rolAsignado')->get()
+                ->each(fn (Usuario $u) => ModulosDeVenta::aplicar($u));
+        }
 
         return response()->json($rol->fresh());
     }
@@ -92,6 +109,9 @@ class RolController extends Controller
     {
         if ($request->user()->rol !== 'supervisor') {
             return response()->json(['message' => 'Solo un supervisor puede borrar roles.'], 403);
+        }
+        if (! RangoDeUsuarios::puedeTocarRoles($request->user())) {
+            return response()->json(['message' => 'Los roles los crea y los cambia el super admin.'], 403);
         }
 
         $rol = Rol::findOrFail($id);
@@ -128,6 +148,22 @@ class RolController extends Controller
             'acceso_nomina'      => $regla,
             'acceso_compras'     => $regla,
         ];
+    }
+
+    /** Los módulos de venta que trae el rol (ModulosDeVenta). */
+    private function reglasModulos(): array
+    {
+        return [
+            'modulos_venta'   => 'sometimes|nullable|array',
+            'modulos_venta.*' => ['string', Rule::in(array_keys(ModulosDeVenta::MODULOS))],
+        ];
+    }
+
+    private function soloModulos(array $data): array
+    {
+        if (! array_key_exists('modulos_venta', $data) || ! Esquema::columna('roles', 'modulos_venta')) return [];
+
+        return ['modulos_venta' => $data['modulos_venta'] === null ? null : array_values(array_unique($data['modulos_venta']))];
     }
 
     private function soloBanderas(array $data): array

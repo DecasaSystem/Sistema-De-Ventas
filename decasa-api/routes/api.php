@@ -430,15 +430,21 @@ Route::middleware('auth:sanctum')->group(function () {
     // Cambia cómo se cuenta el stock en todas las tiendas: solo supervisor.
     Route::post('/productos/{id}/venta-por-juego', [ProductoController::class, 'ventaPorJuego'])->middleware('role:supervisor');
 
-    // Clientes
-    Route::get('/clientes',               [ClienteController::class, 'index']);
-    Route::post('/clientes',              [ClienteController::class, 'store']);
-    Route::get('/clientes/exportar',      [ClienteController::class, 'exportar']);
-    Route::get('/clientes/verificar-duplicado', [ClienteController::class, 'verificarDuplicado']);
-    Route::get('/clientes/{id}',          [ClienteController::class, 'show']);
-    Route::put('/clientes/{id}',          [ClienteController::class, 'update']);
+    // Clientes. Módulo Clientes (ModulosDeVenta); buscar, crear y abrir uno
+    // también lo hace quien vende o cotiza, que escoge el cliente ahí mismo.
+    Route::middleware('permiso:acceso_clientes|acceso_nueva_orden|acceso_cotizaciones')->group(function () {
+        Route::get('/clientes',               [ClienteController::class, 'index']);
+        Route::post('/clientes',              [ClienteController::class, 'store']);
+        Route::get('/clientes/verificar-duplicado', [ClienteController::class, 'verificarDuplicado']);
+        // whereNumber: /clientes/exportar va en el otro grupo, más abajo.
+        Route::get('/clientes/{id}',          [ClienteController::class, 'show'])->whereNumber('id');
+        Route::put('/clientes/{id}',          [ClienteController::class, 'update'])->whereNumber('id');
+    });
+    Route::middleware('permiso:acceso_clientes')->group(function () {
+        Route::get('/clientes/exportar',      [ClienteController::class, 'exportar']);
+        Route::get('/clientes/{id}/ordenes',  [ClienteController::class, 'ordenes']);
+    });
     Route::delete('/clientes/{id}',       [ClienteController::class, 'destroy'])->middleware('role:supervisor');
-    Route::get('/clientes/{id}/ordenes',  [ClienteController::class, 'ordenes']);
 
     // Clientes de redes: quienes escribieron por WhatsApp/Instagram, con el nombre y
     // celular que le dieron a Elena (las fichas las crea el webhook de Redes). Mismo
@@ -452,12 +458,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Órdenes
-    Route::get('/ordenes',              [OrdenController::class, 'index']);
+    // La lista es el módulo Órdenes y crear es Nueva orden (ModulosDeVenta).
+    // Abrir una orden por su número sigue con laPuedeVer: la abren también
+    // producción, despacho y facturación desde sus pantallas.
+    Route::get('/ordenes',              [OrdenController::class, 'index'])->middleware('permiso:acceso_ordenes');
     // Historial de las que borró un supervisor (va antes de /ordenes/{id}).
     Route::get('/ordenes-eliminadas',   [OrdenController::class, 'eliminadas']);
     // "¿Quisiste decir…?" del buscador. Antes de /ordenes/{id}, que si no se la come.
-    Route::get('/ordenes/sugerencias',  [OrdenController::class, 'sugerenciasBusqueda']);
-    Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware('throttle:20,1');
+    Route::get('/ordenes/sugerencias',  [OrdenController::class, 'sugerenciasBusqueda'])->middleware('permiso:acceso_ordenes');
+    Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware(['throttle:20,1', 'permiso:acceso_nueva_orden']);
     Route::get('/ordenes/{id}',                         [OrdenController::class, 'show']);
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);
     // Solo borradores: una orden confirmada se cancela, no se borra
@@ -465,7 +474,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/ordenes/{id}/estado',                [OrdenController::class, 'updateEstado']);
     Route::patch('/ordenes/{id}/revertir-entrega',      [OrdenController::class, 'revertirEntrega'])->whereNumber('id');
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
-    Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
+    Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador'])->middleware('permiso:acceso_nueva_orden');
     Route::get('/ordenes/{id}/para-continuar',          [OrdenController::class, 'paraContinuar'])->whereNumber('id');
 
     // Nueva orden a medio hacer, para seguirla en otro aparato (ver BorradorEnCursoController)
@@ -480,7 +489,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // falta crear la orden (Nueva orden los muestra arriba).
     Route::get('/anexos/sin-orden',           [\App\Http\Controllers\AnexoGarantiaController::class, 'sinOrden']);
     Route::get('/anexos/{id}',                [\App\Http\Controllers\AnexoGarantiaController::class, 'show'])->whereNumber('id');
-    Route::post('/anexos/{id}/crear-orden',   [\App\Http\Controllers\AnexoGarantiaController::class, 'crearOrden'])->whereNumber('id')->middleware('throttle:20,1');
+    Route::post('/anexos/{id}/crear-orden',   [\App\Http\Controllers\AnexoGarantiaController::class, 'crearOrden'])->whereNumber('id')->middleware(['throttle:20,1', 'permiso:acceso_nueva_orden']);
     Route::patch('/anexos/{id}/crear-al-firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'cambiarCrearAlFirmar'])->whereNumber('id');
     Route::post('/ordenes/{id}/firma-remota', [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarOrden'])->whereNumber('id')->middleware('throttle:30,1');
     Route::get('/ordenes/{id}/firma-remota',  [\App\Http\Controllers\AnexoGarantiaController::class, 'deOrden'])->whereNumber('id');
@@ -529,15 +538,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/mensajes/visto', [OrdenMensajeController::class, 'visto'])->whereNumber('id');
 
     // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión
-    Route::get('/cotizaciones',            [CotizacionController::class, 'index']);
-    Route::post('/cotizaciones',           [CotizacionController::class, 'store'])->middleware('throttle:30,1');
-    Route::get('/cotizaciones/{id}',       [CotizacionController::class, 'show'])->whereNumber('id');
-    Route::get('/cotizaciones/{id}/pdf',   [CotizacionController::class, 'pdf'])->whereNumber('id');
-    Route::patch('/cotizaciones/{id}/estado', [CotizacionController::class, 'cambiarEstado'])->whereNumber('id');
-    Route::post('/cotizaciones/{id}/enviar',    [CotizacionController::class, 'enviar'])->whereNumber('id');
-    Route::post('/cotizaciones/{id}/verificar', [CotizacionController::class, 'verificar'])->whereNumber('id');
-    Route::post('/cotizaciones/{id}/convertir', [CotizacionController::class, 'convertir'])->whereNumber('id');
-    Route::delete('/cotizaciones/{id}',    [CotizacionController::class, 'destroy'])->whereNumber('id');
+    // Módulo Cotizaciones (ModulosDeVenta).
+    Route::middleware('permiso:acceso_cotizaciones')->group(function () {
+        Route::get('/cotizaciones',            [CotizacionController::class, 'index']);
+        Route::post('/cotizaciones',           [CotizacionController::class, 'store'])->middleware('throttle:30,1');
+        Route::get('/cotizaciones/{id}',       [CotizacionController::class, 'show'])->whereNumber('id');
+        Route::get('/cotizaciones/{id}/pdf',   [CotizacionController::class, 'pdf'])->whereNumber('id');
+        Route::patch('/cotizaciones/{id}/estado', [CotizacionController::class, 'cambiarEstado'])->whereNumber('id');
+        Route::post('/cotizaciones/{id}/enviar',    [CotizacionController::class, 'enviar'])->whereNumber('id');
+        Route::post('/cotizaciones/{id}/verificar', [CotizacionController::class, 'verificar'])->whereNumber('id');
+        Route::post('/cotizaciones/{id}/convertir', [CotizacionController::class, 'convertir'])->whereNumber('id');
+        Route::delete('/cotizaciones/{id}',    [CotizacionController::class, 'destroy'])->whereNumber('id');
+    });
 
     // Restauraciones
     Route::get('/restauraciones',  [RestauracionController::class, 'index']);
@@ -741,10 +753,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/productos/tipos',  [StatsController::class, 'productosTipos']);
         Route::get('/categorias',      [StatsController::class, 'categorias']);
         Route::get('/cartera',          [StatsController::class, 'cartera']);
-        Route::get('/vendedores/me',    [StatsController::class, 'statsMe']);
+        // Módulo Estadísticas (ModulosDeVenta).
+        Route::get('/vendedores/me',    [StatsController::class, 'statsMe'])->middleware('permiso:acceso_estadisticas');
         // Las tarjetas de tienda de Reportes, pero solo de las tiendas de quien
         // pregunta: para "Mis estadísticas", donde el vendedor no entra a Reportes.
-        Route::get('/mis-tiendas',      [StatsController::class, 'misTiendas']);
+        Route::get('/mis-tiendas',      [StatsController::class, 'misTiendas'])->middleware('permiso:acceso_estadisticas');
         Route::get('/conductor',        [StatsController::class, 'statsConductor']);
 
         // Solo supervisor
@@ -930,7 +943,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/consultas-costo',                               [ConsultaCostoController::class, 'index']);
     // Solo el número de pendientes, para el menú.
     Route::get('/consultas-costo/conteo',                        [ConsultaCostoController::class, 'conteo']);
-    Route::post('/consultas-costo',                              [ConsultaCostoController::class, 'store']);
+    // Pedir un precio es el módulo Consultar costo; responder sigue con las
+    // reglas del controlador (quien tiene Costos).
+    Route::post('/consultas-costo',                              [ConsultaCostoController::class, 'store'])->middleware('permiso:acceso_consultas_costo');
     Route::get('/consultas-costo/{id}',                          [ConsultaCostoController::class, 'show'])->whereNumber('id');
     Route::put('/consultas-costo/{id}/items/{itemId}',           [ConsultaCostoController::class, 'guardarItem'])->whereNumber('id')->whereNumber('itemId');
     Route::post('/consultas-costo/{id}/enviar',                  [ConsultaCostoController::class, 'enviar'])->whereNumber('id');
@@ -1034,7 +1049,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/citas/{id}',   [CitaController::class, 'update']);
 
     // Caja de tienda
-    Route::prefix('caja')->group(function () {
+    // Módulo Caja (ModulosDeVenta).
+    Route::prefix('caja')->middleware('permiso:acceso_caja')->group(function () {
         Route::get('/balance',     [CajaController::class, 'balance']);
         Route::get('/movimientos', [CajaController::class, 'movimientos']);
         Route::post('/movimiento', [CajaController::class, 'registrarMovimiento']);

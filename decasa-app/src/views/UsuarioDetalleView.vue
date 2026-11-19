@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   EnvelopeIcon,
@@ -12,6 +12,8 @@ import {
   BanknotesIcon,
 } from '@heroicons/vue/24/outline'
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
+import { MODULOS_DE_VENTA, modulosDelRol } from '@/utils/modulosDeVenta'
+import { useAuthStore } from '@/stores/auth'
 import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -46,6 +48,7 @@ const editForm = ref({
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_finanzas: false, acceso_reserva: false,
   acceso_compras: false,
+  ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, false])),
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, puede_fv2_sin_iva: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
@@ -55,6 +58,27 @@ const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 
 // Arquetipo del rol elegido en el formulario de edición.
 const editArquetipo = computed(() => roles.value.find(r => r.id === editForm.value.rol_id)?.arquetipo ?? '')
+
+// Módulos de venta: lo que trae el rol escogido y si a esta persona se le
+// agregó o quitó algo encima (el servidor guarda solo la diferencia).
+const authStore = useAuthStore()
+const editRol = computed(() => roles.value.find(r => r.id === editForm.value.rol_id))
+const delRolEditado = computed(() => modulosDelRol(editRol.value))
+function origenModulo(campo) {
+  const trae = delRolEditado.value.includes(campo)
+  const tiene = !!editForm.value[campo]
+  if (tiene === trae) return trae ? 'del rol' : ''
+  return tiene ? 'agregado' : 'quitado'
+}
+// Al cambiar de rol en el formulario, los módulos siguen al rol nuevo con
+// los ajustes que la persona ya tenía.
+watch(() => editForm.value.rol_id, (nuevo, viejo) => {
+  if (!viejo || nuevo === viejo || !showEditModal.value) return
+  const ajustes = usuario.value?.modulos_ajustados ?? {}
+  for (const m of MODULOS_DE_VENTA) {
+    editForm.value[m.campo] = m.campo in ajustes ? !!ajustes[m.campo] : delRolEditado.value.includes(m.campo)
+  }
+})
 
 // Vende por su cuenta: un vendedor, o un supervisor que además vende (misma
 // regla que el backend, Usuario::puedeSerIndependiente).
@@ -150,6 +174,7 @@ function openEditModal() {
     acceso_nomina: usuario.value.acceso_nomina ?? false,
     acceso_finanzas: usuario.value.acceso_finanzas ?? false,
     acceso_compras: usuario.value.acceso_compras ?? false,
+    ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, usuario.value[m.campo] ?? false])),
     lleva_encargos: usuario.value.lleva_encargos ?? false,
     acceso_encargos: usuario.value.acceso_encargos ?? false,
     revisa_encargos: usuario.value.revisa_encargos ?? false,
@@ -159,6 +184,7 @@ function openEditModal() {
     apto_comisiones: usuario.value.apto_comisiones ?? false,
     apto_produccion: usuario.value.apto_produccion ?? false,
     no_usa_programa: usuario.value.no_usa_programa ?? false,
+    es_super_admin: usuario.value.es_super_admin ?? false,
     password: '', password_confirmation: '',
     tienda_default_id: usuario.value.tienda_default_id,
   }
@@ -205,6 +231,10 @@ async function submitEdit() {
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
       acceso_finanzas: editArquetipo.value === 'supervisor' ? editForm.value.acceso_finanzas : false,
       acceso_compras: editForm.value.acceso_compras,
+      // La marca de super admin solo la manda quien es super admin.
+      ...(authStore.usuario?.es_super_admin ? { es_super_admin: editForm.value.es_super_admin } : {}),
+      // Vender como módulos: quien no usa el programa no vende.
+      ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, !editForm.value.no_usa_programa && editForm.value[m.campo]])),
       // Responder por herramientas vale también para quien no usa el programa;
       // mirar el módulo y hacer los checks, no.
       lleva_encargos: editForm.value.lleva_encargos,
@@ -629,6 +659,18 @@ onMounted(async () => {
 
           <!-- Cuerpo scrollable -->
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            <!-- Rangos: si quien mira no puede cambiarle permisos, se dice aquí
+                 (el servidor lo frena igual). -->
+            <p v-if="usuario.no_lo_puedes_cambiar" class="text-xs font-medium text-amber-700 border border-amber-300 rounded-xl px-3 py-2">
+              {{ usuario.no_lo_puedes_cambiar }} Puedes cambiar sus datos, no sus permisos.
+            </p>
+            <label v-if="authStore.usuario?.es_super_admin" class="flex items-start gap-3 py-2 px-3 border border-gray-200 rounded-xl cursor-pointer">
+              <input type="checkbox" v-model="editForm.es_super_admin" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span>
+                <span class="text-sm font-semibold text-gray-800">Super admin</span>
+                <span class="block text-xs text-gray-500">Le cambia los permisos a todos, también a los supervisores, y maneja los roles. Sigue siendo lo que es su rol.</span>
+              </span>
+            </label>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
               <input v-model="editForm.nombre" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -777,6 +819,21 @@ onMounted(async () => {
                   </template>
                 </p>
               </div>
+            </div>
+            <!-- Vender como módulos (ModulosDeVenta): cada uno se prende por
+                 persona, sea cual sea su rol. -->
+            <div v-if="!editForm.no_usa_programa" class="py-2 px-3 border border-gray-200 rounded-xl space-y-1">
+              <p class="text-sm font-semibold text-gray-800">Ventas</p>
+              <p class="text-xs text-gray-500">Lo que puede usar para vender. Se prende o se apaga por persona, sea cual sea su rol.</p>
+              <label v-for="m in MODULOS_DE_VENTA" :key="m.campo" class="flex items-start gap-3 py-1 cursor-pointer">
+                <input type="checkbox" v-model="editForm[m.campo]" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span>
+                  <span class="text-sm font-medium text-gray-700">{{ m.nombre }}</span>
+                  <span v-if="origenModulo(m.campo)" :class="['ml-1.5 text-[10px] font-semibold rounded-full px-1.5 py-0.5', origenModulo(m.campo) === 'del rol' ? 'bg-gray-100 text-gray-500' : origenModulo(m.campo) === 'agregado' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700']">{{ origenModulo(m.campo) }}</span>
+                  <span class="block text-xs text-gray-500">{{ m.ayuda }}</span>
+                </span>
+              </label>
+              <p class="text-[11px] text-gray-400">Si lo dejas como lo trae el rol, sigue al rol cuando el rol cambie.</p>
             </div>
             <!-- Encargos. Fuera de cualquier condición de rol: el de los dos
                  taladros suele ser justo el que no entra al programa. -->

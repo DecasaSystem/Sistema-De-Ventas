@@ -40,6 +40,10 @@ class NotificacionesUsuarioController extends Controller
     public function update(Request $request, int $id)
     {
         $u = Usuario::findOrFail($id);
+        // Rangos: los avisos de un supervisor los cambia el super admin.
+        if ($porQue = \App\Support\RangoDeUsuarios::porQueNoPuede($request->user(), $u)) {
+            return response()->json(['message' => $porQue], 403);
+        }
         $data = $request->validate([
             'grupos'     => 'required_without:urgentes|array',
             'grupos.*'   => 'boolean',

@@ -27,6 +27,11 @@ namespace App\Support;
 class TiposNotificacion
 {
     public const GRUPOS = [
+        'permisos' => [
+            'nombre'      => 'Permisos delicados',
+            'descripcion' => 'Cuando un supervisor le da a alguien Facturación, Costos, Bonificaciones, Nómina, Finanzas, Compras o Despacho. Solo al super admin.',
+            'tipos'       => ['permiso_delicado'],
+        ],
         'ventas' => [
             'nombre'      => 'Nuevas ventas',
             'descripcion' => 'Cada orden o restauración nueva, la venta de una tienda con producto de otra y el producto tomado de la reserva de fábrica.',
@@ -243,6 +248,7 @@ class TiposNotificacion
             self::MENCIONES, 'chats' => ! $conduce || (bool) $u->gestiona_produccion,
             'ventas'           => $vende || $factura,
             'asignar_fecha'    => false,                         // solo supervisores
+            'permisos'         => (bool) ($u->es_super_admin ?? false),
             'pagos', 'cambios_dinero' => $factura,
             'solicitudes'      => $vende,
             'ordenes'          => $vende || $produce || $factura || $despacha,

@@ -1169,10 +1169,19 @@ mismo editor (`EditorCampos.vue`) sirve para todas:
 
 ## 7. Usuarios, roles y permisos
 
-- `usuarios.rol` (string) — sincronizado con `roles.clave` vía `rol_id`. Los roles
-  los crea cada empresa ("Metalero", "Soldador"…), pero cada uno tiene un
-  **arquetipo** que define el comportamiento: `vendedor`, `supervisor`,
-  `conductor`, `taller`, `despachador`.
+- `usuarios.rol` (string) — sincronizado vía `rol_id` con `Rol::rolEnElCodigo()`: en
+  los roles de fábrica (`Rol::CLAVES_DE_FABRICA`: vendedor, supervisor, conductor,
+  ebanista, despachador, costurero) es su clave; en los que crea la empresa
+  ("Gerente", "Asesor"…) es la palabra de su **arquetipo** (`vendedor`,
+  `supervisor`, `conductor`, `despachador`). Así un rol nuevo se comporta como su base
+  en todo el código que pregunta `rol === 'supervisor'`. Los de **taller** se quedan
+  con su clave (Tapicero, Lijador, Pintor… de fábrica ya funcionan así; `ebanista`
+  les abriría costos en Consultas).
+  El nombre que ve la gente sale de `rol_nombre` (`rol_id`), nunca de `rol`.
+  Antes del 2026-11-19 un rol nuevo guardaba su clave y no era nada (un "Gerente" no
+  aprobaba ni entraba a Gestión); la migración
+  `2026_11_20_000001_roles_nuevos_se_comportan_como_su_base` puso al día a los que ya
+  lo tenían. Diseño de roles y módulos personalizables: `docs/metodologia-de-trabajo-por-rol.md`.
 - **Banderas por usuario** (`usuarios.*`): `facturacion`, `independiente`,
   `acceso_redes`, `acceso_comisiones`, `acceso_reglas_comision`, `recarga_telas`, `acceso_telas`,
   `acceso_surtir`, `acceso_costos`, `acceso_proveedores`, `acceso_despacho`,
@@ -1180,6 +1189,38 @@ mismo editor (`EditorCampos.vue`) sirve para todas:
   `acceso_nomina`, `acceso_finanzas` (además de ser supervisor), `acceso_compras`, `lleva_encargos`, `acceso_encargos`,
   `revisa_encargos`, `ve_todas_ordenes`, `puede_fv2_sin_iva`, `apto_comisiones`,
   `apto_produccion`, `no_usa_programa`, `notif_*`.
+- **Vender como módulos** (2026-11-19, `App\Support\ModulosDeVenta`, front
+  `utils/modulosDeVenta.js`): `acceso_nueva_orden`, `acceso_ordenes`, `acceso_clientes`,
+  `acceso_cotizaciones`, `acceso_caja`, `acceso_consultas_costo`, `acceso_estadisticas`. Se
+  prenden por persona en Trabajadores → ficha → Ventas, sea cual sea su rol (un conductor
+  puede vender). El servidor los frena: lista de órdenes, crear orden / completar borrador /
+  crear desde el anexo, cotizaciones, caja, pedir una consulta de costo, `stats/vendedores/me`
+  y `stats/mis-tiendas`. Buscar, crear y abrir clientes pasa con Clientes **o** Nueva orden
+  **o** Cotizaciones (`permiso:a|b|c`); exportar y el historial del cliente, solo Clientes.
+  Abrir una orden por id sigue con `laPuedeVer` (producción, despacho y facturación la abren).
+  Responder consultas sigue en el controlador (Costos). `Usuario::tienePermiso`: si la fila no
+  trae la columna (esquemas de prueba), vale lo de antes (todos menos conductor/despachador).
+  La migración `2026_11_20_000002_modulos_de_venta_en_usuarios` los prendió a todos los que no
+  son conductor ni despachador. Un trabajador nuevo arranca con los 7 si es vendedor o
+  supervisor (los predeterminados del Vendedor por rol vienen en la fase 3).
+- **Super admin y rangos** (2026-11-19, `App\Support\RangoDeUsuarios`). `usuarios.es_super_admin`
+  es una marca encima del rol (el super admin sigue siendo supervisor y vendiendo). El primero
+  se pone **solo desde la consola**: `php artisan usuarios:super-admin <correo>`. Con al menos
+  uno activo: el super admin le cambia todo a todos y maneja Gestión → Roles; un supervisor le
+  pone y quita permisos solo a quien no es supervisor (le puede dar cualquier módulo), los crea,
+  y nunca da un rol de tipo supervisor; nadie se cambia sus permisos salvo el único super admin;
+  nunca queda la empresa sin super admin. Aplica a `PUT /usuarios/{id}` (solo si de verdad
+  cambia un permiso: la pantalla manda la ficha entera), crear, desactivar, cambiar contraseña y
+  los avisos de la persona. **Sin ningún super admin, todo sigue como antes.** Cada cambio de
+  permisos queda en `permisos_bitacora` (quién, a quién, qué) y si un supervisor da algo delicado
+  (Facturación, Costos, Bonificaciones, Reglas, Nómina, Finanzas, Compras, Despacho) le llega el
+  aviso `permiso_delicado` al super admin.
+- **Módulos de venta por rol**: `roles.modulos_venta` (null = los de su tipo: Vendedor sin Caja,
+  Supervisor todos; `ModulosDeVenta::DEL_ARQUETIPO`) y `usuarios.modulos_ajustados` (solo lo que
+  a esa persona se le agregó o quitó). Las columnas `acceso_*` de venta siguen siendo lo que lee
+  todo el código y se recalculan con `ModulosDeVenta::aplicar` al cambiar el rol o sus módulos.
+  La migración `2026_11_20_000003_super_admin_y_modulos_por_rol` guardó lo de cada uno como ajuste
+  (los vendedores con Caja la conservan como "agregado"): nadie ganó ni perdió nada.
 - Backend: middleware `role:` y `permiso:` + reglas en modelos/controladores.
   Frontend: computeds de `stores/auth.js` + guards del router.
 - Independiente solo puede ser arquetipo vendedor o supervisor.

@@ -187,6 +187,13 @@ class AuthController extends Controller
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
             'acceso_finanzas'    => (bool) $usuario->acceso_finanzas,
             'acceso_compras'     => (bool) $usuario->acceso_compras,
+            // Rangos: la pantalla muestra lo del super admin (Gestión → Roles,
+            // la marca en la ficha). El servidor lo vuelve a mirar siempre.
+            'es_super_admin'     => (bool) ($usuario->es_super_admin ?? false),
+            'hay_super_admin'    => \App\Support\RangoDeUsuarios::activo(),
+            // Vender como módulos (ModulosDeVenta).
+            ...collect(array_keys(\App\Support\ModulosDeVenta::MODULOS))
+                ->mapWithKeys(fn ($c) => [$c => $usuario->tienePermiso($c)])->all(),
             // Encargos: administrar el módulo. `lleva_encargos` viaja también
             // porque con esa sola —sin el permiso— la persona ya puede abrir
             // su propia ficha y ver de qué responde.

@@ -1029,6 +1029,57 @@ escribiendo precios (Fase 1b).
   `acceso_costos` o el ebanista. El cotizador de IA sigue usando solo los oficios por hora
   (`salarios_cargo`): no conoce estos tipos. Test en `CostosFichasTest`.
   `FichaTecnicaController::$hayTipos` está registrado en `CachesDePeticion`.
+- **Roles y módulos personalizables** (2026-11-19, solo diseño, sin código; rama
+  `claude/roles-responsabilidades-metodologia-2ba06b`, `docs/metodologia-de-trabajo-por-rol.md`).
+  Pedido del usuario: que el programa sirva a cualquier empresa que fabrica y vende (ropa,
+  cerrajería, carros), no solo muebles; roles con nombre libre, módulos activables por rol y por
+  persona, el taller genérico (pasos con nombre libre, ya existe). **Decidido (corregido el mismo día):**
+  el rol trae en vivo solo los módulos del día a día; **los delicados (facturación, costos,
+  bonificaciones, nómina, finanzas, compras, despacho, cambiar inventario…) nunca vienen con el
+  rol: se dan por persona y solo un super admin**. A la persona se le puede agregar o quitar
+  encima del rol (se guardan solo las diferencias). **Super admin** (marca por persona): crea
+  roles y reparte lo delicado; nadie cambia sus propios permisos; siempre queda al menos uno. **Escala por rangos**: el super
+  admin pone/quita módulos a todos; el supervisor solo a los que no son supervisores
+  (vendedores, conductores, fábrica), nunca a otro supervisor ni a sí mismo; a un trabajador le puede dar **cualquier** módulo,
+  aunque él no lo tenga (usuario: "no, cualquiera"; el control es el historial + aviso al super admin). Predeterminados
+  del Vendedor (se pueden quitar): Nueva orden, Órdenes, Ver inventario, Clientes, Traslado,
+  Cotizaciones, Mis estadísticas, Consultar costo, Citas; Caja y Redes van aparte. El supervisor sí crea
+  trabajadores y les escoge el rol, **nunca uno de base Administra** (ni toca a quien ya lo tiene).
+  Primer super admin: el usuario que maneja el sistema (confirmar su cuenta al subir). Es una
+  marca encima de su rol: sigue siendo supervisor de tienda y vendedor, con todos esos módulos.
+  Hoy cualquier supervisor edita los permisos de cualquiera, incluso los suyos (solo
+  `acceso_reglas_comision` está protegido). Bases (lo que no se personaliza):
+  Administra, Vende en tienda, Vende por su cuenta, Entrega, Fábrica; sin base "Solo factura".
+  Inventario = dos módulos, "Ver" (todos) y "Cambiar" (vendedor en su tienda, supervisor).
+  Hallado: `/inventario/variante-configs/entrada` y `/variante-combinaciones/entrada` no
+  revisan rol ni tienda (cualquiera reparte stock entre medidas en cualquier tienda).
+  Trampa hallada: un rol nuevo guarda `usuarios.rol` = su clave ("gerente"), y ~200 sitios
+  comparan `rol === 'supervisor'`: un rol nuevo de base supervisor no se comporta como
+  supervisor. **Fase 1 hecha el 2026-11-19, sin subir**, trae **migración**
+  `2026_11_20_000001_roles_nuevos_se_comportan_como_su_base` (solo actualiza `usuarios.rol` de
+  quien tiene un rol que no es de fábrica): `Rol::rolEnElCodigo` guarda la palabra del arquetipo;
+  los de **taller se quedan con su clave**. Revisado en producción (solo lectura, con permiso,
+  2026-11-19): los únicos roles nuevos son de taller (Tapicero, Lijador, Pintor, Pelador,
+  Esqueletero, Laquero, Operario; 22 personas), así que la migración hoy no le cambia nada a
+  nadie allá. Pasarlos a `ebanista` les habría abierto costos en Consultas: no hacerlo.
+  **Fase 2 hecha el 2026-11-19, sin subir**, trae **migración**
+  `2026_11_20_000002_modulos_de_venta_en_usuarios` (agrega 7 columnas `acceso_*` de venta y las
+  prende a todos menos conductor/despachador). El servidor ya frena cada módulo de venta
+  (`permiso:`, que ahora acepta `a|b`). Trampa: Nueva orden y Cotizaciones buscan/crean clientes,
+  por eso esas rutas pasan con cualquiera de los tres. Antes un conductor listaba todas las
+  órdenes por la API (`GET /ordenes` no tenía freno). No visto en el navegador.
+  **Fase 3 hecha el 2026-11-19, sin subir**, trae **migración**
+  `2026_11_20_000003_super_admin_y_modulos_por_rol` (agrega `usuarios.es_super_admin`,
+  `usuarios.modulos_ajustados`, `roles.modulos_venta` y la tabla `permisos_bitacora`; guarda lo de
+  cada uno como ajuste, nadie cambia). `RangoDeUsuarios` lleva los rangos. **Al subir, nadie es
+  super admin y todo sigue como antes** hasta correr `php artisan usuarios:super-admin <correo>`
+  en Render (Shell) con la cuenta del usuario: preguntarle el correo ese día. Trampa: la ficha
+  manda todos los campos al guardar; los rangos solo frenan si un permiso cambia de verdad
+  (`RangoDeUsuarios::cambios`). `RangoDeUsuarios::superAdmins` se recuerda por petición
+  (`olvidar()` tras cambiarlo; registrado en `CachesDePeticion`). Visto en el navegador el
+  2026-11-19 con servidor falso (390 px, claro y oscuro): ficha con "del rol / agregado / quitado",
+  cambio de rol en el formulario, aviso al supervisor normal, Gestión → Roles. De paso, el
+  encabezado del formulario de rol salía blanco en oscuro (`bg-white/95`): ya es `bg-white`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -14,13 +14,16 @@ use Symfony\Component\HttpFoundation\Response;
  * Uso: 'permiso:acceso_costos' exige la bandera prendida sin excepción.
  * 'permiso:acceso_costos,ebanista' además deja pasar a quien tenga ese rol
  * (para los accesos automáticos que no se tocaron, como el del ebanista).
+ * 'permiso:acceso_clientes|acceso_nueva_orden' deja pasar con cualquiera de
+ * las banderas (Nueva orden busca y crea clientes sin tener el módulo Clientes).
  */
 class CheckPermiso
 {
     public function handle(Request $request, Closure $next, string $flag, string ...$rolesExtra): Response
     {
         $usuario = $request->user();
-        $ok = $usuario && ($usuario->$flag || in_array($usuario->rol, $rolesExtra, true));
+        $tiene = $usuario && collect(explode('|', $flag))->contains(fn ($f) => $usuario->tienePermiso($f));
+        $ok = $usuario && ($tiene || in_array($usuario->rol, $rolesExtra, true));
 
         if (! $ok) {
             return response()->json(['message' => 'No autorizado.'], 403);

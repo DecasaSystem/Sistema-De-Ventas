@@ -80,9 +80,39 @@ const accesosCopiasDeTelas = computed(() => modulos.instancias('telas').map(m =>
   modulo: m.clave, label: m.nombre, icon: SwatchIcon, to: { name: 'modulo', params: { clave: m.clave } },
 })))
 
-const accesos = computed(() => {
+// Vender como módulos (ModulosDeVenta): cada acceso de venta sale solo si la
+// persona tiene prendido su módulo, sea cual sea su rol. Un conductor o un
+// despachador que vende los ve también (antes su Inicio no los tenía).
+const MODULO_DE_VENTA = {
+  'nueva-orden':  'puedeNuevaOrden',
+  'ordenes':      'puedeOrdenes',
+  'clientes':     'puedeClientes',
+  'cotizaciones': 'puedeCotizaciones',
+  'caja':         'puedeCaja',
+  'consultas':    'puedeConsultarCosto',
+}
+const ventasDeOtroRol = computed(() => [
+  { modulo: 'nueva-orden',  label: 'Nueva orden',     icon: PlusIcon,                  to: { name: 'nueva-orden' } },
+  { modulo: 'ordenes',      label: 'Órdenes',         icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
+  { modulo: 'clientes',     label: 'Clientes',        icon: UserGroupIcon,             to: { name: 'clientes' } },
+  { modulo: 'cotizaciones', label: 'Cotizaciones',    icon: DocumentTextIcon,          to: { name: 'cotizaciones' } },
+  { modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon,        to: { name: 'consultas' }, badge: consultas.pendientesCount },
+  { modulo: 'caja',         label: 'Caja',            icon: BanknotesIcon,             to: { name: 'caja' } },
+].filter(a => auth[MODULO_DE_VENTA[a.modulo]]))
+// Quien responde consultas por tener Costos las sigue viendo aunque no pida.
+const conSusModulos = (items) => items.filter(a => {
+  if (a.modulo === 'mis-stats' && a.to?.name === 'mis-stats') return auth.puedeEstadisticas
+  if (a.modulo === 'consultas') return auth.puedeConsultarCosto || auth.puedeCostos
+  const permiso = MODULO_DE_VENTA[a.modulo]
+  return !permiso || auth[permiso]
+})
+
+const accesos = computed(() => conSusModulos(accesosDelRol.value))
+
+const accesosDelRol = computed(() => {
   if (auth.usuario?.rol === 'conductor') {
     return modulos.soloVisibles([
+      ...ventasDeOtroRol.value,
       { modulo: 'mis-entregas', label: 'Mis entregas', icon: TruckIcon,                  to: { name: 'mis-entregas' },        badge: despacho.misEntregasPendientes },
       { modulo: 'mis-stats',    label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats-conductor' } },
       ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
@@ -114,6 +144,7 @@ const accesos = computed(() => {
   }
   if (auth.usuario?.rol === 'despachador') {
     return modulos.soloVisibles([
+      ...ventasDeOtroRol.value,
       ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { modulo: 'proveedores', label: 'Proveedores',  icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ modulo: 'compras', label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),

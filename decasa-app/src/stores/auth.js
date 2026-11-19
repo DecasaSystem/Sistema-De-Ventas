@@ -205,6 +205,21 @@ export const useAuthStore = defineStore('auth', () => {
   const revisaEncargos        = computed(() => !!usuario.value?.revisa_encargos)
   const llevaEncargos         = computed(() => !!usuario.value?.lleva_encargos)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
+  // Vender como módulos (backend: App\Support\ModulosDeVenta). Una sesión
+  // guardada de antes no trae la bandera: vale lo de siempre (todo el que no
+  // es conductor ni despachador) hasta que /auth/me la traiga.
+  const moduloDeVenta = (columna) => computed(() => {
+    const v = usuario.value?.[columna]
+    if (v === undefined || v === null) return !['conductor', 'despachador'].includes(usuario.value?.rol)
+    return !!v
+  })
+  const puedeNuevaOrden       = moduloDeVenta('acceso_nueva_orden')
+  const puedeOrdenes          = moduloDeVenta('acceso_ordenes')
+  const puedeClientes         = moduloDeVenta('acceso_clientes')
+  const puedeCotizaciones     = moduloDeVenta('acceso_cotizaciones')
+  const puedeCaja             = moduloDeVenta('acceso_caja')
+  const puedeConsultarCosto   = moduloDeVenta('acceso_consultas_costo')
+  const puedeEstadisticas     = moduloDeVenta('acceso_estadisticas')
   // La cara opuesta, que es como se pregunta en las pantallas: un vendedor ve
   // lo suyo salvo que se le haya activado ver todas.
   const soloVeSusOrdenes      = computed(() =>
@@ -560,6 +575,8 @@ export const useAuthStore = defineStore('auth', () => {
     isFacturador, puedeFacturarElectronica, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeReglasComision, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
+    puedeNuevaOrden, puedeOrdenes, puedeClientes, puedeCotizaciones, puedeCaja,
+    puedeConsultarCosto, puedeEstadisticas,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setVerValorReserva, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,

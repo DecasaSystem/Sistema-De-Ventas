@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Rol;
 use App\Models\Tienda;
 use App\Models\Usuario;
+use App\Support\Esquema;
+use App\Support\ModulosDeVenta;
+use App\Support\RangoDeUsuarios;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -50,6 +53,15 @@ class UsuarioController extends Controller
             'acceso_nomina'       => (bool) $u->acceso_nomina,
             'acceso_finanzas'     => (bool) $u->acceso_finanzas,
             'acceso_compras'      => (bool) $u->acceso_compras,
+            // Vender como módulos (ModulosDeVenta).
+            ...collect(array_keys(ModulosDeVenta::MODULOS))->mapWithKeys(fn ($c) => [$c => $u->tienePermiso($c)])->all(),
+            // Lo que trae su rol y lo que se le agregó o quitó encima, para que
+            // la ficha diga "del rol / agregado / quitado".
+            'modulos_del_rol'     => ModulosDeVenta::delRol($u->relationLoaded('rolAsignado') ? $u->rolAsignado : null, $u->rol),
+            'modulos_ajustados'   => $u->modulos_ajustados ?? [],
+            'es_super_admin'      => (bool) ($u->es_super_admin ?? false),
+            // Rangos: si quien mira puede cambiarle permisos (y si no, por qué).
+            'no_lo_puedes_cambiar' => auth()->user() ? $this->porQueNoLoCambia(auth()->user(), $u) : null,
             // Responde por herramientas (le sirve a cualquiera, use o no el
             // programa) / administra el módulo de Encargos (eso sí es del
             // programa).
@@ -194,7 +206,13 @@ class UsuarioController extends Controller
             'tienda_default_id.exists'   => 'La tienda seleccionada no existe.',
         ]);
 
-        $arquetipo = Rol::findOrFail($data['rol_id'])->arquetipo;
+        $rolNuevo  = Rol::findOrFail($data['rol_id']);
+        $arquetipo = $rolNuevo->arquetipo;
+
+        // Rangos: un supervisor crea trabajadores, pero no supervisores.
+        if (! RangoDeUsuarios::puedeDarRol($request->user(), $rolNuevo)) {
+            return response()->json(['message' => 'Un rol de tipo supervisor solo lo da el super admin.'], 403);
+        }
 
         $esSupervisor = ($arquetipo === 'supervisor');
 
@@ -263,9 +281,42 @@ class UsuarioController extends Controller
                 ? Tienda::sedeIndependientes()?->id
                 : ($data['tienda_default_id'] ?? null),
             'activo'              => true,
-        ]);
+        ] + $this->modulosDeVentaAlCrear($request, $rolNuevo, $noUsaPrograma));
+
+        RangoDeUsuarios::anotar($request->user(), $usuario,
+            $this->diferencias(array_map(fn () => null, $this->permisosDe($usuario)), array_filter($this->permisosDe($usuario))));
 
         return response()->json($this->comoJson($usuario->load(['rolAsignado'])), 201);
+    }
+
+    /**
+     * Los módulos de venta de alguien nuevo: los de su rol, con lo que la
+     * pantalla le agregue o le quite (se guarda solo la diferencia, en
+     * `modulos_ajustados`). Si la pantalla no manda nada (app vieja), los del
+     * rol. Quien no usa el programa no vende.
+     */
+    private function modulosDeVentaAlCrear(Request $request, ?Rol $rol, bool $noUsaPrograma): array
+    {
+        if (! Esquema::columna('usuarios', 'acceso_ordenes')) {
+            return [];
+        }
+
+        $delRol = ModulosDeVenta::delRol($rol, $rol?->rolEnElCodigo());
+        $pide = collect(array_keys(ModulosDeVenta::MODULOS))
+            ->filter(fn ($c) => $request->has($c))
+            ->mapWithKeys(fn ($c) => [$c => $noUsaPrograma ? false : $request->boolean($c)])
+            ->all();
+        if ($noUsaPrograma) {
+            $pide = array_fill_keys(array_keys(ModulosDeVenta::MODULOS), false);
+        }
+
+        $ajustes = ModulosDeVenta::ajustesPara($delRol, $pide);
+        $out = ModulosDeVenta::quedan($delRol, $ajustes);
+        if (Esquema::columna('usuarios', 'modulos_ajustados')) {
+            $out['modulos_ajustados'] = $ajustes ?: null;
+        }
+
+        return $out;
     }
 
     public function update(Request $request, $id)
@@ -307,6 +358,13 @@ class UsuarioController extends Controller
             'acceso_nomina'       => 'nullable|boolean',
             'acceso_finanzas'     => 'nullable|boolean',
             'acceso_compras'      => 'nullable|boolean',
+            'acceso_nueva_orden'     => 'nullable|boolean',
+            'acceso_ordenes'         => 'nullable|boolean',
+            'acceso_clientes'        => 'nullable|boolean',
+            'acceso_cotizaciones'    => 'nullable|boolean',
+            'acceso_caja'            => 'nullable|boolean',
+            'acceso_consultas_costo' => 'nullable|boolean',
+            'acceso_estadisticas'    => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
             'puede_fv2_sin_iva'   => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
@@ -321,6 +379,36 @@ class UsuarioController extends Controller
         $arquetipoFinal = isset($data['rol_id'])
             ? Rol::findOrFail($data['rol_id'])->arquetipo
             : $usuario->rolAsignado?->arquetipo;
+
+        // ── Rangos (RangoDeUsuarios): quién le puede cambiar qué a quién ──
+        $quien = $request->user();
+        $pedidos = collect(RangoDeUsuarios::PERMISOS)
+            ->filter(fn ($c) => $request->has($c))
+            ->mapWithKeys(fn ($c) => [$c => $c === 'rol_id' ? $request->input($c) : $request->boolean($c)])
+            ->all();
+        $cambiosDePermiso = RangoDeUsuarios::cambios($usuario, $pedidos);
+        $tocaPermisos = $cambiosDePermiso || ! empty($data['password']);
+        if ($tocaPermisos && ($porQue = RangoDeUsuarios::porQueNoPuede($quien, $usuario))) {
+            return response()->json(['message' => $porQue], 403);
+        }
+        if ($cambiosDePermiso && $quien->id === $usuario->id && ! RangoDeUsuarios::puedeCambiarseLoSuyo($quien)) {
+            return response()->json(['message' => 'Nadie se cambia sus propios permisos: te los cambia el super admin.'], 403);
+        }
+        if (isset($cambiosDePermiso['rol_id']) && ! RangoDeUsuarios::puedeDarRol($quien, Rol::find($data['rol_id']))) {
+            return response()->json(['message' => 'Un rol de tipo supervisor solo lo da el super admin.'], 403);
+        }
+        // La marca de super admin: la pone o la quita solo un super admin, y
+        // nunca se queda la empresa sin ninguno.
+        unset($data['es_super_admin']);
+        if (isset($cambiosDePermiso['es_super_admin'])) {
+            if (! RangoDeUsuarios::esSuperAdmin($quien)) {
+                return response()->json(['message' => 'Solo un super admin nombra o quita a otro super admin.'], 403);
+            }
+            if (! $request->boolean('es_super_admin') && RangoDeUsuarios::superAdmins()->count() <= 1) {
+                return response()->json(['message' => 'Es el único super admin: nombra otro antes de quitarle la marca.'], 422);
+            }
+            $data['es_super_admin'] = $request->boolean('es_super_admin');
+        }
 
         if ($request->has('notif_asignar_fecha')) {
             $data['notif_asignar_fecha'] = $request->boolean('notif_asignar_fecha');
@@ -433,6 +521,31 @@ class UsuarioController extends Controller
         if ($request->has('acceso_compras')) {
             $data['acceso_compras'] = $request->boolean('acceso_compras');
         }
+        // Módulos de venta: lo que pide la pantalla se guarda como ajuste
+        // encima del rol (solo lo que difiere), y las columnas quedan con el
+        // resultado. Si cambió el rol y no mandan módulos, sigue al rol nuevo
+        // con los ajustes que ya tenía.
+        foreach (array_keys(ModulosDeVenta::MODULOS) as $c) {
+            unset($data[$c]);
+        }
+        if (Esquema::columna('usuarios', 'acceso_ordenes')) {
+            $rolFinal = isset($data['rol_id']) ? Rol::find($data['rol_id']) : $usuario->rolAsignado;
+            $rolTexto = $rolFinal?->rolEnElCodigo() ?? $usuario->rol;
+            $delRol   = ModulosDeVenta::delRol($rolFinal, $rolTexto);
+            $pedidosVenta = array_filter($pedidos, fn ($c) => ModulosDeVenta::es($c), ARRAY_FILTER_USE_KEY);
+            if (Esquema::columna('usuarios', 'modulos_ajustados')) {
+                $ajustes = $pedidosVenta
+                    ? ModulosDeVenta::ajustesPara($delRol, $pedidosVenta + ModulosDeVenta::quedan($delRol, $usuario->modulos_ajustados ?? []))
+                    : ($usuario->modulos_ajustados ?? []);
+                $data['modulos_ajustados'] = $ajustes ?: null;
+                $data += ModulosDeVenta::quedan($delRol, $ajustes);
+            } else {
+                $data += $pedidosVenta;
+            }
+            if (($data['no_usa_programa'] ?? $usuario->no_usa_programa)) {
+                foreach (array_keys(ModulosDeVenta::MODULOS) as $c) $data[$c] = false;
+            }
+        }
         if ($request->has('lleva_encargos')) {
             $data['lleva_encargos'] = $request->boolean('lleva_encargos');
         }
@@ -497,7 +610,10 @@ class UsuarioController extends Controller
 
         $sedeAntes = $usuario->tienda_default_id ? (int) $usuario->tienda_default_id : null;
 
+        $permisosAntes = $this->permisosDe($usuario);
         $usuario->update($data);
+        RangoDeUsuarios::anotar($quien, $usuario, $this->diferencias($permisosAntes, $this->permisosDe($usuario->fresh())));
+        RangoDeUsuarios::olvidar();
 
         // Cambió de tienda: si estaba en el equipo de comisiones de la que
         // deja, se traslada solo (ver ComisionController::trasladarPorCambioDeSede).
@@ -526,6 +642,39 @@ class UsuarioController extends Controller
         return response()->json($json);
     }
 
+    /** Lo que la ficha le dice a quien mira si no puede cambiar los permisos. */
+    private function porQueNoLoCambia(Usuario $quien, Usuario $a): ?string
+    {
+        if ($quien->id === $a->id) {
+            return RangoDeUsuarios::puedeCambiarseLoSuyo($quien)
+                ? null : 'Nadie se cambia sus propios permisos: te los cambia el super admin.';
+        }
+
+        return RangoDeUsuarios::porQueNoPuede($quien, $a);
+    }
+
+    /** Los permisos de alguien tal como están (para el rastro). */
+    private function permisosDe(Usuario $u): array
+    {
+        $out = [];
+        foreach (RangoDeUsuarios::PERMISOS as $c) {
+            if ($c !== 'rol_id' && ! Esquema::columna('usuarios', $c)) continue;
+            $out[$c] = $c === 'rol_id' ? ($u->rol_id ? (int) $u->rol_id : null) : (bool) $u->getAttribute($c);
+        }
+
+        return $out;
+    }
+
+    private function diferencias(array $antes, array $despues): array
+    {
+        $out = [];
+        foreach ($despues as $c => $v) {
+            if (($antes[$c] ?? null) !== $v) $out[$c] = [$antes[$c] ?? null, $v];
+        }
+
+        return $out;
+    }
+
     public function toggleActivo($id)
     {
         $usuario = Usuario::findOrFail($id);
@@ -533,9 +682,16 @@ class UsuarioController extends Controller
         if ($usuario->id === auth()->id()) {
             abort(403, 'No puedes desactivar tu propia cuenta.');
         }
+        if ($porQue = RangoDeUsuarios::porQueNoPuede(auth()->user(), $usuario)) {
+            abort(403, $porQue);
+        }
+        if ($usuario->activo && RangoDeUsuarios::esSuperAdmin($usuario) && RangoDeUsuarios::superAdmins()->count() <= 1) {
+            abort(422, 'Es el único super admin: nombra otro antes de desactivarlo.');
+        }
 
         $usuario->activo = !$usuario->activo;
         $usuario->save();
+        RangoDeUsuarios::olvidar();
 
         // Desactivado: se le cierran las sesiones abiertas en todos sus
         // aparatos (antes seguían sirviendo hasta 60 días).
@@ -559,6 +715,11 @@ class UsuarioController extends Controller
         ]);
 
         $usuario = Usuario::findOrFail($id);
+
+        // Cambiarle la contraseña a otro es poder entrar como él.
+        if ($porQue = RangoDeUsuarios::porQueNoPuede($request->user(), $usuario)) {
+            return response()->json(['message' => $porQue], 403);
+        }
 
         $usuario->update([
             'password' => Hash::make($data['password']),
