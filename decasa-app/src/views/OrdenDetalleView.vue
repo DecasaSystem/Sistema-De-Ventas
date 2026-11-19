@@ -3471,7 +3471,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       <!-- Fechas de entrega. Entran solas con lo que el vendedor le prometió al
            cliente; esto es para corregir la que quede mal, no para ponerlas una
            por una. -->
-      <div v-if="auth.isSupervisor && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <div v-if="auth.puedeAsignarFechas && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">
           {{ todasFechasAsignadas ? 'Fechas de entrega' : 'Falta la fecha de entrega' }}
         </p>

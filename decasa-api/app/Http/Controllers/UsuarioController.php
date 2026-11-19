@@ -55,6 +55,9 @@ class UsuarioController extends Controller
             'acceso_compras'      => (bool) $u->acceso_compras,
             // Vender como módulos (ModulosDeVenta).
             ...collect(array_keys(ModulosDeVenta::MODULOS))->mapWithKeys(fn ($c) => [$c => $u->tienePermiso($c)])->all(),
+            // Permisos especiales (fase 6).
+            'asigna_fechas'       => $u->tienePermiso('asigna_fechas'),
+            'edita_catalogo'      => $u->tienePermiso('edita_catalogo'),
             // Lo que trae su rol y lo que se le agregó o quitó encima, para que
             // la ficha diga "del rol / agregado / quitado".
             'modulos_del_rol'     => ModulosDeVenta::delRol($u->relationLoaded('rolAsignado') ? $u->rolAsignado : null, $u->rol),
@@ -282,7 +285,8 @@ class UsuarioController extends Controller
                 ? Tienda::sedeIndependientes()?->id
                 : ($data['tienda_default_id'] ?? null),
             'activo'              => true,
-        ] + $this->modulosDeVentaAlCrear($request, $rolNuevo, $noUsaPrograma));
+        ] + $this->modulosDeVentaAlCrear($request, $rolNuevo, $noUsaPrograma)
+          + $this->permisosEspecialesAlCrear($request, $esSupervisor, $noUsaPrograma));
 
         RangoDeUsuarios::anotar($request->user(), $usuario,
             $this->diferencias(array_map(fn () => null, $this->permisosDe($usuario)), array_filter($this->permisosDe($usuario))));
@@ -315,6 +319,21 @@ class UsuarioController extends Controller
         $out = ModulosDeVenta::quedan($delRol, $ajustes);
         if (Esquema::columna('usuarios', 'modulos_ajustados')) {
             $out['modulos_ajustados'] = $ajustes ?: null;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Asignar fechas y editar catálogo (fase 6): el supervisor los trae; a
+     * los demás se los prende la pantalla. Quien no usa el programa, no.
+     */
+    private function permisosEspecialesAlCrear(Request $request, bool $esSupervisor, bool $noUsaPrograma): array
+    {
+        $out = [];
+        foreach (Usuario::PERMISOS_ESPECIALES as $c) {
+            if (! Esquema::columna('usuarios', $c)) continue;
+            $out[$c] = ! $noUsaPrograma && $request->boolean($c, $esSupervisor);
         }
 
         return $out;
@@ -366,6 +385,8 @@ class UsuarioController extends Controller
             'acceso_caja'            => 'nullable|boolean',
             'acceso_consultas_costo' => 'nullable|boolean',
             'acceso_estadisticas'    => 'nullable|boolean',
+            'asigna_fechas'          => 'nullable|boolean',
+            'edita_catalogo'         => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
             'puede_fv2_sin_iva'   => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
@@ -522,6 +543,13 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_compras')) {
             $data['acceso_compras'] = $request->boolean('acceso_compras');
+        }
+        // Permisos especiales (fase 6): solo si la columna existe.
+        foreach (Usuario::PERMISOS_ESPECIALES as $c) {
+            unset($data[$c]);
+            if ($request->has($c) && Esquema::columna('usuarios', $c)) {
+                $data[$c] = $request->boolean($c);
+            }
         }
         // Módulos de venta: lo que pide la pantalla se guarda como ajuste
         // encima del rol (solo lo que difiere), y las columnas quedan con el

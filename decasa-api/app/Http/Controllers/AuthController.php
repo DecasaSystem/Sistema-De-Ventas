@@ -191,6 +191,9 @@ class AuthController extends Controller
             // la marca en la ficha). El servidor lo vuelve a mirar siempre.
             'es_super_admin'     => (bool) ($usuario->es_super_admin ?? false),
             'hay_super_admin'    => \App\Support\RangoDeUsuarios::activo(),
+            // Permisos especiales (fase 6).
+            'asigna_fechas'      => $usuario->tienePermiso('asigna_fechas'),
+            'edita_catalogo'     => $usuario->tienePermiso('edita_catalogo'),
             // Vender como módulos (ModulosDeVenta).
             ...collect(array_keys(\App\Support\ModulosDeVenta::MODULOS))
                 ->mapWithKeys(fn ($c) => [$c => $usuario->tienePermiso($c)])->all(),

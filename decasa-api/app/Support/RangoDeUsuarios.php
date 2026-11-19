@@ -36,7 +36,7 @@ final class RangoDeUsuarios
         'acceso_produccion', 'gestiona_produccion', 'acceso_reserva', 'acceso_nomina', 'acceso_finanzas',
         'acceso_compras', 'lleva_encargos', 'acceso_encargos', 'revisa_encargos',
         'acceso_nueva_orden', 'acceso_ordenes', 'acceso_clientes', 'acceso_cotizaciones', 'acceso_caja',
-        'acceso_consultas_costo', 'acceso_estadisticas',
+        'acceso_consultas_costo', 'acceso_estadisticas', 'asigna_fechas', 'edita_catalogo',
     ];
 
     /** Los delicados: cuando alguien que no es super admin los da, se le avisa al super admin. */
@@ -49,6 +49,7 @@ final class RangoDeUsuarios
         'acceso_finanzas'        => 'Finanzas',
         'acceso_compras'         => 'Compras',
         'acceso_despacho'        => 'Despacho',
+        'edita_catalogo'         => 'Editar catálogo (precios)',
     ];
 
     /** Recordado por petición: la lista de Trabajadores lo pregunta por cada fila. */

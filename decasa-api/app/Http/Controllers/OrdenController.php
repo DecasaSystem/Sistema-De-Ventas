@@ -4121,8 +4121,15 @@ class OrdenController extends Controller
         // conductor, por la API) le cambiaba las fechas a cualquier orden y le
         // llegaban avisos al vendedor (revisión de seguridad, 2026-11-14). La
         // pantalla ya lo mostraba solo al supervisor.
-        if ($request->user()->rol !== 'supervisor') {
-            return response()->json(['message' => 'Solo un supervisor asigna las fechas de entrega.'], 403);
+        // Desde la fase 6 es un permiso (`asigna_fechas`): los supervisores lo
+        // traen y se le puede dar a un vendedor que cuadra la fecha con el
+        // cliente. Quien no es supervisor solo en órdenes que puede ver.
+        $quien = $request->user();
+        if (! $quien->tienePermiso('asigna_fechas')) {
+            return response()->json(['message' => 'No tienes el permiso de asignar fechas de entrega.'], 403);
+        }
+        if ($quien->rol !== 'supervisor' && ! Orden::findOrFail($id)->laPuedeVer($quien)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
         }
 
         $data = $request->validate([

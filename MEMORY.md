@@ -1087,6 +1087,12 @@ escribiendo precios (Fase 1b).
   **Fase 5 hecha el 2026-11-19, sin subir** (sin migración): Facturación, Redes y Telas sin
   amarrar al rol. Para avisar a quien factura una orden, usar `Usuario::facturadoresDe($tiendaId)`
   (nunca `where('rol', 'vendedor')->where('facturacion', true)`: dejaba por fuera al contador).
+  **Fase 6 hecha el 2026-11-19, sin subir**, trae **migración**
+  `2026_11_20_000004_permisos_especiales_en_usuarios`: asignar fechas (`asigna_fechas`) y editar
+  catálogo (`edita_catalogo`) por persona, prendidos a los supervisores. **Decisión del usuario:
+  aprobar cambios de plata sigue siendo solo de supervisores, sin interruptor** (no volver a
+  proponerlo: aplicar la solicitud corre como si el supervisor editara, `rol === 'supervisor'`
+  decide si va directo o como solicitud en Orden/Pago).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -425,7 +425,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Precio, nombre, fotos y descripción: solo supervisor (dueño, 2026-11-14:
     // "lo pueden cambiar los supervisores"). Antes cualquier sesión, y el
     // precio es lo que cobra Nueva orden y lo que Elena le dice al cliente.
-    Route::patch('/productos/{id}',      [ProductoController::class, 'update'])->middleware('role:supervisor');
+    // Precio, nombre y fotos: el permiso "editar catálogo" (fase 6). Los
+    // supervisores lo traen; borrar productos sigue siendo solo de supervisor.
+    Route::patch('/productos/{id}',      [ProductoController::class, 'update'])->middleware('permiso:edita_catalogo');
     Route::delete('/productos/{id}',     [ProductoController::class, 'destroy'])->middleware('role:supervisor');
     // Cambia cómo se cuenta el stock en todas las tiendas: solo supervisor.
     Route::post('/productos/{id}/venta-por-juego', [ProductoController::class, 'ventaPorJuego'])->middleware('role:supervisor');

@@ -12,7 +12,7 @@ import {
   BanknotesIcon,
 } from '@heroicons/vue/24/outline'
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
-import { MODULOS_DE_VENTA, modulosDelRol } from '@/utils/modulosDeVenta'
+import { MODULOS_DE_VENTA, PERMISOS_ESPECIALES, modulosDelRol } from '@/utils/modulosDeVenta'
 import { useAuthStore } from '@/stores/auth'
 import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
@@ -49,6 +49,7 @@ const editForm = ref({
   acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_finanzas: false, acceso_reserva: false,
   acceso_compras: false,
   ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, false])),
+  asigna_fechas: false, edita_catalogo: false,
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, puede_fv2_sin_iva: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
@@ -175,6 +176,7 @@ function openEditModal() {
     acceso_finanzas: usuario.value.acceso_finanzas ?? false,
     acceso_compras: usuario.value.acceso_compras ?? false,
     ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, usuario.value[m.campo] ?? false])),
+    ...Object.fromEntries(PERMISOS_ESPECIALES.map(p => [p.campo, usuario.value[p.campo] ?? false])),
     lleva_encargos: usuario.value.lleva_encargos ?? false,
     acceso_encargos: usuario.value.acceso_encargos ?? false,
     revisa_encargos: usuario.value.revisa_encargos ?? false,
@@ -235,6 +237,7 @@ async function submitEdit() {
       ...(authStore.usuario?.es_super_admin ? { es_super_admin: editForm.value.es_super_admin } : {}),
       // Vender como módulos: quien no usa el programa no vende.
       ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, !editForm.value.no_usa_programa && editForm.value[m.campo]])),
+      ...Object.fromEntries(PERMISOS_ESPECIALES.map(p => [p.campo, !editForm.value.no_usa_programa && editForm.value[p.campo]])),
       // Responder por herramientas vale también para quien no usa el programa;
       // mirar el módulo y hacer los checks, no.
       lleva_encargos: editForm.value.lleva_encargos,
@@ -836,6 +839,18 @@ onMounted(async () => {
               </label>
               <p class="text-[11px] text-gray-400">Si lo dejas como lo trae el rol, sigue al rol cuando el rol cambie.</p>
             </div>
+            <!-- Permisos especiales (fase 6): antes solo del supervisor. -->
+            <div v-if="!editForm.no_usa_programa" class="py-2 px-3 border border-gray-200 rounded-xl space-y-1">
+              <p class="text-sm font-semibold text-gray-800">Permisos especiales</p>
+              <label v-for="p in PERMISOS_ESPECIALES" :key="p.campo" class="flex items-start gap-3 py-1 cursor-pointer">
+                <input type="checkbox" v-model="editForm[p.campo]" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span>
+                  <span class="text-sm font-medium text-gray-700">{{ p.nombre }}</span>
+                  <span class="block text-xs text-gray-500">{{ p.ayuda }}</span>
+                </span>
+              </label>
+            </div>
+
             <!-- Encargos. Fuera de cualquier condición de rol: el de los dos
                  taladros suele ser justo el que no entra al programa. -->
             <div class="flex items-start gap-3 py-2 px-3 bg-teal-50 border border-teal-200 rounded-xl">

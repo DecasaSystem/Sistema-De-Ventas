@@ -71,6 +71,8 @@ class Usuario extends Authenticatable
         // Lo que se le agregó o quitó encima de su rol, y la marca de super
         // admin (la cuida RangoDeUsuarios).
         'modulos_ajustados', 'es_super_admin',
+        // Permisos especiales (fase 6).
+        'asigna_fechas', 'edita_catalogo',
         // Encargos: responder por herramientas es una cosa (`lleva_encargos`,
         // que le sirve hasta a quien no entra al programa) y administrar el
         // módulo es otra (`acceso_encargos`).
@@ -152,6 +154,8 @@ class Usuario extends Authenticatable
             'acceso_consultas_costo' => 'boolean',
             'acceso_estadisticas'    => 'boolean',
             'es_super_admin'         => 'boolean',
+            'asigna_fechas'          => 'boolean',
+            'edita_catalogo'         => 'boolean',
             'modulos_ajustados'      => 'array',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
@@ -381,10 +385,20 @@ class Usuario extends Authenticatable
      * lo de antes —los tenía todo el que no fuera conductor ni despachador—,
      * para que el cambio no le cierre la venta a nadie por un descuido.
      */
+    /**
+     * Permisos especiales que antes eran solo del supervisor (fase 6). Sin la
+     * columna (pruebas con esquema a mano, o antes de migrar), vale lo de
+     * antes: los tiene el supervisor.
+     */
+    public const PERMISOS_ESPECIALES = ['asigna_fechas', 'edita_catalogo'];
+
     public function tienePermiso(string $columna): bool
     {
         if (ModulosDeVenta::es($columna) && ! array_key_exists($columna, $this->getAttributes())) {
             return ModulosDeVenta::comoAntes($this->rol);
+        }
+        if (in_array($columna, self::PERMISOS_ESPECIALES, true) && ! array_key_exists($columna, $this->getAttributes())) {
+            return $this->rol === 'supervisor';
         }
 
         return (bool) $this->getAttribute($columna);

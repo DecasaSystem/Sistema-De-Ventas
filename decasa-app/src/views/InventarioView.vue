@@ -3558,10 +3558,11 @@ onMounted(async () => {
 
             <!-- Precio, nombre, fotos y marcas del producto: solo supervisor (dueño,
                  2026-11-14). El servidor también lo frena. -->
-            <p v-if="!auth.isSupervisor" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              El precio, el nombre y las fotos los cambia un supervisor.
+            <!-- Desde la fase 6 es el permiso "editar catálogo" (los supervisores lo traen). -->
+            <p v-if="!auth.puedeEditarCatalogo" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              El precio, el nombre y las fotos los cambia quien tenga el permiso de editar el catálogo.
             </p>
-            <template v-if="auth.isSupervisor">
+            <template v-if="auth.puedeEditarCatalogo">
             <!-- Cambiar precio -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Precio base</label>

@@ -222,6 +222,14 @@ export const useAuthStore = defineStore('auth', () => {
   const puedeCaja             = moduloDeVenta('acceso_caja')
   const puedeConsultarCosto   = moduloDeVenta('acceso_consultas_costo')
   const puedeEstadisticas     = moduloDeVenta('acceso_estadisticas')
+  // Permisos especiales (fase 6): antes solo del supervisor. Una sesión de
+  // antes sin la bandera vale lo de siempre (el supervisor).
+  const especial = (columna) => computed(() => {
+    const v = usuario.value?.[columna]
+    return (v === undefined || v === null) ? usuario.value?.rol === 'supervisor' : !!v
+  })
+  const puedeAsignarFechas    = especial('asigna_fechas')
+  const puedeEditarCatalogo   = especial('edita_catalogo')
   // La cara opuesta, que es como se pregunta en las pantallas: un vendedor ve
   // lo suyo salvo que se le haya activado ver todas.
   const soloVeSusOrdenes      = computed(() =>
@@ -578,7 +586,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     puedeNuevaOrden, puedeOrdenes, puedeClientes, puedeCotizaciones, puedeCaja,
-    puedeConsultarCosto, puedeEstadisticas,
+    puedeConsultarCosto, puedeEstadisticas, puedeAsignarFechas, puedeEditarCatalogo,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setVerValorReserva, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,

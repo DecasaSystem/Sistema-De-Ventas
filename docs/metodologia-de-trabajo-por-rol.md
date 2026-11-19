@@ -98,9 +98,9 @@ persona** (extra solo para ella). La columna "Por defecto" es solo el arranque s
 
 | Permiso | Hoy | Propuesta |
 |---|---|---|
-| Aprobar cambios de plata y cancelaciones | Solo supervisor | Activable |
-| Asignar fechas de entrega por producto | Solo supervisor | Activable (el vendedor ya pone la fecha que cuadró con el cliente al vender) |
-| Editar precios, nombres y fotos del catálogo | Solo supervisor | Activable |
+| Aprobar cambios de plata y cancelaciones | Solo supervisor | ✅ Se queda solo supervisor (decisión del usuario) |
+| Asignar fechas de entrega por producto | Solo supervisor | ✅ Activable (`asigna_fechas`) |
+| Editar precios, nombres y fotos del catálogo | Solo supervisor | ✅ Activable (`edita_catalogo`) |
 | Ver todas las órdenes (no solo las suyas y las de su tienda) | Activable | Igual |
 | Ver el valor en pesos del inventario | Solo supervisor | Activable |
 | Cambiar reglas de bonificación | Activable | Igual |
@@ -178,6 +178,16 @@ mueve con **Traslado**, que normalmente hace el vendedor y lo acepta quien recib
    (`Usuario::scopeFacturadoresDe`: el vendedor que factura en esa tienda, como antes, y el que
    factura sin vender, como un contador). En la app, `isFacturador` ya no exige ser vendedor.
 6. **Permisos especiales** activables (aprobar cambios, asignar fechas, editar catálogo).
+   ✅ **Hecha el 2026-11-19, sin subir**, trae **migración**
+   `2026_11_20_000004_permisos_especiales_en_usuarios` (agrega `usuarios.asigna_fechas` y
+   `usuarios.edita_catalogo`, prendidos a todos los supervisores). Asignar fechas por producto
+   (`PATCH /ordenes/{id}/fechas-entrega`, quien no es supervisor solo en órdenes que puede ver) y
+   editar precio, nombre y fotos (`PATCH /productos/{id}`) van por permiso; a un supervisor se le
+   pueden quitar. Borrar productos, categorías y venta por juego siguen siendo de supervisor.
+   **Aprobar cambios de plata se queda solo de supervisores, sin interruptor** (decisión del
+   usuario, 2026-11-19: aplicar un cambio aprobado pasa como si lo hiciera el supervisor, y abrirlo
+   a otros obliga a tocar a fondo el camino de la plata). Tests en `PermisosEspecialesTest`. El
+   aviso "Órdenes para asignar fecha" sigue llegando solo a supervisores.
 7. **Surtir y Traslado separados.**
 8. Después: revisar las palabras de muebles en pantalla.
 

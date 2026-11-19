@@ -12,6 +12,12 @@ export const MODULOS_DE_VENTA = [
   { campo: 'acceso_estadisticas',    nombre: 'Estadísticas',    ayuda: 'Sus ventas y metas.' },
 ]
 
+/** Permisos especiales (fase 6): antes solo del supervisor; ya se dan por persona. */
+export const PERMISOS_ESPECIALES = [
+  { campo: 'asigna_fechas',  nombre: 'Asignar fechas de entrega', ayuda: 'Pone o corrige la fecha de entrega de cada producto de una orden que puede ver.' },
+  { campo: 'edita_catalogo', nombre: 'Editar el catálogo',        ayuda: 'Cambia precio, nombre y fotos de los productos en Inventario.' },
+]
+
 /**
  * Los que trae un rol cuando no se le han escogido (igual que
  * ModulosDeVenta::DEL_ARQUETIPO). Vendedor sin Caja: va aparte.

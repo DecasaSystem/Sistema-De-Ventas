@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { createUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
-import { MODULOS_DE_VENTA, modulosDeVentaDeArranque } from '@/utils/modulosDeVenta'
+import { MODULOS_DE_VENTA, PERMISOS_ESPECIALES, modulosDeVentaDeArranque } from '@/utils/modulosDeVenta'
 
 const router = useRouter()
 
@@ -49,6 +49,7 @@ const form = ref({
   acceso_compras: true,
   // Vender como módulos: arrancan según el rol escogido (ver el watch de abajo).
   ...modulosDeVentaDeArranque(null),
+  asigna_fechas: false, edita_catalogo: false,
   // Encargos: responder por herramientas es una cosa y administrar el módulo
   // es otra. Ambas arrancan apagadas — a la mayoría no se le entrega nada.
   lleva_encargos: false,
@@ -77,7 +78,10 @@ const mostrarConfirm = ref(false)
 const rolSeleccionado = computed(() => roles.value.find(r => r.id === form.value.rol_id))
 const arquetipo = computed(() => rolSeleccionado.value?.arquetipo ?? '')
 // Al escoger el rol, los módulos de venta arrancan con lo de ese rol.
-watch(rolSeleccionado, (r) => Object.assign(form.value, modulosDeVentaDeArranque(r)))
+// El supervisor arranca con los permisos especiales (como antes); los demás, no.
+watch(rolSeleccionado, (r) => Object.assign(form.value, modulosDeVentaDeArranque(r), {
+  asigna_fechas: r?.arquetipo === 'supervisor', edita_catalogo: r?.arquetipo === 'supervisor',
+}))
 const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
 
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
@@ -169,6 +173,7 @@ async function submit() {
       acceso_finanzas: arquetipo.value === 'supervisor' ? form.value.acceso_finanzas : false,
       acceso_compras: form.value.acceso_compras,
       ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, !form.value.no_usa_programa && form.value[m.campo]])),
+      ...Object.fromEntries(PERMISOS_ESPECIALES.map(p => [p.campo, !form.value.no_usa_programa && form.value[p.campo]])),
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
       puede_fv2_sin_iva: ['vendedor', 'supervisor'].includes(arquetipo.value) ? form.value.puede_fv2_sin_iva : false,
@@ -616,6 +621,18 @@ async function submit() {
           <span>
             <span class="text-sm font-medium text-gray-700">{{ m.nombre }}</span>
             <span class="block text-xs text-gray-500">{{ m.ayuda }}</span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Permisos especiales (fase 6): antes solo del supervisor. -->
+      <div v-if="!form.no_usa_programa" class="py-2 px-3 border border-gray-200 rounded-xl space-y-1">
+        <p class="text-sm font-semibold text-gray-800">Permisos especiales</p>
+        <label v-for="p in PERMISOS_ESPECIALES" :key="p.campo" class="flex items-start gap-3 py-1 cursor-pointer">
+          <input type="checkbox" v-model="form[p.campo]" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <span>
+            <span class="text-sm font-medium text-gray-700">{{ p.nombre }}</span>
+            <span class="block text-xs text-gray-500">{{ p.ayuda }}</span>
           </span>
         </label>
       </div>
