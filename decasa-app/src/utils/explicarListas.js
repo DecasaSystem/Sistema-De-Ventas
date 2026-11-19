@@ -96,8 +96,25 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
     lineas.push(`Anticipos: debía ${pesos(b.debe_al_corte)} a este corte`
       + (n(b.abonos) > 0 ? ` (incluye ${pesos(b.abonos)} de abonos de esta bonificación ya entregados)` : '')
       + `. Se descuentan ${pesos(b.se_descuenta)} → se le entregan ${pesos(b.entregar)}.`)
+    // El porqué, una sola vez: en el primer mes donde se descuenta.
+    if ((p.bloques ?? []).find(x => n(x.se_descuenta) > 0) === b) lineas.push(...cobrosDeMasTexto(p))
   }
   return lineas
+}
+
+/**
+ * Lo cobrado de más por ventas canceladas o que bajaron de valor después de
+ * pagarse, con su porqué (usuario, 2026-11-19: "que lo diga en una nota").
+ * Sale de Listas (`cobros_de_mas`) o del detalle de anticipos del Excel.
+ */
+export function cobrosDeMas(p) {
+  return p?.cobros_de_mas ?? (p?.anticipos_detalle ?? []).filter(a => a.es_cobro_de_mas)
+}
+
+export function cobrosDeMasTexto(p) {
+  return cobrosDeMas(p).map(a => `Se le descuentan ${pesos(a.monto)} por bonificación cobrada de más`
+    + (a.nota ? ` (${String(a.nota).replace(/^Cobrado de más:\s*/, '')})` : '')
+    + '. Va como un anticipo: se resta de lo que se le paga y, si no alcanza, sigue debiendo el resto.')
 }
 
 /**
@@ -105,6 +122,7 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
  * independientes y lo que no sabemos nombrar. Lo usan Listas y el Excel de la
  * tienda (explicacionDelMes), para que digan lo mismo.
  */
+
 function otrosCaminos(b, r, ordenes) {
   const suma = formas => ordenes.filter(o => formas.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0)
   const lineas = []
@@ -426,6 +444,7 @@ export function explicacionDelMes(d, p, r) {
   if (p.pago && (n(p.pago.se_descuenta) > 0 || n(p.pago.debe_al_corte) > 0)) {
     lineas.push(`Anticipos y abonos: debía ${pesos(p.pago.debe_al_corte)} a este corte. Al pagar se descuentan ${pesos(p.pago.se_descuenta)} → se le entregan ${pesos(p.pago.entregar)}.`)
     if (n(p.pago.sigue_debiendo) > 0) lineas.push(`Después de pagarle sigue debiendo ${pesos(p.pago.sigue_debiendo)}: se descuenta en el próximo pago.`)
+    lineas.push(...cobrosDeMasTexto(p))
   } else if (n(p.abonos_del_mes) > 0) {
     lineas.push(`De esta bonificación ya se le dio un abono de ${pesos(p.abonos_del_mes)}: se descuenta al pagarla.`)
   }

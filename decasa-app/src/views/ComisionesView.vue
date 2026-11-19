@@ -24,7 +24,7 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
-import { explicacionDelBloque, porQueNoComisiona, desgloseDelBloque } from '@/utils/explicarListas'
+import { explicacionDelBloque, porQueNoComisiona, desgloseDelBloque, cobrosDeMasTexto } from '@/utils/explicarListas'
 import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool, cuandoSePaga } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
@@ -2565,6 +2565,8 @@ onMounted(async () => {
                 <span>Bonificación {{ cop(p.lista) }} · {{ p.bloques.some(b => b.abonos > 0) ? 'anticipos y abonos' : 'anticipos' }} − {{ cop(p.se_descuenta) }}</span>
                 <span v-if="p.sigue_debiendo > 0" class="text-orange-600">sigue debiendo {{ cop(p.sigue_debiendo) }}</span>
               </div>
+              <!-- Por qué se le descuenta: una venta cancelada o que bajó después de pagarse. -->
+              <p v-for="(t, i) in cobrosDeMasTexto(p)" :key="'demas' + i" class="text-[11px] text-red-600 mt-1">{{ t }}</p>
 
               <button
                 @click="pagarPersona(p)"

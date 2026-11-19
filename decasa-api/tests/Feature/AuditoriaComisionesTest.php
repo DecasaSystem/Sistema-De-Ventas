@@ -498,16 +498,57 @@ class AuditoriaComisionesTest extends TestCase
         $this->assertEqualsWithDelta(200_000, $this->cobradoDeMas()['Manuela'] ?? 0, 1);
     }
 
-    public function test_si_la_venta_sube_despues_de_pagar_no_cambia_nada(): void
+    /** Si sube, se paga la diferencia (usuario, 2026-11-19). */
+    public function test_en_el_5_directo_si_sube_despues_de_pagar_se_paga_la_diferencia(): void
     {
         $this->conLibroDeAnticipos();
         $orden = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
         $this->pagarTodoLoListo();
 
-        $this->bajarValor($orden, 15_000_000);
+        $this->bajarValor($orden, 15_470_000); // +3.570.000
 
-        $this->assertEqualsWithDelta(11_900_000, (float) Comision::where('orden_id', $orden->id)->value('valor_orden'), 1);
+        $pagada = Comision::where('orden_id', $orden->id)->where('estado', 'pagada')->first();
+        $this->assertEqualsWithDelta(11_900_000, (float) $pagada->valor_orden, 1, 'lo pagado se queda');
+        // 3.570.000 ÷ 1,19 × 5 % = 150.000
+        $this->assertEqualsWithDelta(150_000, $this->loQueEstaListo()['Manuela'] ?? 0, 1);
         $this->assertSame([], $this->cobradoDeMas());
+
+        // Pagada la diferencia, otra sincronización no abre nada más.
+        $this->pagarTodoLoListo();
+        ComisionController::sincronizarValorOrden($orden->fresh());
+        $this->assertEqualsWithDelta(0, $this->loQueEstaListo()['Manuela'] ?? 0, 1);
+        $this->assertEqualsWithDelta(650_000, $this->pagadoPorPersona()['Manuela'], 1);
+    }
+
+    public function test_en_el_pool_si_sube_despues_de_pagar_el_equipo_cobra_la_diferencia(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->pagarTodoLoListo();
+
+        // Marta le agrega $6 M: Norte queda en 76M, pool 1.512.605 (504.202 c/u): 84.034 más a cada una.
+        $this->bajarValor($deMarta, 16_000_000);
+
+        $listo = $this->loQueEstaListo();
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(84_034, $listo[$quien] ?? 0, 3, $quien);
+        }
+    }
+
+    public function test_listas_dice_por_que_se_le_descuenta(): void
+    {
+        $this->conLibroDeAnticipos();
+        $cancelada = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
+        $this->pagarTodoLoListo();
+        $this->cancelar($cancelada);
+        $this->orden(self::MANUELA, self::VIRTUAL, 23_800_000);
+
+        $listas = $this->llamar('loQueHayPorPagar', null, false);
+        $manuela = collect($listas['personas'])->firstWhere('vendedor_id', self::MANUELA);
+        $this->assertEqualsWithDelta(500_000, $manuela['se_descuenta'], 1);
+        $this->assertCount(1, $manuela['cobros_de_mas']);
+        $this->assertStringContainsString('se canceló después de pagar la bonificación', $manuela['cobros_de_mas'][0]['nota']);
     }
 
     /**

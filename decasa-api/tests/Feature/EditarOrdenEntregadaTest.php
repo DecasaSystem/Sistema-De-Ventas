@@ -330,7 +330,8 @@ class EditarOrdenEntregadaTest extends TestCase
         $this->assertStringContainsString('se descuenta solo del próximo pago', $resp->json('aviso_comisiones'));
     }
 
-    public function test_si_la_orden_pagada_sube_no_se_recalcula_y_avisa(): void
+    /** Si sube, el pagado se queda y la diferencia va en un renglón aparte (usuario, 2026-11-19). */
+    public function test_si_la_orden_pagada_sube_la_diferencia_se_paga_aparte_y_avisa(): void
     {
         [$orden, $mesa] = $this->ordenEntregada();
         $comision = $this->comisionDe($orden, 'pagada');
@@ -339,8 +340,11 @@ class EditarOrdenEntregadaTest extends TestCase
             'items' => [['id' => $mesa->id, 'precio_unitario' => 950000]],
         ])->assertOk();
 
-        $this->assertEquals(800000, $comision->fresh()->valor_orden, 'lo que sube no se paga solo');
-        $this->assertStringContainsString('no se recalcula', $resp->json('aviso_comisiones'));
+        $this->assertEquals(800000, $comision->fresh()->valor_orden, 'lo pagado se queda como se pagó');
+        $diferencia = \App\Models\Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->first();
+        $this->assertNotNull($diferencia, 'se abre el renglón de la diferencia');
+        $this->assertEquals(150000, $diferencia->valor_orden);
+        $this->assertStringContainsString('se paga aparte', $resp->json('aviso_comisiones'));
     }
 
     public function test_el_supervisor_tampoco_le_cambia_la_cantidad(): void

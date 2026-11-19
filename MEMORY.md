@@ -1119,12 +1119,19 @@ escribiendo precios (Fase 1b).
   (botón Cancelar, Devoluciones, Garantías). No entra: trimestrales (su pool queda quieto al pagarse)
   (lo de bajar de valor, abajo). Finanzas no cuenta ese renglón como plata que salió. Por defecto mío
   (**falta confirmar**): aviso a cada persona y mensaje en la orden; no hay botón para perdonarlo.
-  **Hueco 3, mismo día (sin subir, sin migración):** cuando la orden BAJA de valor (quitar/cambiar
+  **Hueco 3, mismo día (subido a `main`, commit 9ed37857, sin migración):** cuando la orden BAJA de valor (quitar/cambiar
   producto, cancelar lo que falta, devolución, reembolso de garantía), `sincronizarValorOrden` ahora
   le baja el `valor_orden` también al renglón pagado (antes la meta del mes seguía contando lo
   quitado); `monto_comision` no se toca. Antes de bajarlo llama `BonificacionCobradaDeMas::alBajarElValor`
-  (misma foto antes/después; en 5 % directo cobra la proporción en que bajó). Si la orden SUBE, la
-  pagada se queda igual (decisión mía, **falta confirmar**). El aviso de Editar orden lo dice.
+  (misma foto antes/después; en 5 % directo cobra la proporción en que bajó). **Si la orden SUBE se
+  paga la diferencia** (usuario, mismo día, sin subir): el pagado se queda y se abre un renglón
+  pendiente con la diferencia (mismo origen, tienda y mes), así la meta suma pagado + diferencia sin
+  contar dos veces; en pool a los compañeros se les abre su parte (`crearPartesDePool`). Para
+  independientes no se abre (se les paga por `ComisionIndependientes` sobre la orden: lo que sube no
+  se les paga, **pendiente**). Un vendedor con renglones pagados: `sincronizarValorOrden` ya no pone
+  el valor entero en cada renglón, reparte "lo que vale − lo pagado". Listas y sus Excel dicen el
+  porqué de cada descuento (`cobros_de_mas` en Listas, `cobrosDeMasTexto` en `explicarListas.js`;
+  pedido del usuario). El aviso de Editar orden dice cuál de las dos pasó.
   Revisado también (pregunta del usuario, caso #1275): con el mes **sin pagar**, una orden cancelada
   sale de la meta y del pool, y una devolución que la deja por debajo del 50 % también (el 50 % suma
   todos los pagos de la orden, de cualquier fecha, contra el valor de hoy). Tests en

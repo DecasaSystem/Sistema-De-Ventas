@@ -3105,6 +3105,14 @@ class ComisionController extends Controller
                 'entregar'         => $suyos->sum('entregar'),
                 'sigue_debiendo'   => $quedaDebiendo,
                 'atrasada'         => $suyos->contains('atrasada', true),
+                // Lo cobrado de más por ventas canceladas o que bajaron de
+                // valor, con su porqué (usuario, 2026-11-19: "que lo diga en
+                // una nota"). Solo si hay algo que descontar: casi nadie.
+                'cobros_de_mas'    => ($descontado + $quedaDebiendo) > 0
+                    ? array_values(array_filter(
+                        AnticiposComision::pendientesDeDescontar((int) $vendedorId, (string) $suyos->max('mes')),
+                        fn ($a) => ! empty($a['es_cobro_de_mas'])))
+                    : [],
             ];
         })
             // Lo atrasado arriba: es lo que no puede volver a quedarse.
@@ -3995,15 +4003,24 @@ class ComisionController extends Controller
             // pueden tener partes distintas (regla compartida_parte_vendedor).
             ->map(fn ($c) => [$c, self::valorComisionable($orden, (int) $c->vendedor_id)]);
 
-        // Una ya pagada también baja cuando la orden baja (usuario,
-        // 2026-11-19: "es plata que ya no está"). Antes se quedaba con el
-        // valor de cuando se pagó: si se quitaba un producto, la meta y el
-        // pool de ese mes seguían contándolo. El monto pagado no se toca (es
-        // lo que se pagó); lo cobrado de más se descuenta del próximo pago
-        // (BonificacionCobradaDeMas). Si la orden SUBE después de pagarse, la
-        // pagada se queda como estaba, como siempre.
-        $bajan = $propias->filter(fn ($p) => $p[1] < (float) $p[0]->valor_orden - 0.01);
-        if ($bajan->isNotEmpty()) {
+        // Con la bonificación ya pagada, la venta cuenta lo que vale hoy
+        // (usuario, 2026-11-19: "es plata que ya no está" / "si sube, que se
+        // pague la diferencia también"). Antes el renglón pagado se quedaba con
+        // el valor de cuando se pagó: la meta y el pool seguían contando lo
+        // quitado, y lo agregado no se pagaba nunca.
+        //
+        //  - Baja: el renglón pagado baja (el monto pagado no se toca: es lo
+        //    que se pagó) y lo cobrado de más se descuenta del próximo pago
+        //    (BonificacionCobradaDeMas, que necesita la foto de ANTES).
+        //  - Sube: el pagado se queda y se abre un renglón aparte con la
+        //    diferencia ("diferencia"), que se paga como cualquier venta. Así
+        //    la meta suma lo pagado + la diferencia = lo que vale, sin contar
+        //    dos veces, y en el pool a los compañeros se les abre su parte del
+        //    pool que creció (crearPartesDePool).
+        $porPersona = $propias->groupBy(fn ($p) => (int) $p[0]->vendedor_id);
+        $baja = $porPersona->contains(fn ($filas) => $filas->contains(fn ($p) => $p[0]->estado === 'pagada')
+            && $filas->first()[1] < $filas->sum(fn ($p) => (float) $p[0]->valor_orden) - 0.01);
+        if ($baja) {
             \App\Services\BonificacionCobradaDeMas::alBajarElValor($orden);
         }
 
@@ -4011,11 +4028,57 @@ class ComisionController extends Controller
         self::sincronizarAbonoAlmacen($orden);
         self::sincronizarRestauracionEquipo($orden);
 
-        foreach ($propias as [$c, $valor]) {
-            if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
-            if ($c->estado === 'pagada' && $valor > (float) $c->valor_orden) continue;
+        $poner = function (Comision $c, float $valor) use (&$cambiadas) {
+            if (abs((float) $c->valor_orden - $valor) < 0.01) return;
             Comision::where('id', $c->id)->update(['valor_orden' => $valor]);
             $cambiadas++;
+        };
+
+        foreach ($porPersona as $vendedorId => $filas) {
+            $valor    = (float) $filas->first()[1];
+            $pagadas  = $filas->filter(fn ($p) => $p[0]->estado === 'pagada')->map(fn ($p) => $p[0]);
+            $abiertas = $filas->reject(fn ($p) => $p[0]->estado === 'pagada')->map(fn ($p) => $p[0])->values();
+
+            if ($pagadas->isEmpty()) {
+                foreach ($abiertas as $c) $poner($c, $valor);
+                continue;
+            }
+
+            $yaPagado = (float) $pagadas->sum(fn ($c) => (float) $c->valor_orden);
+            if ($valor < $yaPagado - 0.01) {
+                // Bajó por debajo de lo pagado: se recorta de lo más nuevo a lo
+                // más viejo, y la diferencia que estuviera sin pagar queda en 0.
+                $sobra = $yaPagado - $valor;
+                foreach ($pagadas->sortByDesc('id') as $c) {
+                    $quita = min($sobra, (float) $c->valor_orden);
+                    $poner($c, (float) $c->valor_orden - $quita);
+                    $sobra -= $quita;
+                    if ($sobra <= 0.01) break;
+                }
+                foreach ($abiertas as $c) $poner($c, 0.0);
+                continue;
+            }
+
+            $falta = round($valor - $yaPagado, 2);
+            if ($abiertas->isNotEmpty()) {
+                foreach ($abiertas as $i => $c) $poner($c, $i === 0 ? $falta : 0.0);
+            } elseif ($falta >= 1 && ! Usuario::where('id', $vendedorId)->value('independiente')) {
+                // A un independiente se le paga por su servicio sobre la
+                // orden entera (ComisionIndependientes), no por renglones.
+                $base = $pagadas->sortBy('id')->first();
+                Comision::create([
+                    'orden_id'         => $orden->id,
+                    'vendedor_id'      => $vendedorId,
+                    'tienda_id'        => $base->tienda_id,
+                    'origen'           => $base->origen,
+                    'mes_venta'        => $base->mes_venta,
+                    'valor_orden'      => $falta,
+                    'fecha_venta'      => $base->fecha_venta,
+                    'fecha_disponible' => $base->fecha_disponible,
+                    'estado'           => 'pendiente',
+                ]);
+                $cambiadas++;
+            }
         }
 
         return $cambiadas;
