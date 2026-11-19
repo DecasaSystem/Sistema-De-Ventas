@@ -27,6 +27,23 @@ class Orden extends Model
     public const ESTADOS_FUERA_DE_REPORTES = ['cancelado', 'cotizacion', 'borrador'];
 
     /**
+     * Lo que NO cuenta en la plata que entró y salió por fecha de pago
+     * ("cobrado" de Reportes, cobranza del período, flujo de caja de Finanzas).
+     *
+     * Aquí la orden cancelada SÍ cuenta (usuario, 2026-11-19: "es plata que ya
+     * no está"). Antes, al cancelar, sus abonos desaparecían de los meses en
+     * que entraron —aunque la tienda todavía tenía la plata— y el día en que se
+     * le devolvía al cliente no se veía nada. Ahora el anticipo cuenta el día
+     * que entró y la devolución (pago negativo `tipo = reembolso`) resta el
+     * día que sale, como en la Caja de la tienda. Lo VENDIDO no cambia: una
+     * cancelada sigue sin ser venta (ESTADOS_FUERA_DE_REPORTES).
+     *
+     * Solo en lo de la empresa y la tienda. Lo de cada persona (ranking,
+     * estadísticas del vendedor) sigue sin la cancelada: no es una venta suya.
+     */
+    public const ESTADOS_FUERA_DE_LO_COBRADO = ['cotizacion', 'borrador'];
+
+    /**
      * Estados en los que una orden NO tiene stock apartado.
      *
      * Los tres primeros porque ya se soltó —se entregó, se canceló o se

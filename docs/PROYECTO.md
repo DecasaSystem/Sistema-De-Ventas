@@ -1066,9 +1066,14 @@ costo y factura (`acceso_compras`, sin excepción para supervisor).
 canales, resumen mensual + Excel, retrasos) y `StatsController` (panel, tendencia,
 categorías, cartera, tiendas, vendedores, conductores, "mis estadísticas").
 Desglose por tipo (venta / FV2 / restauración) con `Orden::sqlTipo()`.
-Periodos con `RangoFechas`. **Nada de lo cancelado cuenta** (ni vendido ni
-abonado): filtro `Orden::ESTADOS_FUERA_DE_REPORTES`; las canceladas solo salen
-en su conteo.
+Periodos con `RangoFechas`. **Lo cancelado no es venta**: filtro
+`Orden::ESTADOS_FUERA_DE_REPORTES` en lo vendido, las órdenes, el ticket y todo
+lo de cada persona; las canceladas solo salen en su conteo. **La plata sí
+cuenta** (desde 2026-11-19): en lo cobrado por fecha de pago de la empresa o la
+tienda (Reportes → Ventas y su Excel, cobranza del panel y su gráfico, cobros de
+Tiendas, cobrado y flujo de caja de Finanzas, asistente) va
+`Orden::ESTADOS_FUERA_DE_LO_COBRADO`: el anticipo de una cancelada cuenta el día
+que entró y la devolución (pago negativo `reembolso`) resta el día que sale.
 
 ### 6.18b Finanzas
 `FinanzasController`, `GastoController`, `GastoRecurrenteController`,

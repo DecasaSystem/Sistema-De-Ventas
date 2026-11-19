@@ -10,8 +10,9 @@ use Illuminate\Support\Facades\Schema;
  * Ventas y cobros por mes, con el MISMO criterio que Reportes
  * (StatsController::kpis): lo vendido son las órdenes creadas en el mes sin
  * cotizaciones, borradores ni canceladas (Orden::ESTADOS_FUERA_DE_REPORTES);
- * lo cobrado son los pagos del mes de esas mismas órdenes (ya resta los
- * reembolsos, que son pagos negativos). Si Finanzas y Reportes dieran cifras
+ * lo cobrado son los pagos del mes (ya resta los reembolsos, que son pagos
+ * negativos), también los de órdenes canceladas: la plata entró y sale el día
+ * en que se devuelve (Orden::ESTADOS_FUERA_DE_LO_COBRADO, 2026-11-19). Si Finanzas y Reportes dieran cifras
  * distintas para el mismo mes, la gente dejaría de creerle a las dos.
  * Prueba: FinanzasCuadraConReportesTest.
  *
@@ -90,7 +91,9 @@ class FuenteVentas
         $filas = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', Periodo::rangoUtc($desde, $hasta))
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            // Con las canceladas, como Reportes: el anticipo cuenta el mes en
+            // que entró y la devolución resta el mes en que salió.
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             // Se le acredita a la tienda que recibió la plata (como Reportes).
             ->when($tiendaId, fn ($q) => $q->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]))
             ->selectRaw(Periodo::sqlMes('p.created_at') . " AS mes, COALESCE(p.metodo, 'otro') AS metodo, SUM(p.monto) AS total")

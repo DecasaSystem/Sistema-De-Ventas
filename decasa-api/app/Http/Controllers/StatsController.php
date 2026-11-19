@@ -122,12 +122,13 @@ class StatsController extends Controller
         // restauración de julio entra aquí. Es flujo de caja, no "cuánto de lo
         // que vendimos este mes ya está cobrado".
         //
-        // Lo abonado a una orden que después se canceló no se cuenta: la
-        // orden no existe para los reportes (Orden::ESTADOS_FUERA_DE_REPORTES).
+        // Una orden cancelada SÍ cuenta aquí (Orden::ESTADOS_FUERA_DE_LO_COBRADO):
+        // su anticipo el día que entró y la devolución el día que salió. Lo de
+        // una persona sigue sin ella: no es una venta suya.
         $cobranzaQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES);
+            ->whereNotIn('o.estado', $vendedorId ? Orden::ESTADOS_FUERA_DE_REPORTES : Orden::ESTADOS_FUERA_DE_LO_COBRADO);
         // El ingreso se le acredita a la tienda que recibió el dinero, que puede
         // no ser la de la orden. Los pagos viejos sin tienda caen a la de su orden.
         if ($tiendaId)   $cobranzaQ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]);
@@ -306,11 +307,11 @@ class StatsController extends Controller
         // Colombia no tiene horario de verano, así que el -5 fijo es exacto.
         $aHoraLocal = "CONVERT_TZ(%s, '+00:00', '-05:00')";
 
-        // Dinero cobrado por período
+        // Dinero cobrado por período (con las canceladas: ver kpis()).
         $cobradoQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            ->whereNotIn('o.estado', $vendedorId ? Orden::ESTADOS_FUERA_DE_REPORTES : Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             ->selectRaw("DATE_FORMAT(" . sprintf($aHoraLocal, 'p.created_at') . ", '{$fmtMysql}') AS periodo, SUM(p.monto) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $cobradoQ->where('o.tienda_id',   $tiendaId);
@@ -863,6 +864,9 @@ class StatsController extends Controller
      * orden— y la mitad de las compartidas donde el covendedor es de esa
      * tienda.
      *
+     * Con las canceladas: es la plata de la tienda, y su devolución resta el
+     * día que sale (Orden::ESTADOS_FUERA_DE_LO_COBRADO).
+     *
      * @return array{ppal: array<int,array>, co: array<int,array>}
      */
     private function cobrosPorTienda(array $rango, array $porSuCuenta): array
@@ -871,7 +875,7 @@ class StatsController extends Controller
 
         $ppal = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             // Lo que vende quien va por su cuenta no es de esta tienda
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("COALESCE(p.tienda_id, o.tienda_id) AS quien, SUM($monto) as total, "
@@ -882,7 +886,7 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('p.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw('u.tienda_default_id AS quien, SUM(p.monto / 2) as total, '
                         . Orden::selectMontosPorTipo('p.monto / 2'))

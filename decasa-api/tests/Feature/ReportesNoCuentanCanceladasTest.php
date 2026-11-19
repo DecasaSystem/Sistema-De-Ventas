@@ -98,7 +98,9 @@ class ReportesNoCuentanCanceladasTest extends TestCase
 
         $this->assertEquals(10_000_000, $r['total_vendido'], 'lo vendido es sin la cancelada');
         $this->assertEquals(4_000_000, $r['ingresos_totales'], 'lo cobrado de lo vendido, sin el abono de la cancelada');
-        $this->assertEquals(4_000_000, $r['cobranza_periodo'], 'la cobranza tampoco cuenta lo abonado a la cancelada');
+        // La cobranza es plata que entró: el anticipo de la cancelada sigue en
+        // la tienda hasta que se devuelva (usuario, 2026-11-19).
+        $this->assertEquals(7_000_000, $r['cobranza_periodo'], 'la cobranza cuenta el anticipo de la cancelada mientras no se devuelva');
         $this->assertEquals(6_000_000, $r['cartera_pendiente']);
         $this->assertEquals(1, $r['ordenes_totales'], 'la cancelada no es una orden del período');
         $this->assertEquals(1, $r['ordenes_canceladas'], 'pero se sigue contando como cancelada');
@@ -112,7 +114,8 @@ class ReportesNoCuentanCanceladasTest extends TestCase
         $r = $this->actingAs($this->jefa())->getJson('/api/reportes/ventas?periodo=mes')->assertOk()->json('resumen');
 
         $this->assertEquals(1, $r['total_ordenes']);
-        $this->assertEquals(4_000_000, $r['total_cobrado']);
+        // Lo cobrado es plata: cuenta el anticipo de la cancelada (aún no se devuelve).
+        $this->assertEquals(7_000_000, $r['total_cobrado']);
         $this->assertEquals(10_000_000, $r['valor_bruto']);
     }
 
@@ -127,5 +130,44 @@ class ReportesNoCuentanCanceladasTest extends TestCase
         $this->assertEquals(10_000_000, $v['ticket_promedio']);
         // Antes salía siempre 0: se leía como objeto un arreglo.
         $this->assertEquals(1, $v['ordenes_canceladas']);
+    }
+
+    /**
+     * Lo devuelto resta el día en que sale (usuario, 2026-11-19: "es plata que
+     * ya no está"). Un anticipo de 2M del mes pasado a una orden que se canceló
+     * y se le devolvió al cliente este mes: el mes pasado entró la plata y
+     * este mes salió. Antes, al cancelar, el anticipo desaparecía del mes
+     * pasado y la devolución no se veía en ninguna parte.
+     */
+    public function test_la_devolucion_de_una_cancelada_resta_el_dia_que_sale(): void
+    {
+        $mesPasado = Carbon::now('America/Bogota')->startOfMonth()->subMonthNoOverflow()->addDay()->addHours(12)->setTimezone('UTC');
+        $hoy       = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+
+        $id = DB::table('ordenes')->insertGetId([
+            'tienda_id' => 1, 'vendedor_id' => 1, 'estado' => 'cancelado',
+            'valor_total' => 5_000_000, 'created_at' => $mesPasado, 'updated_at' => $hoy,
+        ]);
+        DB::table('orden_items')->insert(['orden_id' => $id, 'precio_unitario' => 5_000_000]);
+        DB::table('pagos')->insert([
+            ['orden_id' => $id, 'tienda_id' => 1, 'monto' => 2_000_000, 'created_at' => $mesPasado, 'updated_at' => $mesPasado],
+            ['orden_id' => $id, 'tienda_id' => 1, 'monto' => -2_000_000, 'created_at' => $hoy, 'updated_at' => $hoy],
+        ]);
+
+        $jefa = $this->jefa();
+        $ini  = Carbon::now('America/Bogota')->startOfMonth()->subMonthNoOverflow();
+        $pasado = $this->actingAs($jefa)->getJson('/api/reportes/ventas?desde=' . $ini->toDateString()
+            . '&hasta=' . $ini->copy()->endOfMonth()->toDateString())->assertOk()->json('resumen');
+        $this->assertEquals(2_000_000, $pasado['total_cobrado'], 'el mes pasado entró el anticipo');
+        $this->assertEquals(0, $pasado['total_ordenes'], 'pero la cancelada no es una orden vendida');
+
+        // Este mes: 4M de la viva + 3M de la cancelada de setUp (sin devolver) − 2M devueltos.
+        $este = $this->actingAs($jefa)->getJson('/api/reportes/ventas?periodo=mes')->assertOk()->json('resumen');
+        $this->assertEquals(5_000_000, $este['total_cobrado']);
+        $this->assertEquals(10_000_000, $este['valor_bruto']);
+
+        $panel = $this->actingAs($jefa)->getJson('/api/stats/panel?periodo=mes')->assertOk()->json();
+        $this->assertEquals(5_000_000, $panel['cobranza_periodo']);
+        $this->assertEquals(10_000_000, $panel['total_vendido'], 'lo vendido no cambia');
     }
 }

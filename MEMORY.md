@@ -322,7 +322,14 @@ escribiendo precios (Fase 1b).
   P4–P10 (§12). Decisiones del dueño ese día:
   - **Los reportes no cuentan órdenes canceladas** (ni lo vendido ni lo abonado):
     `Orden::ESTADOS_FUERA_DE_REPORTES` en Stats, Reportes y el asistente. El conteo de
-    "canceladas" sigue saliendo aparte.
+    "canceladas" sigue saliendo aparte. **Cambiado en parte el 2026-11-19** (usuario: "es
+    plata que ya no está"): en lo COBRADO por fecha de pago de la empresa/tienda (Reportes
+    → Ventas, cobranza del panel, Tiendas, Finanzas cobrado y flujo, asistente) la
+    cancelada sí cuenta (`Orden::ESTADOS_FUERA_DE_LO_COBRADO`): el anticipo el día que
+    entró, la devolución resta el día que sale (antes el anticipo desaparecía del mes en
+    que entró y la devolución no se veía). Lo vendido y lo de cada persona siguen sin
+    ella. **Sin subir**, sin migración, rama `claude/order-cancellation-money-deduction-1549da`.
+    Ojo: un mes cerrado en Finanzas conserva su foto vieja.
   - **La nómina cuesta más de lo que se le paga al trabajador**: aportes del empleador y
     prestaciones se calculan **por detrás** en Nómina (`Services/CostoEmpleador`), sin tocar
     el `total`, y se congelan en `nomina_pagos.costo_empleador(_detalle)`. **Trae migración**

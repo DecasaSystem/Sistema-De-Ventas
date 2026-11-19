@@ -1543,19 +1543,20 @@ class AgentService
             $tiendaId = $usuario->tienda_default_id;
         }
 
-        // Mismo criterio que Reportes: lo de órdenes canceladas no cuenta.
+        // Mismo criterio que Reportes: la plata cuenta con las canceladas (el
+        // anticipo cuando entró, la devolución cuando salió); las órdenes no.
         $base = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
-            ->whereNotIn('o.estado', \App\Models\Orden::ESTADOS_FUERA_DE_REPORTES);
+            ->whereNotIn('o.estado', \App\Models\Orden::ESTADOS_FUERA_DE_LO_COBRADO);
         if ($tiendaId) $base->where('o.tienda_id', $tiendaId);
 
-        $resumen = (clone $base)->selectRaw('
-            COUNT(DISTINCT o.id)  AS total_ordenes,
+        $resumen = (clone $base)->selectRaw("
+            COUNT(DISTINCT CASE WHEN o.estado <> 'cancelado' THEN o.id END) AS total_ordenes,
             SUM(p.monto)          AS total_cobrado,
-            SUM(o.valor_total)    AS valor_bruto,
-            AVG(o.valor_total)    AS ticket_promedio
-        ')->first();
+            SUM(CASE WHEN o.estado <> 'cancelado' THEN o.valor_total ELSE 0 END) AS valor_bruto,
+            AVG(CASE WHEN o.estado <> 'cancelado' THEN o.valor_total END)        AS ticket_promedio
+        ")->first();
 
         $porDia = (clone $base)
             ->selectRaw("DATE(CONVERT_TZ(p.created_at, '+00:00', '-05:00')) AS fecha, SUM(p.monto) AS monto")
@@ -1565,7 +1566,7 @@ class AgentService
 
         $porTienda = (clone $base)
             ->join('tiendas as t', 't.id', '=', 'o.tienda_id')
-            ->selectRaw('t.nombre AS tienda, COUNT(DISTINCT o.id) AS ordenes, SUM(p.monto) AS monto')
+            ->selectRaw("t.nombre AS tienda, COUNT(DISTINCT CASE WHEN o.estado <> 'cancelado' THEN o.id END) AS ordenes, SUM(p.monto) AS monto")
             ->groupBy('t.id', 't.nombre')
             ->orderByDesc('monto')
             ->get();

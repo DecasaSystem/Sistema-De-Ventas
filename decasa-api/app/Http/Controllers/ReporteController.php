@@ -358,16 +358,19 @@ class ReporteController extends Controller
         [$desde, $hasta] = $this->rango($r);
         $tiendaId = $r->query('tienda_id');
 
-        // Sin órdenes canceladas: ni su valor ni lo que se les abonó.
+        // La plata cuenta con las canceladas (Orden::ESTADOS_FUERA_DE_LO_COBRADO):
+        // el anticipo el día que entró y la devolución el día que salió. Lo
+        // de las ÓRDENES (cuántas, valor, ticket) sigue sin ellas: no son venta.
         $base = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId));
+        $baseVentas = (clone $base)->where('o.estado', '!=', 'cancelado');
 
         $resumen = (clone $base)
             ->selectRaw('
-                COUNT(DISTINCT o.id)  AS total_ordenes,
+                COUNT(DISTINCT CASE WHEN o.estado <> \'cancelado\' THEN o.id END) AS total_ordenes,
                 SUM(p.monto)          AS total_cobrado,
             ' . self::selectPorTipo('p.monto'))
             ->first();
@@ -376,7 +379,7 @@ class ReporteController extends Controller
         // join con pagos, así que una orden con tres abonos sumaba su valor
         // tres veces: el "valor bruto" y el ticket promedio salían inflados.
         $valores = DB::table('ordenes as o')
-            ->whereIn('o.id', (clone $base)->select('o.id')->distinct())
+            ->whereIn('o.id', (clone $baseVentas)->select('o.id')->distinct())
             ->selectRaw('SUM(o.valor_total) AS valor_bruto, AVG(o.valor_total) AS ticket_promedio')
             ->first();
 
@@ -392,7 +395,7 @@ class ReporteController extends Controller
         // DISTINCT sigue haciendo falta porque el join con pagos repite la
         // orden una vez por abono.
         $tipo = Orden::sqlTipo();
-        $ordenesPorTipo = (clone $base)->selectRaw("
+        $ordenesPorTipo = (clone $baseVentas)->selectRaw("
             COUNT(DISTINCT CASE WHEN ($tipo) = 'venta'        THEN o.id END) AS venta,
             COUNT(DISTINCT CASE WHEN ($tipo) = 'restauracion' THEN o.id END) AS restauracion,
             COUNT(DISTINCT CASE WHEN ($tipo) = 'fv2'          THEN o.id END) AS fv2
@@ -573,7 +576,9 @@ class ReporteController extends Controller
             ->join('tiendas as t',  't.id', '=', 'o.tienda_id')
             ->join('usuarios as u', 'u.id', '=', 'p.vendedor_id')
             ->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
-            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
+            // Igual que buildVentas: el Excel tiene que cuadrar con la
+            // pantalla. Lo de una persona, sin canceladas (no es venta suya).
+            ->whereNotIn('o.estado', $vendedorId ? Orden::ESTADOS_FUERA_DE_REPORTES : Orden::ESTADOS_FUERA_DE_LO_COBRADO)
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->select(
