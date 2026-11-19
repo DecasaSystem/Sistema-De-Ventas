@@ -455,6 +455,100 @@ class AuditoriaComisionesTest extends TestCase
         $this->assertEqualsWithDelta(550_000, $this->cobradoDeMas()['Henry'] ?? 0, 1, 'más su 5 % de la venta');
     }
 
+    /** La orden baja de valor (se quitó un producto) como lo hacen las pantallas. */
+    private function bajarValor(Orden $orden, float $nuevo): void
+    {
+        DB::transaction(function () use ($orden, $nuevo) {
+            DB::table('ordenes')->where('id', $orden->id)->update(['valor_total' => $nuevo]);
+            DB::table('orden_items')->where('orden_id', $orden->id)->update(['precio_unitario' => $nuevo]);
+            ComisionController::sincronizarValorOrden($orden->fresh());
+        });
+    }
+
+    public function test_si_la_venta_baja_despues_de_pagar_la_meta_cuenta_lo_que_vale_y_se_descuenta_la_diferencia(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->pagarTodoLoListo();
+
+        // Se le quitan $6 M de productos: Norte queda en 64M, pool 1.008.403 (336.134 c/u).
+        $this->bajarValor($deMarta, 4_000_000);
+
+        $fila = Comision::where('orden_id', $deMarta->id)->first();
+        $this->assertEqualsWithDelta(4_000_000, (float) $fila->valor_orden, 1, 'la meta cuenta lo que vale hoy');
+        $this->assertEqualsWithDelta(420_168, (float) $fila->monto_comision, 2, 'lo pagado no se cambia');
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(84_034, $this->cobradoDeMas()[$quien] ?? 0, 2, $quien);
+        }
+        // Y no se le vuelve a ofrecer nada a nadie.
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(0, $this->loQueEstaListo()[$quien] ?? 0, 1);
+        }
+    }
+
+    public function test_en_el_5_directo_si_baja_se_descuenta_la_misma_proporcion(): void
+    {
+        $this->conLibroDeAnticipos();
+        $orden = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
+        $this->pagarTodoLoListo();
+
+        $this->bajarValor($orden, 7_140_000); // queda en el 60 %
+
+        $this->assertEqualsWithDelta(200_000, $this->cobradoDeMas()['Manuela'] ?? 0, 1);
+    }
+
+    public function test_si_la_venta_sube_despues_de_pagar_no_cambia_nada(): void
+    {
+        $this->conLibroDeAnticipos();
+        $orden = $this->orden(self::MANUELA, self::VIRTUAL, 11_900_000);
+        $this->pagarTodoLoListo();
+
+        $this->bajarValor($orden, 15_000_000);
+
+        $this->assertEqualsWithDelta(11_900_000, (float) Comision::where('orden_id', $orden->id)->value('valor_orden'), 1);
+        $this->assertSame([], $this->cobradoDeMas());
+    }
+
+    /**
+     * Octubre todavía sin pagar y en noviembre se le devuelve plata al cliente
+     * (usuario, 2026-11-19, caso de la #1275): si con eso la orden deja de
+     * tener la mitad pagada, sale de la meta de octubre y el pool se rehace
+     * sin ella. No hay nada que descontar: no se había pagado.
+     */
+    public function test_mes_sin_pagar_si_se_devuelve_plata_y_baja_del_50_sale_de_la_meta(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 35_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        // 45M contra 40M: hay pool para las tres.
+        $this->assertGreaterThan(0, $this->loQueEstaListo()['NN'] ?? 0);
+
+        // Un mes después se le devuelven $6 M: le quedan $4 M pagados de $10 M (40 %).
+        DB::table('pagos')->insert(['orden_id' => $deMarta->id, 'monto' => -6_000_000, 'metodo' => 'efectivo',
+            'tipo' => 'reembolso', 'created_at' => now()]);
+
+        // Sin ella Norte queda en 35M: no llega a la meta y nadie cobra pool.
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(0, $this->loQueEstaListo()[$quien] ?? 0, 1, $quien);
+        }
+        $this->assertSame([], $this->cobradoDeMas());
+    }
+
+    public function test_mes_sin_pagar_si_se_cancela_no_cuenta_en_la_meta_ni_en_el_pool(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->orden(self::PAOLA, self::NORTE, 35_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+
+        $this->cancelar($deMarta);
+
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(0, $this->loQueEstaListo()[$quien] ?? 0, 1, $quien);
+        }
+        $this->assertSame([], $this->cobradoDeMas());
+    }
+
     public function test_si_no_se_habia_pagado_no_se_descuenta_nada(): void
     {
         $this->conLibroDeAnticipos();

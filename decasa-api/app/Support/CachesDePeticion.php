@@ -53,5 +53,7 @@ class CachesDePeticion
         \App\Support\Configuracion::olvidar();
         \App\Support\PlantillasDocumento::olvidarCache();
         \App\Support\TiposNotificacion::olvidarCache();
+        // Si una transacción se deshizo, su foto quedó esperando para siempre.
+        \App\Services\BonificacionCobradaDeMas::olvidarPendientes();
     }
 }

@@ -2915,15 +2915,21 @@ class OrdenController extends Controller
             // viejo. Solo para órdenes que tenga en producción ahora mismo.
             \App\Services\AvisoProduccion::ordenEditada($ordenFresh, $usuario, $cambios);
 
-            // Lo ya pagado no se recalcula (esa plata ya salió): que quien
-            // corrigió el precio lo sepa, en vez de creer que quedó arreglado.
-            if (collect($cambios)->contains('campo', 'valor_total')) {
+            // Con la bonificación ya pagada: si la orden bajó, lo cobrado de
+            // más se descuenta solo del próximo pago (BonificacionCobradaDeMas,
+            // 2026-11-19); si subió, lo pagado no se recalcula. Que quien
+            // corrigió el precio sepa cuál de las dos pasó.
+            $cambioValor = collect($cambios)->firstWhere('campo', 'valor_total');
+            if ($cambioValor) {
                 $pagadas = Comision::where('orden_id', $orden->id)->where('estado', 'pagada')
                     ->with('vendedor:id,nombre')->get();
                 if ($pagadas->isNotEmpty()) {
-                    $ordenFresh->aviso_comisiones = 'La bonificación de '
-                        . $pagadas->pluck('vendedor.nombre')->filter()->unique()->join(', ', ' y ')
-                        . ' ya estaba pagada y no se recalcula: la diferencia hay que ajustarla a mano.';
+                    $quienes = $pagadas->pluck('vendedor.nombre')->filter()->unique()->join(', ', ' y ');
+                    $bajo = (float) ($cambioValor['despues'] ?? 0) < (float) ($cambioValor['antes'] ?? 0);
+                    $ordenFresh->aviso_comisiones = "La bonificación de {$quienes} ya estaba pagada"
+                        . ($bajo
+                            ? ': lo que se cobró de más se descuenta solo del próximo pago.'
+                            : ' y no se recalcula: lo que subió hay que ajustarlo a mano.');
                 }
             }
         }

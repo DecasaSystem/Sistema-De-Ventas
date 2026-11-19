@@ -1105,8 +1105,8 @@ escribiendo precios (Fase 1b).
   `acceso_surtir` (fábrica → tiendas). A los no supervisores se les quitó `acceso_surtir` (solo lo
   tenían por la API; en pantalla hacían traslados) y quedaron con `acceso_traslado`. Con esto
   quedan hechas las 7 fases del plan de roles; pendiente aparte: palabras de muebles en pantalla.
-- **Bonificación cobrada de más por una venta cancelada** (2026-11-19, **sin subir**, sin migración,
-  rama `claude/order-cancellation-money-deduction-1549da`). Antes lo pagado de una venta cancelada
+- **Bonificación cobrada de más por una venta cancelada** (2026-11-19, **subido a `main`** ese día,
+  commit a2d949cc, sin migración). Antes lo pagado de una venta cancelada
   se quedaba con quien lo cobró. Decisiones del usuario: **se le descuenta al equipo** (en tienda con
   meta se rehace el pool del mes sin la venta y a cada uno se le descuenta lo que cobró de más por
   días; si sin ella no llegaba a la meta, el pool entero; en 5 % directo, lo pagado por esa orden; en
@@ -1117,9 +1117,22 @@ escribiendo precios (Fase 1b).
   (`DB::afterCommit`); cobra `max(0, pagado − después) − max(0, pagado − antes)`, así lo que ya
   estaba de más por otra razón no se le carga a esta orden. Entra por `CancelacionDeOrden::alCancelar`
   (botón Cancelar, Devoluciones, Garantías). No entra: trimestrales (su pool queda quieto al pagarse)
-  ni "cancelar lo que falta" de una orden con algo entregado (es el hueco 3: el renglón pagado no
-  actualiza su `valor_orden`). Finanzas no cuenta ese renglón como plata que salió. Por defecto mío
+  (lo de bajar de valor, abajo). Finanzas no cuenta ese renglón como plata que salió. Por defecto mío
   (**falta confirmar**): aviso a cada persona y mensaje en la orden; no hay botón para perdonarlo.
+  **Hueco 3, mismo día (sin subir, sin migración):** cuando la orden BAJA de valor (quitar/cambiar
+  producto, cancelar lo que falta, devolución, reembolso de garantía), `sincronizarValorOrden` ahora
+  le baja el `valor_orden` también al renglón pagado (antes la meta del mes seguía contando lo
+  quitado); `monto_comision` no se toca. Antes de bajarlo llama `BonificacionCobradaDeMas::alBajarElValor`
+  (misma foto antes/después; en 5 % directo cobra la proporción en que bajó). Si la orden SUBE, la
+  pagada se queda igual (decisión mía, **falta confirmar**). El aviso de Editar orden lo dice.
+  Revisado también (pregunta del usuario, caso #1275): con el mes **sin pagar**, una orden cancelada
+  sale de la meta y del pool, y una devolución que la deja por debajo del 50 % también (el 50 % suma
+  todos los pagos de la orden, de cualquier fecha, contra el valor de hoy). Tests en
+  `AuditoriaComisionesTest` y `EditarOrdenEntregadaTest`. Trampa: la foto llama `resumenDelMes`, que
+  puede volver a llamar `sincronizarValorOrden`; `$calculando` y `$pendientes` evitan fotos dobles
+  (la lista se limpia en `CachesDePeticion`). Lo que NO cubre: quitar o corregir un pago de un mes
+  ya pagado que lo deja bajo el 50 % (no pasa por `sincronizarValorOrden`) y las restauraciones del
+  bolsón que solo bajan de valor.
   Tests al final de la sección "cobrado de más" de `AuditoriaComisionesTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.

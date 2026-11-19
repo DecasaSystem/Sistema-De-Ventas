@@ -565,7 +565,10 @@ Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones
 y a cada persona le anota lo que cobró de más como un anticipo (clave `demas:` en
 `comision_anticipos`) que se descuenta solo en su próximo pago. En pool, a todo el equipo según sus
 días; en 5 % directo, lo pagado por esa orden; en el bolsón de independientes, su parte. No aplica a
-trimestrales ni a "cancelar lo que falta". Finanzas no lo cuenta como salida de caja.
+trimestrales. Finanzas no lo cuenta como salida de caja. Lo mismo cuando la orden **baja** de valor
+después de pagarse: `sincronizarValorOrden` le baja el `valor_orden` también al renglón pagado (la meta
+cuenta lo que vale hoy; `monto_comision` queda) y llama `alBajarElValor`; en 5 % directo se cobra la
+proporción. Si sube, la pagada no cambia.
 
 **Cómo funciona hoy, en corto:** cada orden confirmada crea su comisión; la tienda con meta reparte un
 pool por días entre su equipo, medido solo con ventas que tienen la mitad pagada; las demás cobran un %

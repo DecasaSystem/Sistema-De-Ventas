@@ -309,17 +309,38 @@ class EditarOrdenEntregadaTest extends TestCase
         $this->assertEquals(650000, $comision->fresh()->valor_orden);
     }
 
-    public function test_la_comision_ya_pagada_no_se_toca_y_avisa(): void
+    /**
+     * Desde el 2026-11-19 (usuario: "es plata que ya no está") la pagada
+     * también baja: la meta cuenta lo que la venta vale hoy. Lo pagado
+     * (monto_comision) no se toca; lo cobrado de más se descuenta del próximo
+     * pago (BonificacionCobradaDeMas, probado en AuditoriaComisionesTest).
+     */
+    public function test_la_comision_ya_pagada_baja_con_la_orden_y_avisa(): void
     {
         [$orden, $mesa] = $this->ordenEntregada();
         $comision = $this->comisionDe($orden, 'pagada');
+        $pagado = $comision->monto_comision;
 
         $resp = $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
             'items' => [['id' => $mesa->id, 'precio_unitario' => 650000]],
         ])->assertOk();
 
-        $this->assertEquals(800000, $comision->fresh()->valor_orden, 'esa plata ya salió');
-        $this->assertStringContainsString('ya estaba pagada', $resp->json('aviso_comisiones'));
+        $this->assertEquals(650000, $comision->fresh()->valor_orden, 'la meta cuenta lo que vale hoy');
+        $this->assertEquals($pagado, $comision->fresh()->monto_comision, 'lo pagado no se cambia');
+        $this->assertStringContainsString('se descuenta solo del próximo pago', $resp->json('aviso_comisiones'));
+    }
+
+    public function test_si_la_orden_pagada_sube_no_se_recalcula_y_avisa(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada();
+        $comision = $this->comisionDe($orden, 'pagada');
+
+        $resp = $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'items' => [['id' => $mesa->id, 'precio_unitario' => 950000]],
+        ])->assertOk();
+
+        $this->assertEquals(800000, $comision->fresh()->valor_orden, 'lo que sube no se paga solo');
+        $this->assertStringContainsString('no se recalcula', $resp->json('aviso_comisiones'));
     }
 
     public function test_el_supervisor_tampoco_le_cambia_la_cantidad(): void

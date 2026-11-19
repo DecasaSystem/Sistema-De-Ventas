@@ -39,6 +39,14 @@ use Illuminate\Support\Facades\Log;
  * tienda sin meta) es lo que se pagó por esa orden. Las restauraciones del
  * bolsón de los independientes, con la misma resta sobre su parte del bolsón.
  *
+ * Lo mismo cuando la orden no se cancela pero BAJA de valor después de pagarse
+ * (se quita o se cambia un producto, se cancela lo que faltaba, una devolución;
+ * usuario, 2026-11-19): ComisionController::sincronizarValorOrden ahora le baja
+ * el valor también al renglón pagado —así la meta y el pool del mes cuentan lo
+ * que la venta vale hoy— y llama a alBajarElValor() antes. En el 5 % directo
+ * se cobra la misma proporción en que bajó (pagó $500.000 sobre $10 M, la
+ * orden queda en $6 M: $200.000). Si la orden sube, nada cambia.
+ *
  * Las tiendas trimestrales no entran: su pool queda quieto al primer pago
  * (cargarPoolsTrimestrales), así que cancelar después no lo mueve.
  */
@@ -60,24 +68,60 @@ class BonificacionCobradaDeMas
      */
     public static function alCancelar(Orden $orden, Usuario $usuario): void
     {
-        if (! AnticiposComision::hayTablas()) return;
+        self::registrar($orden, $usuario);
+    }
+
+    /**
+     * La orden va a valer menos (se quitó o se cambió un producto, una
+     * devolución, un reembolso de garantía…) y su bonificación ya se pagó
+     * (usuario, 2026-11-19). Lo llama ComisionController::sincronizarValorOrden
+     * ANTES de bajarles el valor a los renglones.
+     */
+    public static function alBajarElValor(Orden $orden, ?Usuario $usuario = null): void
+    {
+        self::registrar($orden, $usuario ?? (auth()->user() instanceof Usuario ? auth()->user() : null));
+    }
+
+    /**
+     * Órdenes que ya tienen la foto de "antes" esperando el final de la
+     * transacción. Cancelar desde Devoluciones también baja el valor: con dos
+     * fotos, lo que cambió entre la primera y la segunda se cobraría dos veces.
+     * La primera ya cubre todo el cambio.
+     *
+     * @var array<int, true>
+     */
+    private static array $pendientes = [];
+
+    private static bool $calculando = false;
+
+    private static function registrar(Orden $orden, ?Usuario $usuario): void
+    {
+        if (self::$calculando || ! AnticiposComision::hayTablas()) return;
+        if (isset(self::$pendientes[(int) $orden->id])) return;
 
         try {
             $antes = self::foto($orden);
         } catch (\Throwable $e) {
-            // Nunca frenar una cancelación por esto: se avisa en el log.
+            // Nunca frenar el cambio de la orden por esto: se avisa en el log.
             Log::error('[bonificacion-de-mas] foto antes: ' . $e->getMessage(), ['orden_id' => $orden->id]);
             return;
         }
         if (! $antes) return;
 
+        self::$pendientes[(int) $orden->id] = true;
         DB::afterCommit(function () use ($orden, $usuario, $antes) {
+            unset(self::$pendientes[(int) $orden->id]);
             try {
                 self::cobrar($orden->fresh(), $usuario, $antes);
             } catch (\Throwable $e) {
                 Log::error('[bonificacion-de-mas] cobrar: ' . $e->getMessage(), ['orden_id' => $orden->id]);
             }
         });
+    }
+
+    public static function olvidarPendientes(): void
+    {
+        self::$pendientes = [];
     }
 
     /**
@@ -113,6 +157,10 @@ class BonificacionCobradaDeMas
         // Como el simulador de reglas: resumenDelMes escribe (abre renglones
         // de quien no vendió), así que corre dentro de una transacción que se
         // deshace siempre, y sin cachés de antes ni de después.
+        // Mientras se calcula, nada de lo que corra adentro abre otra foto.
+        self::$calculando = true;
+        // olvidarTodo() también borra la lista de pendientes: se guarda y se repone.
+        $pendientes = self::$pendientes;
         DB::beginTransaction();
         try {
             CachesDePeticion::olvidarTodo();
@@ -121,6 +169,8 @@ class BonificacionCobradaDeMas
         } finally {
             DB::rollBack();
             CachesDePeticion::olvidarTodo();
+            self::$pendientes = $pendientes;
+            self::$calculando = false;
         }
 
         $pool    = [];
@@ -137,7 +187,8 @@ class BonificacionCobradaDeMas
                 if (in_array($o['forma_pago'] ?? 'pool', self::FORMAS_POOL, true)) {
                     $pagadoPool += (float) $o['monto_comision'];
                 } elseif ((int) ($o['orden_id'] ?? 0) === $ordenId) {
-                    $directo[$clave] = ($directo[$clave] ?? 0) + (float) $o['monto_comision'];
+                    $directo[(int) $o['id']] = ['vendedor_id' => (int) $f['vendedor_id'],
+                        'pagado' => (float) $o['monto_comision'], 'valor' => (float) $o['valor_orden']];
                 }
             }
             if (($f['periodicidad'] ?? 'mensual') === 'trimestral') continue;
@@ -153,8 +204,8 @@ class BonificacionCobradaDeMas
         foreach (Comision::where('orden_id', $ordenId)->where('estado', 'pagada')->get() as $c) {
             if (isset($vistas[(int) $c->id])) continue;
             if (in_array($c->forma_pago_pagada, self::FORMAS_POOL, true)) continue;
-            $clave = $c->vendedor_id . '_' . $c->tienda_id;
-            $directo[$clave] = ($directo[$clave] ?? 0) + (float) $c->monto_comision;
+            $directo[(int) $c->id] = ['vendedor_id' => (int) $c->vendedor_id,
+                'pagado' => (float) $c->monto_comision, 'valor' => (float) $c->valor_orden];
         }
 
         $bolson = [];
@@ -177,8 +228,9 @@ class BonificacionCobradaDeMas
      *
      * @return array<int, float>  [vendedor_id => monto anotado]
      */
-    public static function cobrar(Orden $orden, Usuario $usuario, array $antes): array
+    public static function cobrar(Orden $orden, ?Usuario $usuario, array $antes): array
     {
+        $cancelada = $orden->estado === 'cancelado';
         $porPersona = [];   // vid => [mes => monto]
         $sumar = function (int $vid, string $mes, float $monto) use (&$porPersona) {
             if ($monto < 0.5) return;
@@ -195,8 +247,17 @@ class BonificacionCobradaDeMas
                 $despues = (float) ($d['pool'][$clave]['le_toca'] ?? 0);
                 $sumar($p['vendedor_id'], $mes, $deMas($p['pagado'], $p['le_toca'], $despues));
             }
-            foreach ($a['directo'] as $clave => $monto) {
-                $sumar((int) explode('_', $clave)[0], $mes, (float) $monto);
+            // El 5 % directo: cancelada, todo lo pagado por esa orden; si solo
+            // bajó, la misma proporción en que bajó su valor.
+            foreach ($a['directo'] as $id => $r) {
+                if ($cancelada) {
+                    $sumar($r['vendedor_id'], $mes, $r['pagado']);
+                    continue;
+                }
+                $nuevo = (float) (Comision::whereKey($id)->value('valor_orden') ?? 0);
+                if ($r['valor'] > 0 && $nuevo < $r['valor']) {
+                    $sumar($r['vendedor_id'], $mes, $r['pagado'] * ($r['valor'] - $nuevo) / $r['valor']);
+                }
             }
             foreach ($a['bolson'] as $vid => $b) {
                 if ($b['pagado'] <= 0) continue;
@@ -209,7 +270,10 @@ class BonificacionCobradaDeMas
 
         $ref = $orden->referencia;
         $anotado = [];
-        DB::transaction(function () use ($porPersona, $orden, $usuario, $ref, &$anotado) {
+        $porque = $cancelada
+            ? "la orden {$ref} se canceló después de pagar la bonificación"
+            : "la orden {$ref} bajó de valor después de pagar la bonificación";
+        DB::transaction(function () use ($porPersona, $orden, $usuario, $porque, &$anotado) {
             foreach ($porPersona as $vid => $meses) {
                 foreach ($meses as $mes => $monto) {
                     $monto = round($monto);
@@ -219,8 +283,8 @@ class BonificacionCobradaDeMas
                         'monto' => $monto,
                         'clave' => self::PREFIJO . "{$vid}:{$orden->id}:" . bin2hex(random_bytes(4)),
                         'editado_a_mano' => true,
-                        'nota' => mb_substr("Cobrado de más: la orden {$ref} se canceló después de pagar la bonificación", 0, 200),
-                        'creado_por' => $usuario->id, 'created_at' => now(), 'updated_at' => now(),
+                        'nota' => mb_substr("Cobrado de más: {$porque}", 0, 200),
+                        'creado_por' => $usuario?->id, 'created_at' => now(), 'updated_at' => now(),
                     ]);
                     $anotado[$vid] = ($anotado[$vid] ?? 0) + $monto;
                     ComisionController::anotar('cobro_de_mas', null, $mes, [
@@ -237,15 +301,16 @@ class BonificacionCobradaDeMas
         $lista   = collect($anotado)->map(fn ($m, $vid) => ($nombres[$vid] ?? "#{$vid}") . ' ' . $pesos($m))->implode(', ');
 
         OrdenMensaje::create([
-            'orden_id' => $orden->id, 'usuario_id' => $usuario->id,
-            'mensaje'  => "💸 La bonificación de esta venta ya se había pagado. Se descuenta del próximo pago: {$lista}.",
+            'orden_id' => $orden->id, 'usuario_id' => $usuario?->id,
+            'mensaje'  => '💸 La bonificación de esta venta ya se había pagado' . ($cancelada ? '' : ' y la orden bajó de valor')
+                        . ". Se descuenta del próximo pago: {$lista}.",
         ]);
 
         foreach ($anotado as $vid => $monto) {
             NotificacionService::crear(
                 'cancelado',
                 'Se te descuenta una bonificación',
-                "La orden {$ref} se canceló después de pagarte la bonificación. Se te descuentan {$pesos($monto)} del próximo pago.",
+                ucfirst($porque) . ". Se te descuentan {$pesos($monto)} del próximo pago.",
                 ['orden_id' => $orden->id],
                 (int) $vid,
             );

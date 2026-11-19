@@ -3983,23 +3983,38 @@ class ComisionController extends Controller
      */
     public static function sincronizarValorOrden(Orden $orden): int
     {
-        $cambiadas = self::sincronizarTienda($orden);
-        self::sincronizarAbonoAlmacen($orden);
-        self::sincronizarRestauracionEquipo($orden);
-
         // Los repartos llevan su propia base (el pedazo de cada uno), asi que
         // no pueden recibir el valor de la orden entera. Se pregunta también
         // por el nulo: una comision vieja puede no tener origen, y un `!=` en
         // SQL deja fuera los nulos —se quedarian sin actualizar—.
-        foreach (Comision::where('orden_id', $orden->id)
-                     ->where(fn ($q) => $q->whereNull('origen')
-                                          ->orWhereNotIn('origen', self::ORIGENES_REPARTIDOS))
-                     ->where('estado', '!=', 'pagada')->get() as $c) {
+        $propias = Comision::where('orden_id', $orden->id)
+            ->where(fn ($q) => $q->whereNull('origen')
+                                 ->orWhereNotIn('origen', self::ORIGENES_REPARTIDOS))
+            ->get()
             // Por persona: en una compartida quien vendió y el covendedor
             // pueden tener partes distintas (regla compartida_parte_vendedor).
-            $valor = self::valorComisionable($orden, (int) $c->vendedor_id);
+            ->map(fn ($c) => [$c, self::valorComisionable($orden, (int) $c->vendedor_id)]);
+
+        // Una ya pagada también baja cuando la orden baja (usuario,
+        // 2026-11-19: "es plata que ya no está"). Antes se quedaba con el
+        // valor de cuando se pagó: si se quitaba un producto, la meta y el
+        // pool de ese mes seguían contándolo. El monto pagado no se toca (es
+        // lo que se pagó); lo cobrado de más se descuenta del próximo pago
+        // (BonificacionCobradaDeMas). Si la orden SUBE después de pagarse, la
+        // pagada se queda como estaba, como siempre.
+        $bajan = $propias->filter(fn ($p) => $p[1] < (float) $p[0]->valor_orden - 0.01);
+        if ($bajan->isNotEmpty()) {
+            \App\Services\BonificacionCobradaDeMas::alBajarElValor($orden);
+        }
+
+        $cambiadas = self::sincronizarTienda($orden);
+        self::sincronizarAbonoAlmacen($orden);
+        self::sincronizarRestauracionEquipo($orden);
+
+        foreach ($propias as [$c, $valor]) {
             if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
-            $c->update(['valor_orden' => $valor]);
+            if ($c->estado === 'pagada' && $valor > (float) $c->valor_orden) continue;
+            Comision::where('id', $c->id)->update(['valor_orden' => $valor]);
             $cambiadas++;
         }
 
