@@ -1124,11 +1124,14 @@ escribiendo precios (Fase 1b).
   le baja el `valor_orden` también al renglón pagado (antes la meta del mes seguía contando lo
   quitado); `monto_comision` no se toca. Antes de bajarlo llama `BonificacionCobradaDeMas::alBajarElValor`
   (misma foto antes/después; en 5 % directo cobra la proporción en que bajó). **Si la orden SUBE se
-  paga la diferencia** (usuario, mismo día, sin subir): el pagado se queda y se abre un renglón
+  paga la diferencia** (usuario, mismo día, subido a `main`, commit d59f29e0): el pagado se queda y se abre un renglón
   pendiente con la diferencia (mismo origen, tienda y mes), así la meta suma pagado + diferencia sin
   contar dos veces; en pool a los compañeros se les abre su parte (`crearPartesDePool`). Para
-  independientes no se abre (se les paga por `ComisionIndependientes` sobre la orden: lo que sube no
-  se les paga, **pendiente**). Un vendedor con renglones pagados: `sincronizarValorOrden` ya no pone
+  independientes no se abre al sincronizar: `ComisionIndependientes::delMes` saca por orden la
+  `diferencia` = lo que paga hoy − lo ya pagado + lo que se le descontó por cobro de más (claves
+  `demas:{vid}:{orden}:…`), la suma a `por_pagar_ventas`, y `pagarIndependiente` la registra en un
+  renglón propio ya pagado (usuario, 2026-11-19, sin subir; si bajó y vuelve a subir, se le paga
+  otra vez lo descontado). Un vendedor con renglones pagados: `sincronizarValorOrden` ya no pone
   el valor entero en cada renglón, reparte "lo que vale − lo pagado". Listas y sus Excel dicen el
   porqué de cada descuento (`cobros_de_mas` en Listas, `cobrosDeMasTexto` en `explicarListas.js`;
   pedido del usuario). El aviso de Editar orden dice cuál de las dos pasó.

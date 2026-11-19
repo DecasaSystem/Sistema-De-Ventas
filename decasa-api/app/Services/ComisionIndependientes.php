@@ -292,11 +292,43 @@ class ComisionIndependientes
         $ordenPagada = $pagos->whereNotNull('orden_id')
             ->mapWithKeys(fn ($p) => [$p->vendedor_id . '_' . $p->orden_id => true])->all();
 
+        // Lo que la venta subió después de pagarse (usuario, 2026-11-19: "si
+        // sube, que se pague la diferencia también"). Por orden: lo que paga
+        // hoy menos lo ya pagado por ella, sin contar lo que se le volvió a
+        // descontar si antes bajó (BonificacionCobradaDeMas). Así, si bajó y
+        // volvió a subir, se le paga de nuevo lo que se le descontó. Solo
+        // ventas: las restauraciones van por el bolsón, que ya paga la
+        // diferencia por monto.
+        $yaPagadoPorOrden = [];
+        foreach ($pagos->whereNotNull('orden_id') as $p) {
+            $k = $p->vendedor_id . '_' . $p->orden_id;
+            $yaPagadoPorOrden[$k] = ($yaPagadoPorOrden[$k] ?? 0) + (float) $p->monto_comision;
+        }
+        if ($yaPagadoPorOrden && \App\Services\AnticiposComision::hayTablas()) {
+            foreach (DB::table('comision_anticipos')->where('tipo', \App\Services\AnticiposComision::ANTICIPO)
+                         ->where('clave', 'like', BonificacionCobradaDeMas::PREFIJO . '%')
+                         ->whereIn('vendedor_id', $independientes->pluck('id'))->get(['clave', 'monto']) as $a) {
+                [, $vid, $oid] = array_pad(explode(':', (string) $a->clave), 3, null);
+                $k = "{$vid}_{$oid}";
+                if (isset($yaPagadoPorOrden[$k])) $yaPagadoPorOrden[$k] -= (float) $a->monto;
+            }
+        }
+        $pagaDe = fn ($o) => in_array($o->id, $idsRestauracion, true)
+            ? ReglasComision::sinIva((float) $o->valor_total, true, $mes) * $pctBolsonDe($o->vendedor_id)
+            : (float) $o->valor_total / self::ivaDe($o, $mes) * $pctVentaDe($o->vendedor_id);
+        /** Lo que le falta de una venta ya pagada que subió (0 si no subió o si no está pagada). */
+        $diferenciaDe = function ($o) use ($ordenPagada, $yaPagadoPorOrden, $idsRestauracion, $pagaDe) {
+            $k = $o->vendedor_id . '_' . $o->id;
+            if (! isset($ordenPagada[$k]) || in_array($o->id, $idsRestauracion, true)) return 0.0;
+            $falta = round($pagaDe($o) - ($yaPagadoPorOrden[$k] ?? 0));
+            return $falta >= 1 ? $falta : 0.0;
+        };
+
         // La venta es de quien la hizo: cada uno cobra solo sobre sus propias
         // órdenes, sin sumarse con las del otro independiente.
         $porIndependiente = $independientes->map(function ($u) use (
             $ordenes, $listas, $idsRestauracion, $pagaVenta, $bolson, $pctVentaDe, $pctBolsonDe,
-            $deAlmacenes, $deAlmacenesListas, $pagos, $ordenPagada, $suParte
+            $deAlmacenes, $deAlmacenesListas, $pagos, $ordenPagada, $suParte, $diferenciaDe
         ) {
             $suyas       = $ordenes->where('vendedor_id', $u->id);
             $suyasListas = $listas->where('vendedor_id', $u->id);
@@ -319,7 +351,9 @@ class ComisionIndependientes
             $ventasSinPagar = $suyasListas->reject(fn ($o) => isset($ordenPagada[$u->id . '_' . $o->id]));
             $bolsonPagado   = (float) $pagos->where('vendedor_id', $u->id)
                 ->where('origen', self::ORIGEN_BOLSON)->sum('monto_comision');
-            $ventasPorPagar = round($pagaVenta($ventasSinPagar, $pctVenta));
+            $ventasPorPagar = round($pagaVenta($ventasSinPagar, $pctVenta))
+                // Y lo que subieron las que ya se le pagaron.
+                + (float) $suyasListas->sum(fn ($o) => $diferenciaDe($o));
             $bolsonPorPagar = max(0, round($comisionRestauracionesLista) - round($bolsonPagado));
 
             return [
@@ -407,10 +441,11 @@ class ComisionIndependientes
                 'pagado'         => (float) $o->pagado,
                 'pago_completo'  => (float) $o->pagado >= (float) $o->valor_orden * $pctCobrar,
                 'lista'          => $listas->contains('id', $o->id),
-                'pagada'         => isset($ordenPagada[$o->vendedor_id . '_' . $o->id]),
-                'paga'           => round(in_array($o->id, $idsRestauracion, true)
-                                    ? ReglasComision::sinIva((float) $o->valor_total, true, $mes) * $pctBolsonDe($o->vendedor_id)
-                                    : (float) $o->valor_total / self::ivaDe($o, $mes) * $pctVentaDe($o->vendedor_id)),
+                // Pagada del todo: con renglón pagado y sin diferencia por pagar.
+                'pagada'         => isset($ordenPagada[$o->vendedor_id . '_' . $o->id]) && $diferenciaDe($o) <= 0,
+                'paga'           => round($pagaDe($o)),
+                // Ya se le pagó y la orden subió: lo que falta (2026-11-19).
+                'diferencia'     => $diferenciaDe($o),
                 // Una FV2 marcada: a su venta no se le quitó el IVA.
                 'sin_descontar_iva' => (bool) $o->sin_descontar_iva,
                 // Para explicar la base en el Excel de Listas: la orden entera

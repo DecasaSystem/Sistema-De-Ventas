@@ -536,6 +536,46 @@ class AuditoriaComisionesTest extends TestCase
         }
     }
 
+    private function henry(): array
+    {
+        return collect(ComisionIndependientes::delMes(self::MES)['independientes'])->firstWhere('vendedor_id', self::HENRY);
+    }
+
+    public function test_al_independiente_si_la_venta_sube_despues_de_pagar_se_le_paga_la_diferencia(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->sedeDeIndependientes();
+        $venta = $this->orden(self::HENRY, self::NORTE, 11_900_000, abonaA: self::NORTE);
+        $this->llamar('pagarIndependiente', self::HENRY, self::MES, \App\Models\Usuario::find(self::PAOLA));
+        $this->assertEqualsWithDelta(500_000, $this->pagadoPorPersona()['Henry'], 1);
+
+        // Sube $2.380.000: 2.380.000 ÷ 1,19 × 5 % = 100.000 más.
+        $this->bajarValor($venta, 14_280_000);
+        $this->assertEqualsWithDelta(100_000, $this->henry()['por_pagar_ventas'], 1);
+
+        $this->llamar('pagarIndependiente', self::HENRY, self::MES, \App\Models\Usuario::find(self::PAOLA));
+        $this->assertEqualsWithDelta(600_000, $this->pagadoPorPersona()['Henry'], 1, 'se le pagó la diferencia');
+        $this->assertEqualsWithDelta(0, $this->henry()['por_pagar_ventas'], 1, 'y no se le vuelve a ofrecer');
+        $this->assertSame([], $this->cobradoDeMas());
+    }
+
+    public function test_al_independiente_si_baja_y_vuelve_a_subir_queda_con_lo_justo(): void
+    {
+        $this->conLibroDeAnticipos();
+        $this->sedeDeIndependientes();
+        $venta = $this->orden(self::HENRY, self::NORTE, 11_900_000, abonaA: self::NORTE);
+        $this->llamar('pagarIndependiente', self::HENRY, self::MES, \App\Models\Usuario::find(self::PAOLA));
+
+        // Baja a 9.520.000 (80 %): se le descuentan 100.000 y no se le ofrece nada.
+        $this->bajarValor($venta, 9_520_000);
+        $this->assertEqualsWithDelta(100_000, $this->cobradoDeMas()['Henry'] ?? 0, 1);
+        $this->assertEqualsWithDelta(0, $this->henry()['por_pagar_ventas'], 1);
+
+        // Vuelve a 11.900.000: se le pagan otra vez los 100.000 que se le descontaron.
+        $this->bajarValor($venta, 11_900_000);
+        $this->assertEqualsWithDelta(100_000, $this->henry()['por_pagar_ventas'], 1);
+    }
+
     public function test_listas_dice_por_que_se_le_descuenta(): void
     {
         $this->conLibroDeAnticipos();

@@ -569,7 +569,8 @@ trimestrales. Finanzas no lo cuenta como salida de caja. Lo mismo cuando la orde
 después de pagarse: `sincronizarValorOrden` le baja el `valor_orden` también al renglón pagado (la meta
 cuenta lo que vale hoy; `monto_comision` queda) y llama `alBajarElValor`; en 5 % directo se cobra la
 proporción. Si sube, el pagado se queda y se abre un renglón pendiente con la diferencia (en pool, el
-equipo cobra su parte del pool que creció; a los independientes todavía no). Listas trae
+equipo cobra su parte del pool que creció; a un independiente, `ComisionIndependientes` saca la
+`diferencia` por orden y `pagarIndependiente` la paga en un renglón propio). Listas trae
 `cobros_de_mas` (cada descuento con su nota) y la pantalla y los Excel lo explican
 (`cobrosDeMasTexto`).
 

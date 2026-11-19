@@ -2821,6 +2821,37 @@ class ComisionController extends Controller
 
         foreach (collect($cuenta['ordenes'])->where('vendedor_id', $vendedorId)
                      ->where('lista', true)->where('pagada', false) as $o) {
+            // Ya se le pagó y la orden subió (2026-11-19): lo pagado se queda y
+            // la diferencia va en su propio renglón, ya pagado.
+            if ((float) ($o['diferencia'] ?? 0) > 0) {
+                $base = Comision::where('orden_id', $o['id'])->where('vendedor_id', $vendedorId)
+                    ->where('estado', 'pagada')->orderBy('id')->lockForUpdate()->first();
+                $orden = Orden::find($o['id']);
+                if (! $base || ! $orden) continue;
+                $yaValor = (float) Comision::where('orden_id', $o['id'])->where('vendedor_id', $vendedorId)
+                    ->where('estado', 'pagada')->sum('valor_orden');
+                $datos = [
+                    'orden_id'          => $o['id'],
+                    'vendedor_id'       => $vendedorId,
+                    'tienda_id'         => $base->tienda_id,
+                    'origen'            => $base->origen,
+                    'mes_venta'         => $base->mes_venta,
+                    'valor_orden'       => max(0, round(self::valorComisionable($orden, $vendedorId) - $yaValor, 2)),
+                    'fecha_venta'       => $base->fecha_venta,
+                    'fecha_disponible'  => $base->fecha_disponible,
+                    'estado'            => 'pagada',
+                    'monto_comision'    => (float) $o['diferencia'],
+                    'fecha_pago'        => now(),
+                    'pagada_por'        => $usuario->id,
+                    'forma_pago_pagada' => 'independiente_5',
+                ];
+                $fila = Comision::create($datos + self::fotoDeReglas(new Comision($datos)));
+                $pagadas++;
+                $total += (float) $o['diferencia'];
+                $descontado += AnticiposComision::descontar($fila, (float) $o['diferencia'], $mes, $usuario->id);
+                continue;
+            }
+
             $fila = Comision::where('orden_id', $o['id'])->where('vendedor_id', $vendedorId)
                 ->lockForUpdate()->first();
             if (! $fila) {
