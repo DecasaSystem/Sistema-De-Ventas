@@ -622,7 +622,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Traslados entre tiendas (mismo criterio, con guardas en el controlador)
     Route::get('/inventario/traslados/pendientes',                   [TrasladoController::class, 'pendientes']);
     Route::get('/inventario/traslados/stock-tienda/{tiendaId}',      [TrasladoController::class, 'stockTienda'])->whereNumber('tiendaId');
-    Route::post('/inventario/traslados',                             [TrasladoController::class, 'crear']);
+    // Crear un traslado pide el permiso Traslado (fase 7; antes no pedía nada).
+    // Aceptar o rechazar sigue siendo de quien lo recibe.
+    Route::post('/inventario/traslados',                             [TrasladoController::class, 'crear'])->middleware('permiso:acceso_traslado');
     Route::get('/inventario/traslados',                              [TrasladoController::class, 'index']);
     Route::patch('/inventario/traslados/{id}/aceptar',               [TrasladoController::class, 'aceptar'])->whereNumber('id');
     Route::patch('/inventario/traslados/{id}/rechazar',              [TrasladoController::class, 'rechazar'])->whereNumber('id');

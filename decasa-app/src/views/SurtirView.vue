@@ -186,7 +186,16 @@ function onTelaChange(item, v) {
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 // El botón "Traslado" del Home llega con ?tab=traslado para abrir directo
 // ahí, en vez de aterrizar siempre en "Nuevo surtido" y obligar a buscarla.
-const tabActivo = ref(route.query.tab || (auth.isSupervisor ? 'nuevo' : 'traslado'))
+// Surtir (de la fábrica) y Traslado (entre tiendas) son permisos aparte
+// desde la fase 7: cada uno ve sus pestañas, tenga el rol que tenga.
+// Un enlace con ?tab= de algo que no tiene (ej. ?tab=nuevo sin Surtir) cae en lo suyo.
+const tabsDeSurtir = ['nuevo', 'historial']
+const tabPedida = route.query.tab
+const tabActivo = ref(
+  tabPedida && (tabsDeSurtir.includes(tabPedida) ? auth.puedeSurtir : auth.puedeTrasladar)
+    ? tabPedida
+    : (auth.puedeSurtir ? 'nuevo' : 'traslado'),
+)
 
 // ── Wizard paso ──────────────────────────────────────────────────────────────
 const paso = ref(1)
@@ -697,6 +706,14 @@ const tCargandoValidador = ref(false)
 // traslado se caía con un 422.
 const tEsVendedor = computed(() => !auth.isSupervisor)
 
+// Las pestañas según los permisos: Surtir y/o Traslado (fase 7).
+const pestanas = computed(() => [
+  ...(auth.puedeSurtir ? [{ k: 'nuevo', label: 'Nuevo surtido' }] : []),
+  ...(auth.puedeTrasladar ? [{ k: 'traslado', label: auth.puedeSurtir ? 'Traslado' : 'Nuevo traslado' }] : []),
+  ...(auth.puedeSurtir ? [{ k: 'historial', label: 'Surtidos' }] : []),
+  ...(auth.puedeTrasladar ? [{ k: 'historial-traslados', label: auth.isSupervisor ? 'Traslados' : 'Mis traslados' }] : []),
+])
+
 // historial traslados
 const tHistorial      = ref([])
 const tCargandoHist   = ref(false)
@@ -861,23 +878,13 @@ onMounted(async () => {
     <!-- Header -->
     <div class="flex items-center gap-2">
       <ArchiveBoxArrowDownIcon class="w-6 h-6 text-blue-600" />
-      <h2 class="text-lg font-bold text-gray-800 flex-1">{{ auth.isSupervisor ? 'Surtir tiendas' : 'Traslados' }}</h2>
+      <h2 class="text-lg font-bold text-gray-800 flex-1">{{ auth.puedeSurtir ? 'Surtir tiendas' : 'Traslados' }}</h2>
     </div>
 
     <!-- Tabs -->
     <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
       <button
-        v-for="tab in (auth.isSupervisor
-          ? [
-              { k: 'nuevo',               label: 'Nuevo surtido' },
-              { k: 'traslado',            label: 'Traslado' },
-              { k: 'historial',           label: 'Surtidos' },
-              { k: 'historial-traslados', label: 'Traslados' },
-            ]
-          : [
-              { k: 'traslado',            label: 'Nuevo traslado' },
-              { k: 'historial-traslados', label: 'Mis traslados' },
-            ])"
+        v-for="tab in pestanas"
         :key="tab.k"
         @click="tabActivo = tab.k;
           tab.k === 'historial' && cargarHistorial();
@@ -892,7 +899,7 @@ onMounted(async () => {
     </div>
 
     <!-- ═══════════════ PANEL: RECOMENDACIONES (solo supervisor) ═══════════════ -->
-    <div v-if="auth.isSupervisor" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div v-if="auth.puedeSurtir && tabActivo === 'nuevo'" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <!-- Header toggle -->
       <button
         @click="recomVisible = !recomVisible"

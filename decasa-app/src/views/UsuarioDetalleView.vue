@@ -45,7 +45,7 @@ const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   acceso_reglas_comision: false,
-  recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
+  recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_traslado: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_finanzas: false, acceso_reserva: false,
   acceso_compras: false,
   ...Object.fromEntries(MODULOS_DE_VENTA.map(m => [m.campo, false])),
@@ -166,6 +166,7 @@ function openEditModal() {
     recarga_telas: usuario.value.recarga_telas ?? false,
     acceso_telas: usuario.value.acceso_telas ?? false,
     acceso_surtir: usuario.value.acceso_surtir ?? false,
+    acceso_traslado: usuario.value.acceso_traslado ?? false,
     acceso_costos: usuario.value.acceso_costos ?? false,
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
     acceso_despacho: usuario.value.acceso_despacho ?? false,
@@ -224,6 +225,7 @@ async function submitEdit() {
       recarga_telas: editForm.value.recarga_telas,
       acceso_telas: editForm.value.acceso_telas,
       acceso_surtir: editForm.value.acceso_surtir,
+      acceso_traslado: editForm.value.acceso_traslado,
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
       acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
@@ -929,8 +931,15 @@ onMounted(async () => {
                 class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
               />
               <div>
-                <label for="edit-acceso-surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Surtir</label>
-                <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
+                <label for="edit-acceso-surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Surtir tiendas desde la fábrica</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá mandar mercancía de la fábrica (Reserva) a las tiendas.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 py-1">
+              <input id="edit-acceso-traslado" type="checkbox" v-model="editForm.acceso_traslado" class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+              <div>
+                <label for="edit-acceso-traslado" class="text-sm font-medium text-gray-700 cursor-pointer">Traslados entre tiendas</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá mover mercancía de su tienda a otra (la recibe otra persona).</p>
               </div>
             </div>
             <div class="flex items-start gap-3 py-1">

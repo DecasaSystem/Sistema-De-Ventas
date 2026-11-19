@@ -189,6 +189,13 @@ mueve con **Traslado**, que normalmente hace el vendedor y lo acepta quien recib
    a otros obliga a tocar a fondo el camino de la plata). Tests en `PermisosEspecialesTest`. El
    aviso "Órdenes para asignar fecha" sigue llegando solo a supervisores.
 7. **Surtir y Traslado separados.**
+   ✅ **Hecha el 2026-11-19, sin subir**, trae **migración**
+   `2026_11_20_000005_surtir_y_traslado_separados` (agrega `usuarios.acceso_traslado`). Traslado
+   lo tiene quien tenía Surtir y todos los supervisores; Surtir se queda solo en los supervisores
+   que lo tenían (en pantalla, quien no era supervisor solo hacía traslados: no pierde nada). Crear
+   un traslado ahora pide el permiso (antes no pedía nada en el servidor). La pantalla de Surtir
+   muestra las pestañas según cada permiso, y alguien de la fábrica que no es supervisor puede
+   surtir si se le da. Tests en `SurtirYTrasladoSeparadosTest`.
 8. Después: revisar las palabras de muebles en pantalla.
 
 ## 8. Lo que tiene que decidir el usuario

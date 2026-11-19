@@ -177,6 +177,7 @@ class AuthController extends Controller
             'recarga_telas'      => (bool) $usuario->recarga_telas,
             'acceso_telas'       => (bool) $usuario->acceso_telas,
             'acceso_surtir'      => (bool) $usuario->acceso_surtir,
+            'acceso_traslado'    => $usuario->tienePermiso('acceso_traslado'),
             'acceso_costos'      => (bool) $usuario->acceso_costos,
             'acceso_proveedores' => (bool) $usuario->acceso_proveedores,
             'acceso_despacho'    => (bool) $usuario->acceso_despacho,

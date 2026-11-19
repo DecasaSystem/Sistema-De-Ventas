@@ -43,6 +43,7 @@ class UsuarioController extends Controller
             'recarga_telas'       => (bool) $u->recarga_telas,
             'acceso_telas'        => (bool) $u->acceso_telas,
             'acceso_surtir'       => (bool) $u->acceso_surtir,
+            'acceso_traslado'     => $u->tienePermiso('acceso_traslado'),
             'acceso_costos'       => (bool) $u->acceso_costos,
             'acceso_proveedores'  => (bool) $u->acceso_proveedores,
             'acceso_despacho'     => (bool) $u->acceso_despacho,
@@ -259,6 +260,10 @@ class UsuarioController extends Controller
             // así que se guardan tal cual se pidan, sin restricción — es
             // justo lo que se pidió, poder dárselos a cualquiera.
             'acceso_surtir'       => $request->boolean('acceso_surtir'),
+            // Traslado (fase 7): si la pantalla no lo manda (app vieja), lo trae
+            // quien trae Surtir, como era antes.
+            ...(Esquema::columna('usuarios', 'acceso_traslado')
+                ? ['acceso_traslado' => ! $noUsaPrograma && $request->boolean('acceso_traslado', $request->boolean('acceso_surtir'))] : []),
             'acceso_costos'       => $request->boolean('acceso_costos'),
             'acceso_proveedores'  => $request->boolean('acceso_proveedores'),
             'acceso_despacho'     => $request->boolean('acceso_despacho'),
@@ -385,6 +390,7 @@ class UsuarioController extends Controller
             'acceso_caja'            => 'nullable|boolean',
             'acceso_consultas_costo' => 'nullable|boolean',
             'acceso_estadisticas'    => 'nullable|boolean',
+            'acceso_traslado'        => 'nullable|boolean',
             'asigna_fechas'          => 'nullable|boolean',
             'edita_catalogo'         => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
@@ -513,6 +519,10 @@ class UsuarioController extends Controller
         // cualquiera.
         if ($request->has('acceso_surtir')) {
             $data['acceso_surtir'] = $request->boolean('acceso_surtir');
+        }
+        unset($data['acceso_traslado']);
+        if ($request->has('acceso_traslado') && Esquema::columna('usuarios', 'acceso_traslado')) {
+            $data['acceso_traslado'] = $request->boolean('acceso_traslado');
         }
         if ($request->has('acceso_costos')) {
             $data['acceso_costos'] = $request->boolean('acceso_costos');

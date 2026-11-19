@@ -73,6 +73,8 @@ class Usuario extends Authenticatable
         'modulos_ajustados', 'es_super_admin',
         // Permisos especiales (fase 6).
         'asigna_fechas', 'edita_catalogo',
+        // Traslados entre tiendas, aparte de Surtir (fase 7).
+        'acceso_traslado',
         // Encargos: responder por herramientas es una cosa (`lleva_encargos`,
         // que le sirve hasta a quien no entra al programa) y administrar el
         // módulo es otra (`acceso_encargos`).
@@ -156,6 +158,7 @@ class Usuario extends Authenticatable
             'es_super_admin'         => 'boolean',
             'asigna_fechas'          => 'boolean',
             'edita_catalogo'         => 'boolean',
+            'acceso_traslado'        => 'boolean',
             'modulos_ajustados'      => 'array',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
@@ -399,6 +402,11 @@ class Usuario extends Authenticatable
         }
         if (in_array($columna, self::PERMISOS_ESPECIALES, true) && ! array_key_exists($columna, $this->getAttributes())) {
             return $this->rol === 'supervisor';
+        }
+        // Traslado (fase 7): antes de la columna, crear un traslado no pedía
+        // ningún permiso. Sin ella vale lo de antes.
+        if ($columna === 'acceso_traslado' && ! array_key_exists($columna, $this->getAttributes())) {
+            return true;
         }
 
         return (bool) $this->getAttribute($columna);

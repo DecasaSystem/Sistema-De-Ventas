@@ -241,7 +241,7 @@ class TiposNotificacion
         $produce   = $taller || (bool) $u->gestiona_produccion || (bool) $u->acceso_produccion;
         $factura   = (bool) $u->facturacion;
         $despacha  = $conduce || (bool) $u->acceso_despacho || (bool) $u->acceso_entregas;
-        $surte     = (bool) $u->acceso_surtir || (bool) $u->acceso_reserva || $vende;
+        $surte     = (bool) $u->acceso_surtir || (bool) ($u->acceso_traslado ?? false) || (bool) $u->acceso_reserva || $vende;
         $encargos  = (bool) $u->lleva_encargos || (bool) $u->acceso_encargos || (bool) $u->revisa_encargos;
 
         return match ($clave) {

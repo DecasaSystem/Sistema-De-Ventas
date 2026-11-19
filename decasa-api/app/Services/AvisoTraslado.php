@@ -108,7 +108,8 @@ class AvisoTraslado
 
         return Usuario::where('tienda_default_id', $tiendaId)
             ->where('activo', true)
-            ->where(fn($q) => $q->where('rol', 'vendedor')->orWhere('acceso_surtir', true))
+            ->where(fn($q) => $q->where('rol', 'vendedor')->orWhere('acceso_surtir', true)
+                ->when(\App\Support\Esquema::columna('usuarios', 'acceso_traslado'), fn ($q2) => $q2->orWhere('acceso_traslado', true)))
             ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
             ->pluck('id');
     }

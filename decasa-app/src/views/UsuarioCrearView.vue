@@ -40,7 +40,10 @@ const form = ref({
   // de fábrica. Costos/Despacho/Métricas/Producción sí arrancan apagados
   // aunque el rol sea supervisor: dejaron de ser automáticos, así que quien
   // crea la cuenta los prende a propósito si corresponde.
-  acceso_surtir: true,
+  // Surtir y Traslado aparte (fase 7): Traslado arranca prendido (lo hacen
+  // los vendedores); Surtir, solo para supervisor (ver el watch del rol).
+  acceso_surtir: false,
+  acceso_traslado: true,
   acceso_proveedores: true,
   acceso_reserva: true,
   // Compras nació abierta a cualquiera con sesión, sin importar el rol: se
@@ -81,6 +84,7 @@ const arquetipo = computed(() => rolSeleccionado.value?.arquetipo ?? '')
 // El supervisor arranca con los permisos especiales (como antes); los demás, no.
 watch(rolSeleccionado, (r) => Object.assign(form.value, modulosDeVentaDeArranque(r), {
   asigna_fechas: r?.arquetipo === 'supervisor', edita_catalogo: r?.arquetipo === 'supervisor',
+  acceso_surtir: r?.arquetipo === 'supervisor',
 }))
 const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
 
@@ -163,6 +167,7 @@ async function submit() {
       recarga_telas: form.value.recarga_telas,
       acceso_telas: form.value.acceso_telas,
       acceso_surtir: form.value.acceso_surtir,
+      acceso_traslado: form.value.acceso_traslado,
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
       acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
@@ -514,8 +519,15 @@ async function submit() {
           class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
         />
         <div>
-          <label for="acceso_surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Surtir</label>
-          <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
+          <label for="acceso_surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Surtir tiendas desde la fábrica</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá mandar mercancía de la fábrica (Reserva) a las tiendas.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3 py-1">
+        <input id="acceso_traslado" type="checkbox" v-model="form.acceso_traslado" class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+        <div>
+          <label for="acceso_traslado" class="text-sm font-medium text-gray-700 cursor-pointer">Traslados entre tiendas</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá mover mercancía de su tienda a otra (la recibe otra persona).</p>
         </div>
       </div>
 

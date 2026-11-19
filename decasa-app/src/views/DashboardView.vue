@@ -101,7 +101,10 @@ const CATALOGO = () => [
   { modulo: 'telas',        label: 'Telas',        icon: SwatchIcon,                to: { name: 'telas' },        ve: () => auth.puedeRecargarTelas || auth.puedeUsarTelas },
   ...accesosCopiasDeTelas.value.map(a => ({ ...a, ve: () => auth.puedeRecargarTelas || auth.puedeUsarTelas })),
   { modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon,       to: { name: 'reserva' },      ve: () => !sup() && auth.puedeReserva },
-  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir' },       ve: () => !sup() && auth.puedeSurtir },
+  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir', query: { tab: 'traslado' } }, ve: () => !sup() && auth.puedeTrasladar },
+  // Surtir desde la fábrica, aparte de Traslado (fase 7): a quien no es
+  // supervisor también, si se le da (el de la fábrica).
+  { modulo: 'surtir',       label: 'Surtir',       icon: ArchiveBoxArrowDownIcon,   to: { name: 'surtir', query: { tab: 'nuevo' } }, ve: () => !sup() && auth.puedeSurtir },
   { modulo: 'redes',        label: 'Redes',        icon: ChatBubbleLeftRightIcon,   to: { name: 'redes' },        ve: () => auth.tieneAccesoRedes },
   { modulo: 'costos',       label: 'Costos',       icon: CalculatorIcon,            to: { name: 'costos' },       ve: () => !sup() && auth.puedeCostos },
   { modulo: 'mis-pasos',    label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' },   ve: () => auth.tieneAccesoPasos, badge: pasos.pendientesCount },
@@ -111,7 +114,7 @@ const CATALOGO = () => [
   // por separado: Surtir aterriza en "Nuevo surtido").
   { modulo: 'reserva',      label: 'Reserva',      icon: CubeIcon,                  to: { name: 'reserva' },      ve: () => sup() && auth.puedeReserva },
   { modulo: 'surtir',       label: 'Surtir',       icon: ArchiveBoxArrowDownIcon,   to: { name: 'surtir' },       ve: () => sup() && auth.puedeSurtir },
-  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir', query: { tab: 'traslado' } }, ve: () => sup() && auth.puedeSurtir },
+  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir', query: { tab: 'traslado' } }, ve: () => sup() && auth.puedeTrasladar },
   { modulo: 'costos',       label: 'Costos',       icon: CalculatorIcon,            to: { name: 'costos' },       ve: () => sup() && auth.puedeCostos },
   { modulo: 'produccion',   label: 'Producción',   icon: WrenchScrewdriverIcon,     to: { name: 'produccion' },   ve: () => auth.puedeProduccion },
   // Sin clave de módulo a propósito: si apagaran Producción, el supervisor

@@ -1093,6 +1093,11 @@ escribiendo precios (Fase 1b).
   aprobar cambios de plata sigue siendo solo de supervisores, sin interruptor** (no volver a
   proponerlo: aplicar la solicitud corre como si el supervisor editara, `rol === 'supervisor'`
   decide si va directo o como solicitud en Orden/Pago).
+  **Fase 7 hecha el 2026-11-19, sin subir**, trae **migración**
+  `2026_11_20_000005_surtir_y_traslado_separados`: `acceso_traslado` (tienda → tienda) aparte de
+  `acceso_surtir` (fábrica → tiendas). A los no supervisores se les quitó `acceso_surtir` (solo lo
+  tenían por la API; en pantalla hacían traslados) y quedaron con `acceso_traslado`. Con esto
+  quedan hechas las 7 fases del plan de roles; pendiente aparte: palabras de muebles en pantalla.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

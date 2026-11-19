@@ -37,6 +37,7 @@ final class RangoDeUsuarios
         'acceso_compras', 'lleva_encargos', 'acceso_encargos', 'revisa_encargos',
         'acceso_nueva_orden', 'acceso_ordenes', 'acceso_clientes', 'acceso_cotizaciones', 'acceso_caja',
         'acceso_consultas_costo', 'acceso_estadisticas', 'asigna_fechas', 'edita_catalogo',
+        'acceso_traslado',
     ];
 
     /** Los delicados: cuando alguien que no es super admin los da, se le avisa al super admin. */

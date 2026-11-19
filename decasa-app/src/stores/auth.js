@@ -175,6 +175,9 @@ export const useAuthStore = defineStore('auth', () => {
   // Tampoco hay atajo por ser supervisor: ese respaldo también se dio en la
   // migración, pero de ahí en adelante es un permiso real por trabajador.
   const puedeSurtir           = computed(() => !!usuario.value?.acceso_surtir)
+  // Traslados entre tiendas, aparte de Surtir (fase 7). Una sesión de antes
+  // sin la bandera: como era, el mismo permiso de Surtir.
+  const puedeTrasladar        = computed(() => usuario.value?.acceso_traslado ?? !!usuario.value?.acceso_surtir)
   // Costos: es una bandera por trabajador, para nadie automático.
   const puedeCostos           = computed(() => !!usuario.value?.acceso_costos)
   // Proveedores: ver la lista sigue abierto a todos; esto es solo para
@@ -586,7 +589,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     puedeNuevaOrden, puedeOrdenes, puedeClientes, puedeCotizaciones, puedeCaja,
-    puedeConsultarCosto, puedeEstadisticas, puedeAsignarFechas, puedeEditarCatalogo,
+    puedeConsultarCosto, puedeEstadisticas, puedeAsignarFechas, puedeEditarCatalogo, puedeTrasladar,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setVerValorInventario, setVerValorReserva, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,

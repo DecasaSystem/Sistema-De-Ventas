@@ -165,7 +165,8 @@ router.beforeEach((to) => {
  */
 export function puedeAbrir(to, auth) {
   if (to.meta.requiresSupervisor && !auth.isSupervisor) return false
-  if (to.meta.requiresSurtir && !auth.puedeSurtir) return false
+  // Surtir y Traslado comparten pantalla (fase 7): entra quien tenga cualquiera.
+  if (to.meta.requiresSurtir && !auth.puedeSurtir && !auth.puedeTrasladar) return false
   if (to.meta.requiresCostos && !auth.puedeCostos) return false
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return false
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return false
