@@ -331,7 +331,12 @@ const navCopiasDeTelas = computed(() => modulos.instancias('telas').map(m => ({
  * lo apagó, el acceso no aparece. Lo que NO cambia es quién ve qué: eso lo
  * siguen decidiendo los permisos, no la personalización.
  */
-const navItems = computed(() => {
+const navItems = computed(() => navSugerida.value.filter(sePuedeAbrir))
+
+// El orden en que salen de entrada, según el puesto (lo que nadie ha
+// personalizado). Qué sale lo deciden los permisos: navItems filtra con la
+// regla del router, así un vendedor sin Cotizaciones no la ve en la barra.
+const navSugerida = computed(() => {
   if (auth.isSupervisor) {
     const items = [
       { name: 'dashboard',  modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
@@ -360,7 +365,9 @@ const navItems = computed(() => {
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
     return modulos.soloVisibles(items)
   }
-  if (auth.puedeUsarTelas && !auth.isSupervisor) {
+  // Quien solo trabaja Telas (no vende): su barra es esa. Antes le pasaba a
+  // cualquiera con "descontar telas", aunque vendiera.
+  if (auth.puedeUsarTelas && !auth.isSupervisor && !auth.puedeNuevaOrden && !auth.puedeOrdenes) {
     return modulos.soloVisibles([
       { name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon },
       ...navCopiasDeTelas.value,
@@ -449,6 +456,13 @@ const NAV_EXTRAS = [
   { name: 'gestion',                              label: 'Gestión',          icon: Cog6ToothIcon },
 ]
 
+// Los módulos que la empresa creó de Telas (Espumas…) no son rutas con nombre:
+// van a /m/:clave con el permiso de Telas.
+function sePuedeAbrir(i) {
+  if (modulos.plantilla(i.name)) return auth.puedeUsarTelas || auth.puedeRecargarTelas
+  return seAbre(i.name)
+}
+
 function seAbre(name) {
   try {
     const r = router.resolve({ name })
@@ -460,10 +474,9 @@ function seAbre(name) {
 
 const navCatalogo = computed(() => {
   const base = navItems.value
-  // Mismo orden que navItems: quien solo ve Telas y el conductor no reciben más.
-  const conExtras = auth.isSupervisor
-    || (!auth.puedeUsarTelas && (auth.isFacturador || auth.usuario?.rol === 'vendedor'))
-  if (!conExtras) return base
+  // Cualquiera puede poner en la barra o en "Más" lo que tenga permiso de
+  // abrir (fase 4: por módulos, no por rol). Antes el conductor y quien solo
+  // veía Telas no recibían nada más, aunque tuvieran otros módulos.
   const ya = new Set(base.map(i => i.name))
   const extras = modulos.soloVisibles(NAV_EXTRAS.filter(i => !ya.has(i.name) && seAbre(i.name)))
   return [...base, ...extras]

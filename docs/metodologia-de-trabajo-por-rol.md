@@ -162,6 +162,13 @@ mueve con **Traslado**, que normalmente hace el vendedor y lo acepta quien recib
    `SuperAdminYRangosTest`). Por ahora el rol trae solo los 7 módulos de venta; los demás
    (Redes, Traslado, Reserva…) siguen por persona. Detalle en `docs/PROYECTO.md` §7.
 4. **Inicio y barra armados por módulos**, no por rol.
+   ✅ **Hecha el 2026-11-19, sin subir** (solo front, sin migración). El Inicio es un solo
+   catálogo (`DashboardView`, `CATALOGO`) donde cada acceso dice cuándo se ve, con la misma regla
+   del guard; la sección de administración sale a quien tenga el permiso (Trabajadores, Reportes y
+   Gestión siguen siendo de supervisor). La barra de abajo conserva el orden de entrada de cada
+   puesto, pero filtra cada acceso por permiso y deja agregar a cualquiera lo que pueda abrir.
+   Ver inventario, Citas y Proveedores salen a todos. Comparado en el navegador con vendedor,
+   supervisor, conductor, conductor que vende y vendedor con Telas.
 5. **Soltar los amarres**: Facturación a cualquier rol (el contador solo); Redes y Telas a
    cualquiera.
 6. **Permisos especiales** activables (aprobar cambios, asignar fechas, editar catálogo).

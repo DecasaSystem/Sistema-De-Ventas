@@ -80,180 +80,74 @@ const accesosCopiasDeTelas = computed(() => modulos.instancias('telas').map(m =>
   modulo: m.clave, label: m.nombre, icon: SwatchIcon, to: { name: 'modulo', params: { clave: m.clave } },
 })))
 
-// Vender como módulos (ModulosDeVenta): cada acceso de venta sale solo si la
-// persona tiene prendido su módulo, sea cual sea su rol. Un conductor o un
-// despachador que vende los ve también (antes su Inicio no los tenía).
-const MODULO_DE_VENTA = {
-  'nueva-orden':  'puedeNuevaOrden',
-  'ordenes':      'puedeOrdenes',
-  'clientes':     'puedeClientes',
-  'cotizaciones': 'puedeCotizaciones',
-  'caja':         'puedeCaja',
-  'consultas':    'puedeConsultarCosto',
-}
-const ventasDeOtroRol = computed(() => [
-  { modulo: 'nueva-orden',  label: 'Nueva orden',     icon: PlusIcon,                  to: { name: 'nueva-orden' } },
-  { modulo: 'ordenes',      label: 'Órdenes',         icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
-  { modulo: 'clientes',     label: 'Clientes',        icon: UserGroupIcon,             to: { name: 'clientes' } },
-  { modulo: 'cotizaciones', label: 'Cotizaciones',    icon: DocumentTextIcon,          to: { name: 'cotizaciones' } },
-  { modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon,        to: { name: 'consultas' }, badge: consultas.pendientesCount },
-  { modulo: 'caja',         label: 'Caja',            icon: BanknotesIcon,             to: { name: 'caja' } },
-].filter(a => auth[MODULO_DE_VENTA[a.modulo]]))
-// Quien responde consultas por tener Costos las sigue viendo aunque no pida.
-const conSusModulos = (items) => items.filter(a => {
-  if (a.modulo === 'mis-stats' && a.to?.name === 'mis-stats') return auth.puedeEstadisticas
-  if (a.modulo === 'consultas') return auth.puedeConsultarCosto || auth.puedeCostos
-  const permiso = MODULO_DE_VENTA[a.modulo]
-  return !permiso || auth[permiso]
-})
+// El Inicio sale de los permisos de cada persona, no de su rol
+// (docs/metodologia-de-trabajo-por-rol.md, fase 4). Antes había una lista a
+// mano para conductor, otra para "ebanista", otra para despachador y una
+// general, y un conductor que vendía o un vendedor con Nómina no veían su
+// acceso aunque tuvieran el permiso. Ahora es un solo catálogo, en el orden en
+// que salen, y cada acceso dice cuándo se ve. Lo único que sigue mirando el
+// rango es lo de administrar (Trabajadores, Reportes, Gestión: supervisor) y
+// dos nombres que el supervisor ve distinto (Reserva / Fábrica, Surtir).
+// Cada `ve` es la misma regla del guard de la ruta (router/index.js).
+const sup = () => auth.isSupervisor
+const CATALOGO = () => [
+  { modulo: 'nueva-orden',  label: 'Nueva orden',  icon: PlusIcon,                  to: { name: 'nueva-orden' },  ve: () => auth.puedeNuevaOrden },
+  { modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes' },      ve: () => auth.puedeOrdenes },
+  { modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes' },     ve: () => auth.puedeClientes },
+  // Las entregas de la ruta son de quien maneja (la ruta se le asigna a un conductor).
+  { modulo: 'mis-entregas', label: 'Mis entregas', icon: TruckIcon,                 to: { name: 'mis-entregas' }, ve: () => auth.usuario?.rol === 'conductor', badge: despacho.misEntregasPendientes },
+  // Ver el inventario es de todos (usuario, 2026-11-19).
+  { modulo: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario' },   ve: () => true, badge: surtidos.pendientesCount },
+  { modulo: 'telas',        label: 'Telas',        icon: SwatchIcon,                to: { name: 'telas' },        ve: () => auth.puedeRecargarTelas || auth.puedeUsarTelas },
+  ...accesosCopiasDeTelas.value.map(a => ({ ...a, ve: () => auth.puedeRecargarTelas || auth.puedeUsarTelas })),
+  { modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon,       to: { name: 'reserva' },      ve: () => !sup() && auth.puedeReserva },
+  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir' },       ve: () => !sup() && auth.puedeSurtir },
+  { modulo: 'redes',        label: 'Redes',        icon: ChatBubbleLeftRightIcon,   to: { name: 'redes' },        ve: () => auth.tieneAccesoRedes },
+  { modulo: 'costos',       label: 'Costos',       icon: CalculatorIcon,            to: { name: 'costos' },       ve: () => !sup() && auth.puedeCostos },
+  { modulo: 'mis-pasos',    label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' },   ve: () => auth.tieneAccesoPasos, badge: pasos.pendientesCount },
+  { modulo: 'citas',        label: 'Citas',        icon: CalendarDaysIcon,          to: { name: 'citas' },        ve: () => true },
+  { modulo: 'caja',         label: 'Caja',         icon: BanknotesIcon,             to: { name: 'caja' },         ve: () => auth.puedeCaja },
+  // El supervisor los tiene en este orden desde antes (y Surtir y Traslado
+  // por separado: Surtir aterriza en "Nuevo surtido").
+  { modulo: 'reserva',      label: 'Reserva',      icon: CubeIcon,                  to: { name: 'reserva' },      ve: () => sup() && auth.puedeReserva },
+  { modulo: 'surtir',       label: 'Surtir',       icon: ArchiveBoxArrowDownIcon,   to: { name: 'surtir' },       ve: () => sup() && auth.puedeSurtir },
+  { modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon,             to: { name: 'surtir', query: { tab: 'traslado' } }, ve: () => sup() && auth.puedeSurtir },
+  { modulo: 'costos',       label: 'Costos',       icon: CalculatorIcon,            to: { name: 'costos' },       ve: () => sup() && auth.puedeCostos },
+  { modulo: 'produccion',   label: 'Producción',   icon: WrenchScrewdriverIcon,     to: { name: 'produccion' },   ve: () => auth.puedeProduccion },
+  // Sin clave de módulo a propósito: si apagaran Producción, el supervisor
+  // igual necesita la cuenta.
+  { label: 'Carga de trabajo',                     icon: QueueListIcon,             to: { name: 'carga-trabajo' }, ve: () => sup() || auth.puedeProduccion },
+  { modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon,          to: { name: 'cotizaciones' }, ve: () => auth.puedeCotizaciones },
+  // Facturación electrónica: justo después de Cotizaciones, con el aviso de
+  // abonos que tenía la "Facturación" vieja (quitada el 2026-11-14).
+  { label: 'Fact. electrónica',                    icon: DocumentCheckIcon,         to: { name: 'facturacion-electronica' }, ve: () => auth.puedeFacturarElectronica, badge: auth.isFacturador ? abonosNoLeidos.value : 0 },
+  // Pide quien tiene el módulo; responde quien tiene Costos.
+  { modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon,     to: { name: 'consultas' },    ve: () => auth.puedeConsultarCosto || auth.puedeCostos, badge: consultas.pendientesCount },
+  { modulo: 'mis-stats',    label: 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats-conductor' }, ve: () => auth.usuario?.rol === 'conductor' },
+  { modulo: 'mis-stats',    label: sup() ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' }, ve: () => auth.usuario?.rol !== 'conductor' && auth.puedeEstadisticas },
+  { modulo: 'proveedores',  label: 'Proveedores',  icon: BuildingStorefrontIcon,    to: { name: 'proveedores' },  ve: () => true },
+  { modulo: 'compras',      label: 'Compras',      icon: ShoppingCartIcon,          to: { name: 'compras' },      ve: () => auth.puedeCompras },
+  ...accesoEncargos.value.map(a => ({ ...a, ve: () => true })),
+]
 
-const accesos = computed(() => conSusModulos(accesosDelRol.value))
+const sinRegla = ({ ve, ...a }) => a
+const accesos = computed(() => modulos.soloVisibles(CATALOGO().filter(a => a.ve()).map(sinRegla)))
 
-const accesosDelRol = computed(() => {
-  if (auth.usuario?.rol === 'conductor') {
-    return modulos.soloVisibles([
-      ...ventasDeOtroRol.value,
-      { modulo: 'mis-entregas', label: 'Mis entregas', icon: TruckIcon,                  to: { name: 'mis-entregas' },        badge: despacho.misEntregasPendientes },
-      { modulo: 'mis-stats',    label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats-conductor' } },
-      ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
-      { modulo: 'proveedores',  label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
-      ...(auth.puedeCompras ? [{ modulo: 'compras', label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
-      ...accesoEncargos.value,
-      // Un conductor puede tener pasos del taller asignados a dedo: sin esto
-      // el acceso no le aparecía aunque el permiso ya lo dejara entrar.
-      ...(auth.tieneAccesoPasos ? [{ modulo: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
-    ])
-  }
-  if (auth.usuario?.rol === 'ebanista') {
-    return modulos.soloVisibles([
-      { modulo: 'nueva-orden', label: 'Nueva orden',  icon: PlusIcon,                   to: { name: 'nueva-orden' } },
-      { modulo: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon,  to: { name: 'ordenes'     } },
-      { modulo: 'clientes',    label: 'Clientes',     icon: UserGroupIcon,              to: { name: 'clientes'    } },
-      { modulo: 'mis-pasos',   label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'   }, badge: pasos.pendientesCount },
-      { modulo: 'consultas',   label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'   }, badge: consultas.pendientesCount },
-      { modulo: 'costos',      label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
-      { modulo: 'telas',       label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
-      ...accesosCopiasDeTelas.value,
-      ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
-      { modulo: 'caja',        label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
-      { modulo: 'mis-stats',   label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
-      { modulo: 'proveedores', label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
-      ...(auth.puedeCompras ? [{ modulo: 'compras', label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
-      ...accesoEncargos.value,
-    ])
-  }
-  if (auth.usuario?.rol === 'despachador') {
-    return modulos.soloVisibles([
-      ...ventasDeOtroRol.value,
-      ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
-      { modulo: 'proveedores', label: 'Proveedores',  icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
-      ...(auth.puedeCompras ? [{ modulo: 'compras', label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
-      ...accesoEncargos.value,
-      // Igual que el conductor: el despachador tiene su propia pantalla de
-      // despacho, pero puede además trabajar pasos si se le asignan.
-      ...(auth.tieneAccesoPasos ? [{ modulo: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
-    ])
-  }
-
-  const items = [
-    { modulo: 'nueva-orden', label: 'Nueva orden',  icon: PlusIcon,                  to: { name: 'nueva-orden' } },
-    { modulo: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes'     } },
-    { modulo: 'clientes',    label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes'    } },
-    { modulo: 'inventario',  label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
-    ...((auth.puedeRecargarTelas || auth.puedeUsarTelas)
-      ? [{ modulo: 'telas', label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }, ...accesosCopiasDeTelas.value]
-      : []),
-    // Antes era automática para todo el que no fuera supervisor. Ahora es un
-    // permiso activable, igual que Surtir: los vendedores actuales la
-    // conservan por el respaldo de la migración.
-    ...(!auth.isSupervisor && auth.puedeReserva ? [{ modulo: 'fabrica', label: 'Fábrica',  icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
-    // Antes era "cualquiera que no sea supervisor". Ahora depende del
-    // permiso: un vendedor lo trae encendido de por defecto, y a partir de
-    // ahí es lo mismo que se le asigne a cualquier otro rol.
-    ...(!auth.isSupervisor && auth.puedeSurtir ? [{ modulo: 'traslado', label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir'  } }] : []),
-    ...(auth.tieneAccesoRedes ? [{ modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
-    ...(!auth.isSupervisor && auth.puedeCostos ? [{ modulo: 'costos', label: 'Costos', icon: CalculatorIcon, to: { name: 'costos' } }] : []),
-    // Cualquiera con un perfil de producción asignado —sin importar su rol—
-    // puede trabajar sus pasos, no solo ebanista/tapicero/despachador.
-    // Lleva pasos del taller: ya no se mira el rol ni un "perfil", sino si
-    // de verdad tiene pasos asignados.
-    ...(auth.tieneAccesoPasos ? [{ modulo: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
-    { modulo: 'citas', label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
-    { modulo: 'caja',  label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },
-  ]
-
-  if (auth.isSupervisor) {
-    // Costos/Despacho/Producción/Reserva/Surtir ya no son automáticos por
-    // ser supervisor: cada uno necesita su permiso prendido
-    // (todo supervisor existente lo trae encendido por el respaldo de la
-    // migración; de ahí en adelante es un control fino real).
-    if (auth.puedeReserva)    items.push({ modulo: 'reserva', label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
-
-    if (auth.puedeSurtir) {
-      items.push({ modulo: 'surtir',   label: 'Surtir',   icon: ArchiveBoxArrowDownIcon, to: { name: 'surtir' } })
-      // Antes solo estaba "Surtir", que aterriza en "Nuevo surtido": un
-      // supervisor no tenía cómo llegar directo a Traslado desde el Home,
-      // solo buscándolo dentro de esa pantalla.
-      items.push({ modulo: 'traslado', label: 'Traslado', icon: ArrowPathIcon,           to: { name: 'surtir', query: { tab: 'traslado' } } })
-    }
-    if (auth.puedeCostos)     items.push({ modulo: 'costos', label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
-  }
-
-  // Producción va por permiso, no por cargo: un operario al que se le active
-  // entra a mirar en qué va el taller.
-  if (auth.puedeProduccion) items.push({ modulo: 'produccion', label: 'Producción', icon: WrenchScrewdriverIcon, to: { name: 'produccion' } })
-  // Cuánto trabajo hay en órdenes y en el taller. Sin clave de módulo a
-  // propósito: si apagaran Producción, el supervisor igual necesita la cuenta.
-  if (auth.isSupervisor || auth.puedeProduccion) {
-    items.push({ label: 'Carga de trabajo', icon: QueueListIcon, to: { name: 'carga-trabajo' } })
-  }
-  items.push({ modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon,      to: { name: 'cotizaciones' } })
-  items.push({ modulo: 'consultas', label: 'Consultar costo', icon: CurrencyDollarIcon,    to: { name: 'consultas'  }, badge: consultas.pendientesCount })
-  items.push({ modulo: 'mis-stats', label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
-  items.push({ modulo: 'proveedores', label: 'Proveedores', icon: BuildingStorefrontIcon, to: { name: 'proveedores' } })
-  if (auth.puedeCompras) items.push({ modulo: 'compras', label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } })
-  items.push(...accesoEncargos.value)
-
-  // Facturación electrónica (Alegra): a quien tiene la función de facturación
-  // y a los supervisores (usuario, 2026-11-13: antes solo estaba en el menú de
-  // abajo). Por el medio, no de primera: primero lo del día (Nueva orden,
-  // Órdenes, Clientes…). Va justo después de Cotizaciones.
-  if (auth.puedeFacturarElectronica) {
-    // Lleva el aviso de abonos que tenía la "Facturación" vieja (quitada el 2026-11-14).
-    const fe = { label: 'Fact. electrónica', icon: DocumentCheckIcon, to: { name: 'facturacion-electronica' }, badge: auth.isFacturador ? abonosNoLeidos.value : 0 }
-    const despues = items.findIndex(i => i.modulo === 'cotizaciones')
-    despues >= 0 ? items.splice(despues + 1, 0, fe) : items.push(fe)
-  }
-
-  return modulos.soloVisibles(items)
-})
-
-const accesosAdmin = computed(() => {
-  if (!auth.isSupervisor) return []
-  const items = [
-    { modulo: 'usuarios', label: 'Trabajadores', icon: UsersIcon,              to: { name: 'usuarios'   } },
-    { modulo: 'reportes', label: 'Reportes',     icon: ChartBarIcon,           to: { name: 'reportes'   } },
-    // Gestión no se puede apagar: es de donde se encienden los demás.
-    { label: 'Gestión',      icon: Cog6ToothIcon,          to: { name: 'gestion'    } },
-  ]
-  if (auth.puedeDespacho) {
-    items.push({ modulo: 'despacho', label: 'Despacho', icon: TruckIcon, to: { name: 'despacho' }, badge: despacho.ordenesPendientes })
-  }
-  // Métricas no es un módulo aparte: va junto con Redes, no con un permiso propio.
-  if (auth.tieneAccesoRedes) {
-    items.push({ modulo: 'metricas-redes', label: 'Métricas', icon: ChartPieIcon, to: { name: 'metricas-redes' } })
-  }
-  if (auth.tieneAccesoComisiones) {
-    items.push({ modulo: 'comisiones', label: 'Bonificaciones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
-  }
-  if (auth.puedeNomina) {
-    items.push({ modulo: 'nomina', label: 'Nómina', icon: BanknotesIcon, to: { name: 'nomina' } })
-  }
-  if (auth.puedeFinanzas) {
-    items.push({ modulo: 'finanzas', label: 'Finanzas', icon: PresentationChartBarIcon, to: { name: 'finanzas' } })
-  }
-  return modulos.soloVisibles(items)
-})
+// Lo de administrar y lo delicado. Trabajadores, Reportes y Gestión son del
+// supervisor; lo demás, de quien tenga el permiso (antes solo le salía a un
+// supervisor, aunque un vendedor tuviera Nómina o Despacho).
+const accesosAdmin = computed(() => modulos.soloVisibles([
+  { modulo: 'usuarios',       label: 'Trabajadores',   icon: UsersIcon,                to: { name: 'usuarios' },       ve: sup },
+  { modulo: 'reportes',       label: 'Reportes',       icon: ChartBarIcon,             to: { name: 'reportes' },       ve: sup },
+  // Gestión no se puede apagar: es de donde se encienden los demás.
+  { label: 'Gestión',                                  icon: Cog6ToothIcon,            to: { name: 'gestion' },        ve: sup },
+  { modulo: 'despacho',       label: 'Despacho',       icon: TruckIcon,                to: { name: 'despacho' },       ve: () => auth.puedeDespacho, badge: despacho.ordenesPendientes },
+  // Métricas no es un módulo aparte: va junto con Redes.
+  { modulo: 'metricas-redes', label: 'Métricas',       icon: ChartPieIcon,             to: { name: 'metricas-redes' }, ve: () => auth.tieneAccesoRedes && sup() },
+  { modulo: 'comisiones',     label: 'Bonificaciones', icon: ReceiptPercentIcon,       to: { name: 'comisiones' },     ve: () => auth.tieneAccesoComisiones },
+  { modulo: 'nomina',         label: 'Nómina',         icon: BanknotesIcon,            to: { name: 'nomina' },         ve: () => auth.puedeNomina },
+  { modulo: 'finanzas',       label: 'Finanzas',       icon: PresentationChartBarIcon, to: { name: 'finanzas' },       ve: () => auth.puedeFinanzas },
+].filter(a => a.ve()).map(sinRegla)))
 </script>
 
 <template>
@@ -293,7 +187,7 @@ const accesosAdmin = computed(() => {
         {{ a.label }}
       </button>
 
-      <template v-if="auth.isSupervisor">
+      <template v-if="accesosAdmin.length">
         <button
           v-for="a in accesosAdmin"
           :key="a.label"

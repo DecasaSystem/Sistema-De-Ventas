@@ -1080,6 +1080,10 @@ escribiendo precios (Fase 1b).
   2026-11-19 con servidor falso (390 px, claro y oscuro): ficha con "del rol / agregado / quitado",
   cambio de rol en el formulario, aviso al supervisor normal, Gestión → Roles. De paso, el
   encabezado del formulario de rol salía blanco en oscuro (`bg-white/95`): ya es `bg-white`.
+  **Fase 4 hecha el 2026-11-19, sin subir** (solo front): Inicio y barra por permisos, no por
+  rol. Un acceso nuevo del Inicio va en `CATALOGO` de `DashboardView` con su `ve` (la misma regla
+  del guard). Trampa vieja arreglada: un vendedor con "descontar telas" (`acceso_telas`) tenía una
+  barra de abajo con solo Telas; ahora ese caso es solo para quien no vende.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
