@@ -1084,6 +1084,9 @@ escribiendo precios (Fase 1b).
   rol. Un acceso nuevo del Inicio va en `CATALOGO` de `DashboardView` con su `ve` (la misma regla
   del guard). Trampa vieja arreglada: un vendedor con "descontar telas" (`acceso_telas`) tenía una
   barra de abajo con solo Telas; ahora ese caso es solo para quien no vende.
+  **Fase 5 hecha el 2026-11-19, sin subir** (sin migración): Facturación, Redes y Telas sin
+  amarrar al rol. Para avisar a quien factura una orden, usar `Usuario::facturadoresDe($tiendaId)`
+  (nunca `where('rol', 'vendedor')->where('facturacion', true)`: dejaba por fuera al contador).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

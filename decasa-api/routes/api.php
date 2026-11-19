@@ -649,7 +649,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventario-telas/proveedores',    [InventarioTelaController::class, 'proveedores']);
     Route::get('/inventario-telas/validar',        [InventarioTelaController::class, 'validar']);
     Route::post('/inventario-telas/recargar',      [InventarioTelaController::class, 'recargar']);
-    Route::middleware('role:costurero,supervisor')->group(function () {
+    // Descontar: por el permiso "descontar telas", no por llamarse Costurero
+    // (fase 5). Los costureros de antes siguen entrando.
+    Route::middleware('permiso:acceso_telas,supervisor,costurero')->group(function () {
         Route::post('/inventario-telas/descontar', [InventarioTelaController::class, 'descontar']);
     });
 

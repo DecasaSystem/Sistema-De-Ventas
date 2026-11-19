@@ -2175,8 +2175,7 @@ class DespachoController extends Controller
             : collect();
         $difGarantia = (float) $garantias->sum('diferencia_valor');
         if ($garantias->isNotEmpty() && abs($difGarantia) >= 0.01) {
-            foreach (Usuario::where('rol', 'vendedor')->where('facturacion', true)
-                         ->where('tienda_default_id', $orden->tienda_id)->get() as $vendedor) {
+            foreach (Usuario::facturadoresDe($orden->tienda_id)->get() as $vendedor) {
                 NotificacionService::crear(
                     'facturar',
                     'Cambio por garantía: revisar la factura',
@@ -2188,10 +2187,7 @@ class DespachoController extends Controller
             }
         }
         if (! $parcial && $resultado['estado_orden'] === 'entregado' && $garantias->isEmpty()) {
-            $facturacionVendedores = Usuario::where('rol', 'vendedor')
-                ->where('facturacion', true)
-                ->where('tienda_default_id', $orden->tienda_id)
-                ->get();
+            $facturacionVendedores = Usuario::facturadoresDe($orden->tienda_id)->get();
 
             foreach ($facturacionVendedores as $vendedor) {
                 NotificacionService::crear(

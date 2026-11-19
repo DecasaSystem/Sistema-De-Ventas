@@ -171,6 +171,12 @@ mueve con **Traslado**, que normalmente hace el vendedor y lo acepta quien recib
    supervisor, conductor, conductor que vende y vendedor con Telas.
 5. **Soltar los amarres**: Facturación a cualquier rol (el contador solo); Redes y Telas a
    cualquiera.
+   ✅ **Hecha el 2026-11-19, sin subir** (sin migración, tests en `ModulosSinAmarrarAlRolTest`).
+   Facturación, Redes y recargar telas se le dan a cualquier rol (no a quien no usa el programa);
+   descontar telas va por el permiso, no por llamarse Costurero; los avisos de facturar
+   (entrega, garantías) les llegan también a los facturadores que no venden
+   (`Usuario::scopeFacturadoresDe`: el vendedor que factura en esa tienda, como antes, y el que
+   factura sin vender, como un contador). En la app, `isFacturador` ya no exige ser vendedor.
 6. **Permisos especiales** activables (aprobar cambios, asignar fechas, editar catálogo).
 7. **Surtir y Traslado separados.**
 8. Después: revisar las palabras de muebles en pantalla.

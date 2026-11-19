@@ -147,7 +147,9 @@ export const useAuthStore = defineStore('auth', () => {
   // punto: quién es la persona y qué pasos lleva son dos cosas distintas.
   const tieneAccesoPasos   = computed(() => !!usuario.value?.tiene_pasos_produccion)
 
-  const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
+  // Factura sin ser supervisor: un vendedor que además factura o el contador
+  // que solo factura (fase 5: ya no tiene que ser vendedor).
+  const isFacturador       = computed(() => usuario.value?.rol !== 'supervisor' && !!usuario.value?.facturacion)
   // Facturación electrónica: el facturador (con cualquier rol) y los
   // supervisores. La misma regla que FacturacionElectronicaController::puedeFacturar.
   const puedeFacturarElectronica = computed(() => isSupervisor.value || !!usuario.value?.facturacion)

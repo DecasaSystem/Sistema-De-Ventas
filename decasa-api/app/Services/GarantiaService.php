@@ -494,8 +494,7 @@ class GarantiaService
         $orden = $g->orden;
         if (! $orden || (float) $g->monto_reembolso <= 0) return;
 
-        foreach (Usuario::where('rol', 'vendedor')->where('facturacion', true)
-                     ->where('tienda_default_id', $orden->tienda_id)->get() as $u) {
+        foreach (Usuario::facturadoresDe($orden->tienda_id)->get() as $u) {
             NotificacionService::crear(
                 'facturar',
                 'Reembolso por garantía: revisar la factura',

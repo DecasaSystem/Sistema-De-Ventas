@@ -440,6 +440,20 @@ class Usuario extends Authenticatable
         return (bool) $this->gestiona_produccion;
     }
 
+    /**
+     * A quién le llegan los avisos de facturar una orden de esta tienda: los
+     * facturadores que venden en esa tienda y los que facturan sin vender (el
+     * contador, que no es de ninguna tienda). Antes se buscaba solo
+     * `rol = vendedor`, y un contador con Facturación no se enteraba de nada
+     * (docs/metodologia-de-trabajo-por-rol.md, fase 5).
+     */
+    public function scopeFacturadoresDe($query, ?int $tiendaId)
+    {
+        return $query->where('facturacion', true)->where('activo', true)
+            ->where(fn ($q) => $q->where('rol', '!=', 'vendedor')->where('rol', '!=', 'supervisor')
+                ->orWhere(fn ($q2) => $q2->where('rol', 'vendedor')->where('tienda_default_id', $tiendaId)));
+    }
+
     public function scopeAptoProduccion($query)
     {
         return $query->where('apto_produccion', true);

@@ -216,8 +216,6 @@ class UsuarioController extends Controller
 
         $esSupervisor = ($arquetipo === 'supervisor');
 
-        $puedeAccesoRedes = in_array($arquetipo, ['vendedor', 'supervisor']);
-        $puedeRecargaTelas = in_array($arquetipo, ['vendedor', 'supervisor']);
 
         // Va por su cuenta quien vende: un vendedor, o un supervisor que además
         // vende (Henry lleva el taller y vende por su cuenta). Un conductor o
@@ -242,15 +240,18 @@ class UsuarioController extends Controller
             'periodicidad'        => $data['periodicidad'] ?? 'quincenal',
             'nomina_sueldo_id'    => $data['nomina_sueldo_id'] ?? null,
             'rol_id'              => $data['rol_id'],
-            'facturacion'         => ($arquetipo === 'vendedor') && $request->boolean('facturacion'),
+            // Facturación, Redes y recargar telas ya no van amarrados al rol
+            // (fase 5): el contador que solo factura puede no ser vendedor.
+            // Quien no usa el programa no entra, así que no los lleva.
+            'facturacion'         => ! $noUsaPrograma && $request->boolean('facturacion'),
             // Sin restricción de rol: es justo lo que se pidió, que un perfil
             // de producción se le pueda asignar a cualquier trabajador.
             'independiente'       => $independiente,
             'notif_asignar_fecha' => $request->boolean('notif_asignar_fecha'),
             'notif_stock'         => $request->boolean('notif_stock'),
-            'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
+            'acceso_redes'        => ! $noUsaPrograma && $request->boolean('acceso_redes'),
             'acceso_comisiones'   => $request->boolean('acceso_comisiones'),
-            'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
+            'recarga_telas'       => ! $noUsaPrograma && $request->boolean('recarga_telas'),
             // Igual que acceso_surtir: estos módulos ya no van atados al rol,
             // así que se guardan tal cual se pidan, sin restricción — es
             // justo lo que se pidió, poder dárselos a cualquiera.
@@ -417,10 +418,11 @@ class UsuarioController extends Controller
             $data['notif_stock'] = $request->boolean('notif_stock');
         }
         if ($request->has('facturacion')) {
-            $data['facturacion'] = ($arquetipoFinal === 'vendedor') && $request->boolean('facturacion');
+            // Ya no solo vendedores (fase 5): el contador que solo factura.
+            $data['facturacion'] = $request->boolean('facturacion');
         }
         if ($request->has('acceso_redes')) {
-            $data['acceso_redes'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
+            $data['acceso_redes'] = $request->boolean('acceso_redes');
         }
         // ── Pasar de "no usa el programa" a que sí lo use, y al revés ──────
         if ($request->has('no_usa_programa')) {
@@ -484,7 +486,7 @@ class UsuarioController extends Controller
             $data['acceso_telas'] = $request->boolean('acceso_telas');
         }
         if ($request->has('recarga_telas')) {
-            $data['recarga_telas'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
+            $data['recarga_telas'] = $request->boolean('recarga_telas');
         }
         // Sin restricción de rol: es lo que se pidió, poder asignárselo a
         // cualquiera.

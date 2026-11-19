@@ -402,7 +402,9 @@ async function submit() {
       </div>
 
       <!-- Facturación (solo vendedores) -->
-      <div v-if="arquetipo === 'vendedor'" class="flex items-start gap-3 py-2">
+      <!-- Facturación y Redes, para cualquier rol (fase 5): el contador que
+           solo factura puede no ser vendedor. -->
+      <div v-if="!form.no_usa_programa" class="flex items-start gap-3 py-2">
         <input
           id="facturacion"
           type="checkbox"
@@ -444,7 +446,7 @@ async function submit() {
       </template>
 
       <!-- Acceso redes (vendedor y supervisor) -->
-      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
+      <div v-if="!form.no_usa_programa" class="flex items-start gap-3 py-2">
         <input
           id="acceso_redes"
           type="checkbox"

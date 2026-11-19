@@ -95,8 +95,8 @@ class InventarioTelaController extends Controller
     public function recargar(Request $request)
     {
         $usuario = $request->user();
-        $puedeRecargar = ($usuario->recarga_telas && in_array($usuario->rol, ['vendedor', 'supervisor']))
-            || $usuario->rol === 'supervisor';
+        // Por permiso, no por rol (fase 5): quien tenga "recargar telas".
+        $puedeRecargar = $usuario->recarga_telas || $usuario->rol === 'supervisor';
 
         if (!$puedeRecargar) {
             return response()->json(['message' => 'No autorizado.'], 403);

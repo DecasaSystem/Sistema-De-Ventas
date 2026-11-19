@@ -208,9 +208,9 @@ async function submitEdit() {
       nombre: editForm.value.nombre.trim(),
       email: editForm.value.email.trim(),
       rol_id: editForm.value.rol_id,
-      facturacion: editArquetipo.value === 'vendedor' ? editForm.value.facturacion : false,
+      facturacion: !editForm.value.no_usa_programa && editForm.value.facturacion,
       independiente: editEsIndependiente.value,
-      acceso_redes: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_redes : false,
+      acceso_redes: !editForm.value.no_usa_programa && editForm.value.acceso_redes,
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
       apto_comisiones: editForm.value.apto_comisiones,
       apto_produccion: editForm.value.apto_produccion,
@@ -345,14 +345,14 @@ onMounted(async () => {
             <p class="text-xs text-gray-500">No pertenece a ninguna tienda · lleva su propia caja</p>
           </div>
         </div>
-        <div v-if="usuario.facturacion && usuario.arquetipo === 'vendedor'" class="flex items-center gap-3">
+        <div v-if="usuario.facturacion" class="flex items-center gap-3">
           <BanknotesIcon class="w-5 h-5 text-green-500 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Función especial</p>
             <p class="font-medium text-green-700">Facturación electrónica habilitada</p>
           </div>
         </div>
-        <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_redes" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">📱</span>
           </div>
@@ -735,7 +735,8 @@ onMounted(async () => {
                 </p>
               </div>
             </div>
-            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-1">
+            <!-- Facturación y Redes, para cualquier rol (fase 5). -->
+            <div v-if="!editForm.no_usa_programa" class="flex items-start gap-3 py-1">
               <input
                 id="edit-facturacion"
                 type="checkbox"
@@ -747,7 +748,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Entra a Facturación electrónica (Alegra): revisa y factura lo entregado, y cambia los Ajustes del módulo.</p>
               </div>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
+            <div v-if="!editForm.no_usa_programa" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-redes"
                 type="checkbox"
