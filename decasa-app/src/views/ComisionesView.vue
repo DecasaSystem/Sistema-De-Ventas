@@ -1,6 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
-import { mesBogota } from '@/utils/fechas'
+import { mesBogota, fechaBogota } from '@/utils/fechas'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
@@ -1127,9 +1127,20 @@ function cop(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 }
 
+// Llegan dos clases de fecha: un día ('2026-08-10', fecha_venta de las
+// tiendas) o un momento con hora en UTC ('2026-08-10 19:30:00' de la base, o
+// '2026-08-10T19:30:00.000000Z'): las restauraciones de los independientes
+// traen el created_at de la orden. Antes a todo se le pegaba 'T12:00:00' y el
+// momento salía "Invalid Date". Al momento se le saca el día en Colombia.
 function fmtFecha(f) {
   if (!f) return '—'
-  return new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
+  const s = String(f)
+  const dia = s.length === 10
+    ? s
+    : fechaBogota(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + 'Z')
+  const d = new Date(dia + 'T12:00:00')
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function diasLabel(c) {

@@ -433,7 +433,10 @@ class ComisionIndependientes
                 'vendedor_id'    => (int) $o->vendedor_id,
                 'valor'          => (float) $o->valor_total,
                 'estado'         => $o->estado,
-                'fecha'          => $o->created_at,
+                // El día de la venta en Colombia ('Y-m-d'), como fecha_venta de las
+                // tiendas: el created_at crudo es UTC y con hora (la pantalla decía
+                // "Invalid Date" y el Excel corría al día siguiente después de las 7 p. m.).
+                'fecha'          => self::diaDeVenta($o->created_at),
                 'almacen'        => $o->almacen,
                 'es_restauracion'=> in_array($o->id, $idsRestauracion, true),
                 'suma_a_meta'    => ($o->tienda_abonada_id && ! in_array($o->id, $idsRestauracion, true))
@@ -465,12 +468,21 @@ class ComisionIndependientes
                 'almacen'    => $o->tienda,
                 'valor'      => (float) $o->valor_total,
                 'estado'     => $o->estado,
-                'fecha'      => $o->created_at,
+                'fecha'      => self::diaDeVenta($o->created_at),
                 'pagado'     => (float) $o->pagado,
                 'lista'      => $deAlmacenesListas->contains('id', $o->id),
                 'paga'       => round(ReglasComision::sinIva((float) $o->valor_total, true, $mes) * $pctBolson),
             ])->values()->all(),
         ];
+    }
+
+    /** 'Y-m-d' en Colombia de un created_at crudo de la base (UTC). */
+    private static function diaDeVenta($createdAt): ?string
+    {
+        if (! $createdAt) return null;
+
+        return \Illuminate\Support\Carbon::parse($createdAt, 'UTC')
+            ->setTimezone(\App\Http\Controllers\StatsController::TZ_NEGOCIO)->toDateString();
     }
 
     /**
