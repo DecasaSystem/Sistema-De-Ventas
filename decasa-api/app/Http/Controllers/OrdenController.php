@@ -1836,6 +1836,9 @@ class OrdenController extends Controller
             'tienda_abonada_id'             => 'sometimes|nullable|integer|exists:tiendas,id',
             'covendedor_id'                 => 'sometimes|nullable|integer|exists:usuarios,id',
             'es_compartida'                 => 'sometimes|boolean',
+            // FV2 "sin restar el IVA" que se le olvidó marcar a quien la vendió
+            // (o que se marcó de más). Solo un super admin (ver más abajo).
+            'sin_descontar_iva'             => 'sometimes|boolean',
             'items'                         => 'sometimes|nullable|array',
             'items.*.id'                    => 'required_with:items|integer|exists:orden_items,id',
             'items.*.specs_personalizacion' => 'sometimes|nullable|array',
@@ -2007,9 +2010,28 @@ class OrdenController extends Controller
             }
         }
 
+        // FV2 "no se resta el IVA" (migración fv2_sin_descontar_iva): la marca
+        // hace que la bonificación del 5 % directo de quien la vendió no se
+        // divida por 1,19, que Finanzas la cuente como venta no gravada y que
+        // la factura salga sin IVA. Al crear la orden la prende quien tiene
+        // `puede_fv2_sin_iva`; si se le olvidó, la corrige un super admin
+        // (usuario, 2026-11-20). También con la orden entregada: el olvido se
+        // nota casi siempre al liquidar el mes. Lo ya pagado no se mueve,
+        // salvo al independiente, al que Listas le saca sola la diferencia.
+        $cambiaSinIva = array_key_exists('sin_descontar_iva', $data)
+            && (bool) $data['sin_descontar_iva'] !== (bool) $orden->sin_descontar_iva;
+        if ($cambiaSinIva) {
+            if (! \App\Support\RangoDeUsuarios::esSuperAdmin($usuario)) {
+                return response()->json(['message' => 'Solo un super admin puede cambiar si a esta FV2 se le resta el IVA.'], 403);
+            }
+            if ($orden->serie !== Orden::SERIE_FV2) {
+                return response()->json(['message' => 'Solo a una FV2 se le puede dejar sin restar el IVA.'], 422);
+            }
+        }
+
         $cambios = [];
 
-        DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando, $ajustandoAbono) {
+        DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando, $ajustandoAbono, $cambiaSinIva) {
             $updateOrden = [];
             // La tienda cambió solo porque cambió el vendedor (ver abajo).
             $soloLaVenta = false;
@@ -2139,6 +2161,15 @@ class OrdenController extends Controller
             if (array_key_exists('anticipo_pct', $data) && (float) $data['anticipo_pct'] !== (float) $orden->anticipo_pct) {
                 $cambios[] = ['campo' => 'anticipo_pct', 'label' => '% de anticipo sugerido', 'antes' => (float) $orden->anticipo_pct, 'despues' => (float) $data['anticipo_pct']];
                 $updateOrden['anticipo_pct'] = $data['anticipo_pct'];
+            }
+            if ($cambiaSinIva) {
+                $cambios[] = [
+                    'campo'   => 'sin_descontar_iva',
+                    'label'   => 'FV2: restar el IVA a la bonificación',
+                    'antes'   => $orden->sin_descontar_iva ? 'no se resta' : 'se resta',
+                    'despues' => $data['sin_descontar_iva'] ? 'no se resta' : 'se resta',
+                ];
+                $updateOrden['sin_descontar_iva'] = (bool) $data['sin_descontar_iva'];
             }
 
             // ── Reasignación de vendedor/tienda (solo supervisor) y abono a
@@ -2930,6 +2961,22 @@ class OrdenController extends Controller
                         . ($bajo
                             ? ': lo que se cobró de más se descuenta solo del próximo pago.'
                             : ': la diferencia de lo que subió se paga aparte, en el próximo pago.');
+                }
+            }
+
+            // La marca del IVA con la bonificación de quien la vendió ya pagada:
+            // al independiente, Listas le saca sola la diferencia si sube; a
+            // nadie se le descuenta solo si baja, y en una tienda lo pagado se
+            // queda como se pagó. Que el super admin lo sepa.
+            if (collect($cambios)->contains('campo', 'sin_descontar_iva')) {
+                $pagada = Comision::where('orden_id', $orden->id)->where('estado', 'pagada')
+                    ->where('vendedor_id', $orden->vendedor_id)->exists();
+                if ($pagada) {
+                    $quien = $ordenFresh->vendedor?->nombre ?? 'quien la vendió';
+                    $ordenFresh->aviso_comisiones = "La bonificación de {$quien} por esta FV2 ya estaba pagada: "
+                        . ($ordenFresh->sin_descontar_iva && $ordenFresh->vendedor?->independiente
+                            ? 'la diferencia sale en su próximo pago (Bonificaciones → Listas).'
+                            : 'lo pagado no cambia; si hay que ajustarlo, se hace a mano en la liquidación.');
                 }
             }
         }

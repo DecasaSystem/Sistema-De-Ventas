@@ -1635,6 +1635,16 @@ Decisiones del dueño del 2026-10-08:
   borrar (venta y borrador) pasan por `Produccion::borrarConLoQueCuelga` (retornos → pasos →
   pieza; el borrador borraba la pieza sin sus pasos y la llave lo frenaba). Por defecto mío
   (**falta confirmar**): queda una nota en el chat de la orden. Tests al final de `CancelarProduccionTest`.
+- **FV2 "no restar el IVA" desde Editar orden** (usuario, 2026-11-20, **subido a `main`** ese día, sin migración, rama
+  `claude/fv2-order-edit-superadmin-52e418`). Si a quien vendió (`puede_fv2_sin_iva`) se le olvidó la
+  casilla en Nueva orden, **solo un super admin** la prende o la quita en Editar orden, también
+  entregada (`PATCH /ordenes/{id}` con `sin_descontar_iva`; queda en el historial). Para qué sirve
+  `ordenes.sin_descontar_iva` (revisado ese día): (1) bonificación del 5 % directo de **quien la
+  vendió** sin ÷ 1,19 (independientes y tiendas sin meta; en el pool de una tienda con meta no cambia
+  nada; covendedor y almacén cobran normal); (2) Finanzas la cuenta como venta no gravada
+  (`fv2_sin_iva_no_gravada`); (3) la factura saldría sin IVA (las FV2 no se facturan). Lo pagado no se
+  mueve, salvo al independiente: `ComisionIndependientes` saca sola la diferencia en Listas si sube. Si
+  baja con algo pagado, no se descuenta solo (se avisa). Tests en `Fv2SinIvaAlEditarTest`.
 - **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
   problemas en la carpeta de notas de la sesión). **Todo arreglado y subido a `main` el 2026-11-17**
   (sin migración, rama `claude/upbeat-archimedes-cded7e`). Decisiones del usuario ese día: (1) cancelar

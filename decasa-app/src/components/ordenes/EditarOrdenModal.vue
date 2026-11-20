@@ -119,6 +119,14 @@ const tiendaId      = ref(null)
 const covendedorId  = ref(null)
 const esCompartida  = ref(false)
 const tiendaAbonadaId = ref(null)   // media venta abonada a una tienda
+
+// FV2 "sin restar el IVA": al crearla la prende quien tiene el permiso; si se
+// le olvidó (o se marcó de más), la corrige un super admin. Cambia la
+// bonificación del 5 % directo de quien la vendió (independientes y tiendas
+// sin meta), Finanzas la cuenta como venta no gravada y no lleva IVA al facturar.
+const esSuperAdmin  = computed(() => !!auth.usuario?.es_super_admin)
+const fv2SinIva     = ref(false)
+const puedeTocarIva = computed(() => esSuperAdmin.value && props.orden?.serie === 'FV2')
 const tiendasLista    = ref([])
 const vendedoresLista = ref([])
 
@@ -835,6 +843,7 @@ watch(() => props.show, (v) => {
   covendedorId.value = props.orden.covendedor_id ?? null
   esCompartida.value = !!props.orden.es_compartida
   tiendaAbonadaId.value = props.orden.tienda_abonada_id ?? null
+  fv2SinIva.value       = !!props.orden.sin_descontar_iva
   if (esSupervisor.value) cargarListasSupervisor()
 
   itemsEliminar.value  = []
@@ -1308,6 +1317,10 @@ async function guardar() {
       payload.tienda_abonada_id = tiendaAbonadaId.value || null
     }
 
+    if (puedeTocarIva.value && fv2SinIva.value !== !!props.orden.sin_descontar_iva) {
+      payload.sin_descontar_iva = fv2SinIva.value
+    }
+
     // Vendedor: ¿algo de esto es dinero? El servidor lo compara con lo
     // guardado (la pantalla manda el precio y la cantidad aunque no se toquen).
     if (necesitaAprobacion.value) {
@@ -1617,6 +1630,22 @@ function solicitudEnviada() {
                 {{ pagoAnticipo
                   ? 'Corrige aquí si el anticipo se registró mal. El cambio queda en el historial de la orden.'
                   : 'Queda en el historial de la orden y le avisa a facturación, igual que cualquier pago.' }}
+              </p>
+            </div>
+
+            <!-- FV2 sin restar el IVA (solo super admin). También con la
+                 orden entregada: el olvido se nota al liquidar el mes. -->
+            <div v-if="puedeTocarIva" class="space-y-2 border border-amber-200 bg-amber-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-amber-800 uppercase">FV2 · IVA en la bonificación</p>
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" v-model="fv2SinIva" class="mt-0.5 w-4 h-4 accent-amber-600" />
+                <span class="text-sm text-gray-800">No restar el IVA a esta FV2</span>
+              </label>
+              <p class="text-[11px] text-amber-800">
+                La bonificación del 5 % de quien la vendió se saca sobre el valor completo (sin ÷ 1,19).
+                Solo cambia en independientes y tiendas sin meta: en una tienda con meta la venta entra al pool igual.
+                Finanzas la cuenta como venta sin IVA. Lo ya pagado no se mueve, salvo al independiente,
+                al que la diferencia le sale en el próximo pago.
               </p>
             </div>
 
