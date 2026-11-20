@@ -852,6 +852,30 @@ class ProduccionController extends Controller
     }
 
     /**
+     * DELETE /api/produccion/{id}
+     *
+     * Quita del tablero una pieza cancelada que ya no espera nadie (usuario,
+     * 2026-11-20). La regla está en CancelarProductoDeLaOrden::eliminar.
+     */
+    public function destroy(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if ($usuario->rol !== 'supervisor' && ! $usuario->gestionaProduccion()) {
+            return response()->json(['message' => 'Eliminar una pieza lo hace un supervisor o quien maneja Producción.'], 403);
+        }
+
+        $produccion = Produccion::findOrFail($id);
+        $ordenId    = $produccion->ordenItem?->orden_id;
+        \App\Services\CancelarProductoDeLaOrden::eliminar($produccion, $usuario);
+
+        try {
+            event(new ProduccionActualizada($id, $ordenId, 'eliminada'));
+        } catch (\Throwable) {}
+
+        return response()->json(['message' => 'Pieza eliminada de Producción.']);
+    }
+
+    /**
      * PATCH /api/produccion/{id}
      * Supervisor cambia estado. Si cambia a en_proceso, debe enviar los pasos.
      */

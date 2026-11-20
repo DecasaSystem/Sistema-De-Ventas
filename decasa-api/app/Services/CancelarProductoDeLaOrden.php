@@ -134,6 +134,51 @@ class CancelarProductoDeLaOrden
         });
     }
 
+    /**
+     * Borrar del tablero una pieza cancelada (usuario, 2026-11-20): las
+     * canceladas se quedaban en Producción para siempre.
+     *
+     * Solo si ya no la espera nadie: era para la Reserva, el producto salió de
+     * la orden (o ya se le entregó todo), o la orden está cancelada. Si el
+     * producto sigue por entregar en una orden viva, se frena: sin la pieza,
+     * la orden quedaría esperando un producto que el taller ya no tiene en la
+     * lista. Primero se quita de la orden (o se descancela).
+     *
+     * No mueve plata ni inventario: eso ya pasó al cancelar o al quitarlo de
+     * la orden. Después ya no se puede descancelar.
+     */
+    public static function eliminar(Produccion $produccion, Usuario $usuario): void
+    {
+        DB::transaction(function () use ($produccion, $usuario) {
+            $produccion = Produccion::lockForUpdate()->findOrFail($produccion->id);
+            if ($produccion->estado !== 'cancelado') {
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                    'message' => 'Solo se elimina una pieza cancelada.',
+                ], 422));
+            }
+
+            $item  = $produccion->orden_item_id ? OrdenItem::with('producto:id,nombre')->find($produccion->orden_item_id) : null;
+            $orden = $item?->orden;
+
+            $laEsperan = $item && $orden
+                && $orden->estado !== 'cancelado'
+                && $item->devuelto_en === null
+                && $item->pendienteEntregar() > 0;
+            if ($laEsperan) {
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                    'message' => 'Ese producto sigue por entregar en la orden ' . $orden->referencia
+                        . '. Primero quítalo de la orden (o descancélalo).',
+                ], 422));
+            }
+
+            Produccion::borrarConLoQueCuelga([$produccion->id]);
+
+            if ($item && $orden) {
+                self::anotar($orden, $usuario, "Se eliminó de Producción la pieza cancelada de \"" . self::nombre($item) . "\".");
+            }
+        });
+    }
+
     /** Total, bonificación y estado de la orden con lo que de verdad lleva. */
     private static function ponerAlDia(Orden $orden): void
     {

@@ -728,6 +728,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Cancelado que el cliente vuelve a querer, y cancelado que sale de la orden (2026-11-17).
     Route::post('/produccion/{id}/descancelar',        [ProduccionController::class, 'descancelar'])->whereNumber('id');
     Route::post('/produccion/{id}/quitar-de-la-orden', [ProduccionController::class, 'quitarDeLaOrden'])->whereNumber('id');
+    // Borrar del tablero una pieza cancelada que ya no espera nadie (2026-11-20).
+    Route::delete('/produccion/{id}',                  [ProduccionController::class, 'destroy'])->whereNumber('id');
 
     // Carga de trabajo: órdenes por entregar, piezas sin arrancar, cola de
     // cada paso. Solo lee (ver App\Services\CargaDeTrabajo).

@@ -369,4 +369,60 @@ class CancelarProduccionTest extends TestCase
         $this->actingAs($vendedor)->postJson("/api/produccion/{$prod->id}/quitar-de-la-orden")->assertStatus(403);
         $this->actingAs($vendedor)->postJson("/api/produccion/{$prod->id}/descancelar")->assertStatus(403);
     }
+
+    // ── Eliminar piezas canceladas (usuario, 2026-11-20) ──────────────────
+
+    public function test_una_pieza_cancelada_que_salio_de_la_orden_se_elimina_con_sus_pasos(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, $item, $prod] = $this->piezaEnProceso();
+        $jefe = $this->jefe();
+
+        $this->actingAs($jefe)
+            ->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado', 'que_pasa' => 'sale_de_la_orden'])
+            ->assertOk();
+
+        $this->actingAs($jefe)->deleteJson("/api/produccion/{$prod->id}")->assertOk();
+
+        $this->assertNull(Produccion::find($prod->id));
+        $this->assertSame(0, ProduccionPaso::where('produccion_id', $prod->id)->count());
+        // No mueve plata: la orden sigue como quedó al cancelar.
+        $this->assertEquals(300000, (float) $orden->fresh()->valor_total);
+        $this->assertNotNull(OrdenItem::find($item->id));
+    }
+
+    public function test_no_se_elimina_si_el_producto_sigue_por_entregar(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [, , $prod] = $this->piezaEnProceso();
+        $jefe = $this->jefe();
+
+        // Sin cancelar: no.
+        $this->actingAs($jefe)->deleteJson("/api/produccion/{$prod->id}")->assertStatus(422);
+
+        // Cancelada pero el producto sigue en la orden: tampoco.
+        $this->actingAs($jefe)
+            ->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado', 'que_pasa' => 'solo_fabricacion'])
+            ->assertOk();
+        $this->actingAs($jefe)->deleteJson("/api/produccion/{$prod->id}")->assertStatus(422);
+        $this->assertNotNull(Produccion::find($prod->id));
+
+        // Y un vendedor no borra del taller.
+        $vendedor = Usuario::create(['nombre' => 'Vende', 'email' => 'v@d.com', 'password' => 'x', 'rol' => 'vendedor',
+                                     've_todas_ordenes' => false, 'created_at' => now()]);
+        $this->actingAs($vendedor)->deleteJson("/api/produccion/{$prod->id}")->assertStatus(403);
+    }
+
+    public function test_si_la_orden_esta_cancelada_su_pieza_se_puede_eliminar(): void
+    {
+        $this->conEsquemaParaQuitar();
+        [$orden, , $prod] = $this->piezaEnProceso();
+        $jefe = $this->jefe();
+
+        $this->actingAs($jefe)->patchJson("/api/produccion/{$prod->id}", ['estado' => 'cancelado'])->assertOk();
+        $orden->update(['estado' => 'cancelado']);
+
+        $this->actingAs($jefe)->deleteJson("/api/produccion/{$prod->id}")->assertOk();
+        $this->assertNull(Produccion::find($prod->id));
+    }
 }

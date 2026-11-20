@@ -15,6 +15,9 @@ export const descancelarProduccion = (id) =>
   api.post(`/produccion/${id}/descancelar`)
 export const quitarProduccionDeLaOrden = (id) =>
   api.post(`/produccion/${id}/quitar-de-la-orden`)
+// Borrar del tablero una pieza cancelada que ya no espera nadie.
+export const eliminarProduccion = (id) =>
+  api.delete(`/produccion/${id}`)
 
 // Pasos de producción (ebanista / tapicero)
 export const getMisPasos = () =>

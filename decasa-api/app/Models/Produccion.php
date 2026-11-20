@@ -155,6 +155,28 @@ class Produccion extends Model
             ?? $this->producto?->nombre;
     }
 
+    /**
+     * Borra piezas con todo lo que cuelga de ellas y no se va solo: los
+     * retornos de despacho (apuntan a un paso, por eso van primero) y los
+     * pasos (sus trabajadores y calificaciones se van en cascada). La tela
+     * apartada se va en cascada y una garantía queda sin la pieza.
+     *
+     * Una sola puerta para borrar del taller: al eliminar una orden (venta o
+     * borrador) y al eliminar en Producción una pieza cancelada. Antes el
+     * borrador borraba la pieza sin sus pasos y la base lo frenaba.
+     */
+    public static function borrarConLoQueCuelga(iterable $ids): void
+    {
+        $ids = collect($ids)->filter()->values();
+        if ($ids->isEmpty()) return;
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('produccion_retornos')) {
+            \Illuminate\Support\Facades\DB::table('produccion_retornos')->whereIn('produccion_id', $ids)->delete();
+        }
+        \Illuminate\Support\Facades\DB::table('produccion_pasos')->whereIn('produccion_id', $ids)->delete();
+        static::whereIn('id', $ids)->delete();
+    }
+
     public function diasRestantes(): int
     {
         // Días enteros de calendario: en Carbon 3 diffInDays da decimales

@@ -1626,6 +1626,15 @@ Decisiones del dueño del 2026-10-08:
   de tienda que iba a retapizar, vuelve a quedar libre en el inventario. Tests al final de
   `CancelarProduccionTest`.
 
+- **Eliminar piezas canceladas en Producción** (usuario, 2026-11-20, **subido a `main`** ese día, sin migración).
+  Botón "Eliminar" en la tarjeta de una pieza cancelada (`DELETE /produccion/{id}`, supervisor o
+  `gestionaProduccion`). Regla en `CancelarProductoDeLaOrden::eliminar`: solo si ya no la espera
+  nadie (Reserva, salió de la orden, ya se entregó o la orden está cancelada); si el producto sigue
+  por entregar en una orden viva, 422 "primero quítalo de la orden". No mueve plata ni inventario;
+  después ya no se descancela. Borrar una orden ya se llevaba sus piezas; ahora las dos formas de
+  borrar (venta y borrador) pasan por `Produccion::borrarConLoQueCuelga` (retornos → pasos →
+  pieza; el borrador borraba la pieza sin sus pasos y la llave lo frenaba). Por defecto mío
+  (**falta confirmar**): queda una nota en el chat de la orden. Tests al final de `CancelarProduccionTest`.
 - **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
   problemas en la carpeta de notas de la sesión). **Todo arreglado y subido a `main` el 2026-11-17**
   (sin migración, rama `claude/upbeat-archimedes-cded7e`). Decisiones del usuario ese día: (1) cancelar

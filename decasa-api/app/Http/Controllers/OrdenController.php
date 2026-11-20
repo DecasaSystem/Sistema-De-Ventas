@@ -4661,9 +4661,8 @@ class OrdenController extends Controller
             ]);
 
             // Lo que cuelga de la orden y no se borra solo.
-            DB::table('produccion_retornos')->whereIn('produccion_id', $produccionIds)->delete();
-            DB::table('produccion_pasos')->whereIn('produccion_id', $produccionIds)->delete();
-            Produccion::whereIn('id', $produccionIds)->delete();
+            // Las piezas del taller se van con la orden, también las canceladas.
+            Produccion::borrarConLoQueCuelga($produccionIds);
             DespachoItem::where('orden_id', $orden->id)->delete();
             Comision::where('orden_id', $orden->id)->delete();
             $orden->pagos()->delete();
@@ -4771,7 +4770,7 @@ class OrdenController extends Controller
             ConsumoTelas::liberarOrden($orden);
 
             $itemIds = $orden->items->pluck('id');
-            Produccion::whereIn('orden_item_id', $itemIds)->delete();
+            Produccion::borrarConLoQueCuelga(Produccion::whereIn('orden_item_id', $itemIds)->pluck('id'));
             DB::table('consultas_costo')->where('orden_id', $orden->id)->delete();
             DB::table('orden_ediciones')->where('orden_id', $orden->id)->delete();
             $orden->pagos()->delete();

@@ -18,7 +18,7 @@ import {
   TableCellsIcon,
   ArchiveBoxIcon,
 } from '@heroicons/vue/24/outline'
-import { getProduccion, updateProduccion, descancelarProduccion, quitarProduccionDeLaOrden } from '@/api/produccion'
+import { getProduccion, updateProduccion, descancelarProduccion, quitarProduccionDeLaOrden, eliminarProduccion } from '@/api/produccion'
 import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
 import { formatoDuracion } from '@/utils/duracion'
 import { exportarExcel } from '@/utils/exportarExcel'
@@ -116,6 +116,25 @@ async function descancelarPieza(p) {
     await fetchProduccion()
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo descancelar.')
+  } finally {
+    accionCancelada.value = null
+  }
+}
+// Se puede borrar del tablero si ya no la espera nadie: era para la Reserva,
+// salió de la orden o ya se entregó, o la orden está cancelada. La misma regla
+// que CancelarProductoDeLaOrden::eliminar en el servidor.
+function sePuedeEliminar(p) {
+  return !productoSigueEnLaOrden(p) || p.orden_item?.orden?.estado === 'cancelado'
+}
+async function eliminarPieza(p) {
+  if (!confirm('¿Eliminar esta pieza cancelada de Producción? No mueve plata ni inventario, pero ya no se podrá descancelar.')) return
+  accionCancelada.value = p.id
+  try {
+    await eliminarProduccion(p.id)
+    toast.success('Pieza eliminada de Producción.')
+    await fetchProduccion()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo eliminar.')
   } finally {
     accionCancelada.value = null
   }
@@ -1085,12 +1104,20 @@ onUnmounted(() => {
                 Descancelar
               </button>
               <button
-                v-if="productoSigueEnLaOrden(p) && !(p.orden_item?.cantidad_cancelada > 0)"
+                v-if="productoSigueEnLaOrden(p) && !(p.orden_item?.cantidad_cancelada > 0) && p.orden_item?.orden?.estado !== 'cancelado'"
                 @click.stop="quitarPiezaDeLaOrden(p)"
                 :disabled="accionCancelada === p.id"
                 class="flex-1 text-red-600 text-xs font-medium text-center py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
               >
                 Quitar de la orden
+              </button>
+              <button
+                v-if="sePuedeEliminar(p)"
+                @click.stop="eliminarPieza(p)"
+                :disabled="accionCancelada === p.id"
+                class="flex-1 text-red-600 text-xs font-medium text-center py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Eliminar
               </button>
             </div>
           </template>
