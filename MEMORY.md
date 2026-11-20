@@ -1645,6 +1645,18 @@ Decisiones del dueño del 2026-10-08:
   (`fv2_sin_iva_no_gravada`); (3) la factura saldría sin IVA (las FV2 no se facturan). Lo pagado no se
   mueve, salvo al independiente: `ComisionIndependientes` saca sola la diferencia en Listas si sube. Si
   baja con algo pagado, no se descuenta solo (se avisa). Tests en `Fv2SinIvaAlEditarTest`.
+- **Cambiar la fecha de una venta** (usuario, 2026-11-20, **subido a `main`** ese día, sin migración, misma rama).
+  Vendida el 31, subida el 1: un super admin la pasa al día real desde el detalle de la orden
+  ("Cambiar" junto a la fecha; `PATCH /ordenes/{id}/fecha-venta`, `Services/CambiarFechaDeVenta`).
+  Reemplaza las migraciones por orden como la de la #4423. Mueve `created_at` (mediodía en Bogotá) y,
+  en su sitio, `mes_venta`/`fecha_venta`/`fecha_disponible` de los renglones sin pagar; luego
+  `sincronizarValorOrden` + `pedirRecalculo`. Reportes, estadísticas, metas, Finanzas y cartera leen
+  `created_at` al pedirlo y se acomodan solos. No cambian número, pagos, `confirmada_en` ni
+  `tienda_vendedor_id`. Con una bonificación de la orden ya pagada no se deja (422). Si sale de un mes
+  ya pagado, `BonificacionCobradaDeMas::alMoverDeMes` descuenta lo cobrado de más; si llega a uno ya
+  pagado, Listas paga la diferencia. Mes cerrado en Finanzas: solo avisa. Por defecto mío (**falta
+  confirmar**): sin límite de días hacia atrás, no a una fecha futura. Tests en `CambiarFechaDeVentaTest`
+  (no cubren el cobro de más al salir de un mes pagado).
 - **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
   problemas en la carpeta de notas de la sesión). **Todo arreglado y subido a `main` el 2026-11-17**
   (sin migración, rama `claude/upbeat-archimedes-cded7e`). Decisiones del usuario ese día: (1) cancelar

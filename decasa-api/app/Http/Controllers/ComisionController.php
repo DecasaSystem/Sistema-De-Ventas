@@ -5346,7 +5346,7 @@ class ComisionController extends Controller
      * - Tiendas trimestrales (Pereira): día 20 del mes siguiente al cierre
      *   del trimestre calendario (mar/jun/sep/dic) en que cae la venta.
      */
-    private static function calcularFechaDisponible(Carbon $fechaVenta, int $tiendaId): string
+    public static function calcularFechaDisponible(Carbon $fechaVenta, int $tiendaId): string
     {
         if (self::esTiendaTrimestral($tiendaId, $fechaVenta->format('Y-m'))) {
             $mesCierre = intdiv($fechaVenta->month - 1, 3) * 3 + 3; // 3, 6, 9 o 12

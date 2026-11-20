@@ -80,3 +80,7 @@ export const convertirSerie = (id, payload) =>
   api.post(`/ordenes/${id}/numeracion/convertir`, payload)
 export const cambiarNumeroOrden = (id, numero) =>
   api.patch(`/ordenes/${id}/numeracion`, { numero_orden: numero })
+
+// La venta era del 31 y se subió el 1: la pasa al día que de verdad fue.
+// Solo super admin. data: { fecha: 'YYYY-MM-DD', motivo }
+export const cambiarFechaVenta = (id, data) => api.patch(`/ordenes/${id}/fecha-venta`, data)

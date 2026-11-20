@@ -4871,6 +4871,32 @@ class OrdenController extends Controller
         return response()->json($resultado);
     }
 
+    /**
+     * PATCH /api/ordenes/{id}/fecha-venta — la venta era del 31 y se subió el
+     * 1 (usuario, 2026-11-20). Solo un super admin: mueve la venta de mes en
+     * reportes, metas y bonificaciones. Ver App\Services\CambiarFechaDeVenta.
+     */
+    public function cambiarFechaVenta(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if (! \App\Support\RangoDeUsuarios::esSuperAdmin($usuario)) {
+            return response()->json(['message' => 'Solo un super admin puede cambiar la fecha de una venta.'], 403);
+        }
+
+        $data = $request->validate([
+            'fecha'  => 'required|date_format:Y-m-d|after:2020-01-01',
+            'motivo' => 'nullable|string|max:200',
+        ]);
+
+        $orden = Orden::findOrFail($id);
+        $r = \App\Services\CambiarFechaDeVenta::aplicar($orden, $data['fecha'], $usuario, $data['motivo'] ?? null);
+
+        return response()->json([
+            'created_at' => $r['orden']->created_at,
+            'avisos'     => $r['avisos'],
+        ]);
+    }
+
     /** PATCH /api/ordenes/{id}/numeracion — corregir el número a mano. */
     public function cambiarNumero(Request $request, int $id)
     {

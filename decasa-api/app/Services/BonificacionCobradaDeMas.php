@@ -83,6 +83,18 @@ class BonificacionCobradaDeMas
     }
 
     /**
+     * Un super admin le cambió la fecha de la venta y la orden se va de un mes
+     * cuyo pool ya se pagó (CambiarFechaDeVenta, usuario 2026-11-20). Sin ella
+     * ese mes pudo quedar por debajo: se cobra igual que al cancelar. Lo que
+     * gana el mes al que llega lo paga solo el libro del pool (le toca − pagado).
+     * Antes de mover la fecha, dentro de la transacción.
+     */
+    public static function alMoverDeMes(Orden $orden, Usuario $usuario): void
+    {
+        self::registrar($orden, $usuario, 'mover');
+    }
+
+    /**
      * Órdenes que ya tienen la foto de "antes" esperando el final de la
      * transacción. Cancelar desde Devoluciones también baja el valor: con dos
      * fotos, lo que cambió entre la primera y la segunda se cobraría dos veces.
@@ -94,7 +106,7 @@ class BonificacionCobradaDeMas
 
     private static bool $calculando = false;
 
-    private static function registrar(Orden $orden, ?Usuario $usuario): void
+    private static function registrar(Orden $orden, ?Usuario $usuario, ?string $motivo = null): void
     {
         if (self::$calculando || ! AnticiposComision::hayTablas()) return;
         if (isset(self::$pendientes[(int) $orden->id])) return;
@@ -109,10 +121,10 @@ class BonificacionCobradaDeMas
         if (! $antes) return;
 
         self::$pendientes[(int) $orden->id] = true;
-        DB::afterCommit(function () use ($orden, $usuario, $antes) {
+        DB::afterCommit(function () use ($orden, $usuario, $antes, $motivo) {
             unset(self::$pendientes[(int) $orden->id]);
             try {
-                self::cobrar($orden->fresh(), $usuario, $antes);
+                self::cobrar($orden->fresh(), $usuario, $antes, $motivo);
             } catch (\Throwable $e) {
                 Log::error('[bonificacion-de-mas] cobrar: ' . $e->getMessage(), ['orden_id' => $orden->id]);
             }
@@ -228,9 +240,10 @@ class BonificacionCobradaDeMas
      *
      * @return array<int, float>  [vendedor_id => monto anotado]
      */
-    public static function cobrar(Orden $orden, ?Usuario $usuario, array $antes): array
+    public static function cobrar(Orden $orden, ?Usuario $usuario, array $antes, ?string $motivo = null): array
     {
         $cancelada = $orden->estado === 'cancelado';
+        $semovio   = $motivo === 'mover';
         $porPersona = [];   // vid => [mes => monto]
         $sumar = function (int $vid, string $mes, float $monto) use (&$porPersona) {
             if ($monto < 0.5) return;
@@ -270,9 +283,11 @@ class BonificacionCobradaDeMas
 
         $ref = $orden->referencia;
         $anotado = [];
-        $porque = $cancelada
-            ? "la orden {$ref} se canceló después de pagar la bonificación"
-            : "la orden {$ref} bajó de valor después de pagar la bonificación";
+        $porque = $semovio
+            ? "la orden {$ref} se pasó a otro mes después de pagar la bonificación"
+            : ($cancelada
+                ? "la orden {$ref} se canceló después de pagar la bonificación"
+                : "la orden {$ref} bajó de valor después de pagar la bonificación");
         DB::transaction(function () use ($porPersona, $orden, $usuario, $porque, &$anotado) {
             foreach ($porPersona as $vid => $meses) {
                 foreach ($meses as $mes => $monto) {
@@ -302,7 +317,8 @@ class BonificacionCobradaDeMas
 
         OrdenMensaje::create([
             'orden_id' => $orden->id, 'usuario_id' => $usuario?->id,
-            'mensaje'  => '💸 La bonificación de esta venta ya se había pagado' . ($cancelada ? '' : ' y la orden bajó de valor')
+            'mensaje'  => '💸 La bonificación de esta venta ya se había pagado'
+                        . ($semovio ? ' y la venta se pasó a otro mes' : ($cancelada ? '' : ' y la orden bajó de valor'))
                         . ". Se descuenta del próximo pago: {$lista}.",
         ]);
 

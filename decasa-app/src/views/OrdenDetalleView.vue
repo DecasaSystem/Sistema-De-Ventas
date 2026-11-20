@@ -29,6 +29,7 @@ import { getGarantias } from '@/api/garantias'
 import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
 import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
 import FirmaRemotaOrden from '@/components/ordenes/FirmaRemotaOrden.vue'
+import CambiarFechaVentaModal from '@/components/ordenes/CambiarFechaVentaModal.vue'
 import DeclaracionOrden from '@/components/anexo/DeclaracionOrden.vue'
 import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -314,6 +315,9 @@ const fechaEntregaOrden = computed(() => {
 // era una venta normal. Ahí "NORMAL" le pide al backend el siguiente número
 // normal DE SU TIENDA — Pereira lleva su propio consecutivo aparte de Armenia,
 // así que el número correcto sale solo, no hay que elegirlo a mano.
+// Fecha de la venta: solo super admin (ver CambiarFechaVentaModal).
+const mostrarFechaVenta = ref(false)
+
 const mostrarNumeracion = ref(false)
 const numSerie          = ref('FV2')
 const numCorrer         = ref(true)
@@ -2372,7 +2376,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
         <div class="flex justify-between">
           <span class="text-gray-500">Fecha</span>
-          <span class="font-medium text-gray-800">{{ formatDateTime(orden.created_at) }}</span>
+          <span class="flex items-center gap-2">
+            <span class="font-medium text-gray-800">{{ formatDateTime(orden.created_at) }}</span>
+            <button
+              v-if="auth.usuario?.es_super_admin && !['borrador','cotizacion'].includes(orden.estado)"
+              @click="mostrarFechaVenta = true"
+              class="text-xs text-blue-600 font-medium hover:text-blue-700 underline decoration-dotted"
+            >Cambiar</button>
+          </span>
         </div>
         <div v-if="orden.notas" class="flex justify-between">
           <span class="text-gray-500">Notas</span>
@@ -4299,6 +4310,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       :orden="orden"
       @close="showPedirDinero = false"
       @enviada="cargarSolicitudes()"
+    />
+
+    <!-- Fecha de la venta (solo super admin): vendida el 31, subida el 1. -->
+    <CambiarFechaVentaModal
+      :show="mostrarFechaVenta"
+      :orden="orden"
+      @close="mostrarFechaVenta = false"
+      @guardada="cargarOrden()"
     />
 
     <!-- Corregir el medio de un pago, cuando lo hace un vendedor: a aprobación. -->
