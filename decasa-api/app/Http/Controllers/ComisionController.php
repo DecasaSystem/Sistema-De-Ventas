@@ -613,11 +613,12 @@ class ComisionController extends Controller
             $fila['comision_pagada']  = (float) $i['comision_pagada'];
             $fila['total_ventas']     = (float) $i['vendio'];
             $fila['total_ordenes']    = $suyas->count();
-            // El desglose por órdenes no cuadra para ellos y no se debe usar:
-            // el bolsón de restauraciones se reparte entre los independientes,
-            // así que lo que cobran no sale de sus propias filas. Su ficha ya
-            // muestra el reparto correcto abajo.
-            unset($fila['desglose']);
+            // El desglose por órdenes no cuadra para ellos: el bolsón de
+            // restauraciones se reparte entre los independientes, así que lo
+            // que cobran no sale de sus propias filas. Se arma con la cuenta del
+            // servicio (sus ventas + su parte del bolsón), que sí suma el total,
+            // para que su tarjeta tenga las mismas gráficas (usuario, 2026-11-20).
+            $fila['desglose'] = self::desgloseDeIndependiente($i, $suyas, $indep, $mes);
             $fila['ordenes'] = $suyas->map(fn ($o) => [
                 'id'               => $o['id'],
                 'orden_id'         => $o['id'],
@@ -2128,6 +2129,68 @@ class ComisionController extends Controller
             'trimestre'        => $filaPool['trimestre'] ?? null,
             'ya_pagado_pool'   => round((float) $pagadas->filter($delPool)->sum(fn ($i) => (float) $i['monto_comision'])),
             'ya_pagado'        => round((float) $pagadas->sum(fn ($i) => (float) $i['monto_comision'])),
+        ];
+    }
+
+    /**
+     * El desglose de la tarjeta de un independiente, con la misma forma que
+     * desglosarComision() para que la pantalla lo pinte igual. Sale de la
+     * cuenta de ComisionIndependientes::delMes, no de sus renglones:
+     *
+     *  - "individual": sus ventas, solo suyas (comision_ventas_propias).
+     *  - "bolson": su parte del bolsón de restauraciones de todos, sobre el
+     *    bolsón entero (comision_restauraciones). Las dos suman su total.
+     *  - por tipo y cómo se cobró: sus propias órdenes.
+     *
+     * @param array $i      su fila de delMes()['independientes']
+     * @param \Illuminate\Support\Collection $suyas  sus órdenes de delMes()['ordenes']
+     */
+    private static function desgloseDeIndependiente(array $i, $suyas, array $indep, string $mes): array
+    {
+        $ventas  = $suyas->where('es_restauracion', false);
+        $tarjeta = round((float) $suyas->sum(fn ($o) => (float) ($o['con_tarjeta'] ?? 0)));
+        $restBolson = collect($indep['ordenes'])->where('es_restauracion', true)->count()
+            + (ReglasComision::si('bolson_incluye_almacenes', $mes) ? count($indep['restauraciones_almacenes'] ?? []) : 0);
+        $esFv2 = fn ($o) => str_starts_with((string) $o['referencia'], Orden::SERIE_FV2);
+
+        $cero = ['ordenes' => 0, 'base' => 0, 'comision' => 0];
+
+        return [
+            'pool' => $cero, 'parte_equipo' => $cero, 'restauraciones' => $cero, 'de_independiente' => $cero,
+            'individual' => [
+                'ordenes'  => $ventas->count(),
+                'base'     => round((float) $ventas->sum('valor')),
+                'comision' => round((float) $i['comision_ventas_propias']),
+                'etiqueta' => 'Sus ventas (solo suyas)',
+            ],
+            'bolson' => [
+                'ordenes'  => $restBolson,
+                'base'     => round((float) ($indep['bolson_restauraciones'] ?? 0)),
+                'comision' => round((float) $i['comision_restauraciones']),
+                'etiqueta' => 'Bolsón de restauraciones (de todos)',
+            ],
+
+            'pagado_tarjeta' => $tarjeta,
+            'costo_datafono' => round($tarjeta * ReglasComision::numero('franquicia_pct', $mes)),
+            'sin_tarjeta'    => max(0, round((float) $i['vendio']) - $tarjeta),
+
+            'por_tipo' => [
+                'venta' => [
+                    'monto'    => round((float) $ventas->reject($esFv2)->sum('valor')),
+                    'ordenes'  => $ventas->reject($esFv2)->count(),
+                    'comision' => round((float) $ventas->reject($esFv2)->sum('paga')),
+                ],
+                'restauracion' => [
+                    'monto'    => round((float) $suyas->where('es_restauracion', true)->sum('valor')),
+                    'ordenes'  => $suyas->where('es_restauracion', true)->count(),
+                    'comision' => round((float) $suyas->where('es_restauracion', true)->sum('paga')),
+                ],
+                'fv2' => [
+                    'monto'    => round((float) $ventas->filter($esFv2)->sum('valor')),
+                    'ordenes'  => $ventas->filter($esFv2)->count(),
+                    'comision' => round((float) $ventas->filter($esFv2)->sum('paga')),
+                ],
+            ],
         ];
     }
 

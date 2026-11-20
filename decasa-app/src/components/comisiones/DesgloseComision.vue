@@ -48,6 +48,8 @@ const ORIGENES = [
   { clave: 'restauraciones',   label: 'Restauraciones',        color: '#1baf7a' },
   { clave: 'de_independiente', label: 'De un independiente',   color: '#eda100' },
   { clave: 'individual',       label: 'Sus ventas',            color: '#e87ba4' },
+  // Solo independientes: su parte del bolsón de restauraciones de todos.
+  { clave: 'bolson',           label: 'Bolsón de restauraciones', color: '#1baf7a' },
 ]
 
 const COLOR_TARJETA  = '#4a3aa7'
@@ -62,7 +64,9 @@ const partes = computed(() => {
 
   const filas = ORIGENES
     // "Sus ventas al 5%" con el porcentaje que rige para esta persona.
-    .map(o => o.clave === 'individual' ? { ...o, label: `${o.label} al ${num(r.value.pct_individual)}%` } : o)
+    // Un independiente trae su propia etiqueta desde el servidor.
+    .map(o => d[o.clave]?.etiqueta ? { ...o, label: d[o.clave].etiqueta }
+      : o.clave === 'individual' ? { ...o, label: `${o.label} al ${num(r.value.pct_individual)}%` } : o)
     .map(o => ({ ...o, monto: Number(d[o.clave]?.comision ?? 0), ordenes: d[o.clave]?.ordenes ?? 0, base: Number(d[o.clave]?.base ?? 0) }))
     .filter(f => f.monto > 0)
 

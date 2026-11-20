@@ -2177,7 +2177,6 @@ onMounted(() => {
                    ventas. Antes era un número suelto y para comprobarlo tocaba
                    abrir las órdenes una por una y sumar de cabeza. -->
               <DesgloseComision
-                v-if="!r.es_independiente"
                 :desglose="r.desglose"
                 :total="r.comision_total"
                 :ventas="r.total_ventas"
@@ -2199,7 +2198,12 @@ onMounted(() => {
                    su parte del bolson de restauraciones, que si se reparte con el
                    otro independiente. Sin esta linea la ficha parece descuadrada:
                    sus propias ordenes de venta no explican todo el total. -->
-              <div v-if="r.es_independiente"
+              <!-- Con el desglose (gráficas) basta la frase de cómo se reparte;
+                   los dos montos ya salen en "De dónde sale". -->
+              <p v-if="r.es_independiente && r.desglose" class="mb-2 -mt-1 px-1 text-[11px] text-gray-500">
+                Las ventas son de quien las hizo. Las restauraciones de todos van a un bolsón común, y de ahí sale la parte de cada independiente.
+              </p>
+              <div v-else-if="r.es_independiente"
                    class="mb-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 text-xs">
                 <div class="flex items-center justify-between">
                   <span class="text-sky-800">De sus ventas (solo suyas)</span>

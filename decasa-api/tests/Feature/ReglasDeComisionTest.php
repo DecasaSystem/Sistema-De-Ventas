@@ -384,6 +384,37 @@ class ReglasDeComisionTest extends TestCase
         $this->assertEquals([50_000, 50_000], $this->bolsonDeDos());
     }
 
+    /**
+     * La tarjeta de un independiente trae las mismas gráficas que la de un
+     * vendedor de tienda (usuario, 2026-11-20): sus ventas y su parte del
+     * bolsón, que suman lo que cobra.
+     */
+    public function test_la_tarjeta_de_un_independiente_trae_su_desglose(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->bolsonDeDos();
+        // Una venta de Henry: 1.190.000 ÷ 1,19 × 5 % = 50.000.
+        $this->orden(40, self::FERIA, 1_190_000, [['efectivo', 1_190_000]], self::MES);
+        \App\Services\ComisionIndependientes::olvidarCache();
+
+        $filas  = collect(app(ComisionController::class)->resumenDelMes(self::MES));
+        $henry  = $filas->firstWhere('vendedor_id', 40);
+        $flabio = $filas->firstWhere('vendedor_id', 41);
+
+        $d = $henry['desglose'];
+        $this->assertEquals(50_000, $d['individual']['comision']);
+        $this->assertSame(1, $d['individual']['ordenes']);
+        $this->assertEquals(50_000, $d['bolson']['comision']);
+        $this->assertEquals(1_000_000, $d['bolson']['base']);
+        $this->assertEquals($henry['comision_total'], $d['individual']['comision'] + $d['bolson']['comision']);
+        $this->assertSame(1, $d['por_tipo']['venta']['ordenes']);
+        $this->assertSame(1, $d['por_tipo']['restauracion']['ordenes']);
+
+        // Flabio no vendió: solo su parte del bolsón.
+        $this->assertEquals(0, $flabio['desglose']['individual']['comision']);
+        $this->assertEquals(50_000, $flabio['desglose']['bolson']['comision']);
+    }
+
     public function test_el_excel_de_un_independiente_dice_lo_mismo_que_listas(): void
     {
         Carbon::setTestNow('2026-11-21 10:00:00');
