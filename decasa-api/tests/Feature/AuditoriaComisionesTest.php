@@ -584,7 +584,8 @@ class AuditoriaComisionesTest extends TestCase
         $this->cancelar($cancelada);
         $this->orden(self::MANUELA, self::VIRTUAL, 23_800_000);
 
-        $listas = $this->llamar('loQueHayPorPagar', null, false);
+        // Con el mes fijo: sin él, qué meses entran a Listas depende del día de hoy.
+        $listas = $this->llamar('loQueHayPorPagar', self::MES, false);
         $manuela = collect($listas['personas'])->firstWhere('vendedor_id', self::MANUELA);
         $this->assertEqualsWithDelta(500_000, $manuela['se_descuenta'], 1);
         $this->assertCount(1, $manuela['cobros_de_mas']);

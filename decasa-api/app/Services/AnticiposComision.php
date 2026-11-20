@@ -260,26 +260,58 @@ class AnticiposComision
      */
     public static function pendientesDeDescontar(int $vendedorId, string $corte): array
     {
-        if (! self::hayTablas()) return [];
-        self::anotarLoQueFalteHasta($corte);
+        return self::pendientesDeVarios(['x' => [$vendedorId, $corte]])['x'] ?? [];
+    }
 
-        $sinDescontar = self::descontado($vendedorId);
+    /**
+     * pendientesDeDescontar() para muchos de una vez: [clave => lista], con la
+     * clave que se le dé a cada par [vendedor_id, corte]. Dos consultas para
+     * todos (antes eran dos por persona: en Listas con el Excel, ~70 consultas
+     * de ~200 ms cada una). La cuenta es la misma.
+     *
+     * @param array<string, array{0:int, 1:string}> $pares
+     * @return array<string, array>
+     */
+    public static function pendientesDeVarios(array $pares): array
+    {
+        if (! $pares) return [];
+        if (! self::hayTablas()) return array_map(fn () => [], $pares);
+
+        foreach (array_unique(array_column($pares, 1)) as $corte) {
+            self::anotarLoQueFalteHasta($corte);
+        }
+
+        $ids = array_values(array_unique(array_map('intval', array_column($pares, 0))));
+        $maxCorte = max(array_column($pares, 1));
+
+        $filas = DB::table('comision_anticipos')->whereIn('vendedor_id', $ids)->where('tipo', self::ANTICIPO)
+            ->where('mes', '<=', $maxCorte)->orderBy('mes')->orderBy('id')
+            ->get(['vendedor_id', 'mes', 'monto', 'clave', 'nota', 'created_at'])
+            ->groupBy(fn ($f) => (int) $f->vendedor_id);
+        $descontado = DB::table('comision_anticipos')->whereIn('vendedor_id', $ids)
+            ->where('tipo', self::DESCUENTO)->groupBy('vendedor_id')
+            ->selectRaw('vendedor_id, SUM(monto) AS total')->pluck('total', 'vendedor_id');
+
         $out = [];
-        foreach (DB::table('comision_anticipos')->where('vendedor_id', $vendedorId)->where('tipo', self::ANTICIPO)
-                     ->where('mes', '<=', $corte)->orderBy('mes')->orderBy('id')
-                     ->get(['mes', 'monto', 'clave', 'nota', 'created_at']) as $f) {
-            $monto = (float) $f->monto;
-            $usado = min($monto, $sinDescontar);
-            $sinDescontar -= $usado;
-            if ($monto - $usado < 1) continue;
-            $out[] = [
-                'mes'      => $f->mes,
-                'monto'    => round($monto - $usado),
-                'es_abono' => self::esAbono($f->clave),
-                'es_cobro_de_mas' => BonificacionCobradaDeMas::esCobroDeMas($f->clave),
-                'nota'     => $f->nota,
-                'fecha'    => $f->created_at ? substr((string) $f->created_at, 0, 10) : null,
-            ];
+        foreach ($pares as $clave => [$vendedorId, $corte]) {
+            $sinDescontar = (float) ($descontado[$vendedorId] ?? 0);
+            $lista = [];
+            foreach ($filas[(int) $vendedorId] ?? [] as $f) {
+                if ($f->mes > $corte) continue;
+                $monto = (float) $f->monto;
+                $usado = min($monto, $sinDescontar);
+                $sinDescontar -= $usado;
+                if ($monto - $usado < 1) continue;
+                $lista[] = [
+                    'mes'      => $f->mes,
+                    'monto'    => round($monto - $usado),
+                    'es_abono' => self::esAbono($f->clave),
+                    'es_cobro_de_mas' => BonificacionCobradaDeMas::esCobroDeMas($f->clave),
+                    'nota'     => $f->nota,
+                    'fecha'    => $f->created_at ? substr((string) $f->created_at, 0, 10) : null,
+                ];
+            }
+            $out[$clave] = $lista;
         }
 
         return $out;

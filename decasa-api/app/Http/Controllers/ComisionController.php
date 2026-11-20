@@ -73,7 +73,14 @@ class ComisionController extends Controller
             $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy))
         );
 
-        return response()->json($result->values());
+        // Sin la orden completa (con todos sus pagos y su cliente): la pantalla
+        // y los Excel usan lo que enriquecer() ya sacó de ella (referencia,
+        // cliente, lo pagado, la tarjeta). Era el 85 % de la respuesta: 2 MB
+        // por mes, que en el celular se demoraban en bajar (2026-11-19).
+        return response()->json($result->map(function ($f) {
+            unset($f['orden']);
+            return $f;
+        })->values());
     }
 
     // GET /api/comisiones/vendedores
@@ -3105,7 +3112,13 @@ class ComisionController extends Controller
             ]);
         }
 
-        $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) use ($conDetalle) {
+        // Los anticipos y abonos que cada uno debe a su último corte, de todos
+        // en dos consultas (antes eran dos por persona, y dos veces: la nota de
+        // lo cobrado de más y el detalle del Excel).
+        $pendientes = AnticiposComision::pendientesDeVarios($bloques->groupBy('vendedor_id')
+            ->map(fn ($bs, $vid) => [(int) $vid, (string) $bs->max('mes')])->all());
+
+        $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) use ($conDetalle, $pendientes) {
             $nombre = $suyos->first()['vendedor_nombre'];
             $suyos  = $suyos->sortBy(fn ($b) => $b['mes'] . '_' . str_pad((string) $b['tienda_id'], 6, '0', STR_PAD_LEFT))->values();
 
@@ -3140,8 +3153,7 @@ class ComisionController extends Controller
                 // valor, con su porqué (usuario, 2026-11-19: "que lo diga en
                 // una nota"). Solo si hay algo que descontar: casi nadie.
                 'cobros_de_mas'    => ($descontado + $quedaDebiendo) > 0
-                    ? array_values(array_filter(
-                        AnticiposComision::pendientesDeDescontar((int) $vendedorId, (string) $suyos->max('mes')),
+                    ? array_values(array_filter($pendientes[$vendedorId] ?? [],
                         fn ($a) => ! empty($a['es_cobro_de_mas'])))
                     : [],
             ];
@@ -3164,8 +3176,7 @@ class ComisionController extends Controller
             $personas = $personas->map(fn ($p) => $p + [
                 'en_tiendas_sin_pago' => self::vendioEnTiendasSinPago($vendioSinPago, $sinPago, (int) $p['vendedor_id']),
                 // Cuáles anticipos y abonos se le descuentan, para el comprobante.
-                'anticipos_detalle'   => AnticiposComision::pendientesDeDescontar(
-                    (int) $p['vendedor_id'], (string) collect($p['bloques'])->max('mes')),
+                'anticipos_detalle'   => $pendientes[$p['vendedor_id']] ?? [],
             ]);
             // Y en cada tienda sin pago, todos los que vendieron ahí: también los que
             // no cobran en ninguna tienda y por eso no tienen tarjeta en Listas.
@@ -3315,7 +3326,11 @@ class ComisionController extends Controller
 
         $resumenTienda = $tarjetas->first()['resumen_tienda'] ?? null;
 
-        $personas = $tarjetas->map(function ($t) use ($mes, $tiendaId, $movs, $dias, $bloquesListas, $abonos) {
+        // Los anticipos de quienes cobran algo en Listas, de todos en dos consultas.
+        $pendientes = AnticiposComision::pendientesDeVarios(collect($ids)
+            ->filter(fn ($vid) => isset($bloquesListas[$vid]))->mapWithKeys(fn ($vid) => [$vid => [$vid, $mes]])->all());
+
+        $personas = $tarjetas->map(function ($t) use ($mes, $tiendaId, $movs, $dias, $bloquesListas, $abonos, $pendientes) {
             $vid     = (int) $t['vendedor_id'];
             $ordenes = collect($t['ordenes'] ?? []);
             $sumaEstado = fn (string $e) => round((float) $ordenes->where('estado', $e)->sum('monto_comision'));
@@ -3346,7 +3361,7 @@ class ComisionController extends Controller
                     'sigue_debiendo' => (float) $listas['sigue_debiendo'],
                     'otros_meses'    => (int) $listas['meses_en_listas'] - 1,
                 ] : null,
-                'anticipos_detalle' => $listas ? AnticiposComision::pendientesDeDescontar($vid, $mes) : [],
+                'anticipos_detalle' => $listas ? ($pendientes[$vid] ?? []) : [],
             ] + self::porQueDelBloque($t, $mes);
         })
             // Primero los del equipo (más días), después quien vino a cubrir.

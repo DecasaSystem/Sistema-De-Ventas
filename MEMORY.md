@@ -1130,7 +1130,7 @@ escribiendo precios (Fase 1b).
   independientes no se abre al sincronizar: `ComisionIndependientes::delMes` saca por orden la
   `diferencia` = lo que paga hoy − lo ya pagado + lo que se le descontó por cobro de más (claves
   `demas:{vid}:{orden}:…`), la suma a `por_pagar_ventas`, y `pagarIndependiente` la registra en un
-  renglón propio ya pagado (usuario, 2026-11-19, sin subir; si bajó y vuelve a subir, se le paga
+  renglón propio ya pagado (usuario, 2026-11-19, subido a `main`, commit 8a23af8e; si bajó y vuelve a subir, se le paga
   otra vez lo descontado). Un vendedor con renglones pagados: `sincronizarValorOrden` ya no pone
   el valor entero en cada renglón, reparte "lo que vale − lo pagado". Listas y sus Excel dicen el
   porqué de cada descuento (`cobros_de_mas` en Listas, `cobrosDeMasTexto` en `explicarListas.js`;
@@ -1144,6 +1144,20 @@ escribiendo precios (Fase 1b).
   ya pagado que lo deja bajo el 50 % (no pasa por `sincronizarValorOrden`) y las restauraciones del
   bolsón que solo bajan de valor.
   Tests al final de la sección "cobrado de más" de `AuditoriaComisionesTest`.
+- **Bonificaciones más rápida** (2026-11-20, pedido del usuario: "que cargue más rápido", sin quitar
+  información; **sin subir**, sin migración). Medido con `scripts/perf/medir.sh` (200 ms por consulta):
+  (1) los anticipos de Listas y de los Excel se leían persona por persona y dos veces (la nota de
+  cobrado de más del 2026-11-19 lo empeoró): ahora `AnticiposComision::pendientesDeVarios`, 2
+  consultas para todos. Listas de un mes 114 → 46 consultas (~25 s → ~12 s). (2) `GET /comisiones`
+  ya no manda la orden completa con pagos y cliente (la pantalla y los Excel no la usan): 2,1 MB →
+  0,9 MB. (3) El selector de vendedores sale de la lista del mes en la pantalla
+  (`utils/vendedoresDelMes.js`, misma cuenta que `ComisionController::vendedores`); solo se pide al
+  servidor con un vendedor filtrado. (4) Al abrir, metas, asesores y estado del recálculo van a la
+  vez. Prueba diferencial: 11 respuestas idénticas byte a byte (la de `/comisiones` igual salvo la
+  llave `orden`) y el selector idéntico al del servidor. No se hizo: dejar Listas para después (es
+  la pestaña que se ve al abrir) ni lo de los totales repetidos por mes en Listas (~10 consultas con
+  2–3 meses atrasados). Trampa: una prueba que llama `loQueHayPorPagar(null)` depende del día
+  (el 20 cambia qué meses entran); pasarle el mes.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

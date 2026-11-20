@@ -24,6 +24,7 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
+import { vendedoresDelMes } from '@/utils/vendedoresDelMes'
 import { explicacionDelBloque, porQueNoComisiona, desgloseDelBloque, cobrosDeMasTexto } from '@/utils/explicarListas'
 import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool, cuandoSePaga } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
@@ -81,15 +82,19 @@ async function cargar() {
       params.vendedor_id = vendedorSel.value
     }
 
+    // Sin filtro de vendedor, el selector sale de la misma lista del mes (ver
+    // vendedoresDelMes): pedirlo aparte repetía toda la cuenta en el servidor.
+    // Y las metas van a la vez, no después (2026-11-19).
+    const filtrada = !!params.vendedor_id
     const [cRes, vRes, reglas] = await Promise.all([
       api.get('/comisiones', { params }),
-      api.get('/comisiones/vendedores', { params: { mes: mesActual.value } }),
+      filtrada ? api.get('/comisiones/vendedores', { params: { mes: mesActual.value } }) : null,
       cargarReglasVigentes(mesActual.value),
+      cargarMetas(),
     ])
     reglasVigentes.value = reglas
     comisiones.value = cRes.data
-    vendedores.value = vRes.data
-    await cargarMetas()
+    vendedores.value = filtrada ? vRes.data : vendedoresDelMes(cRes.data)
   } catch {
     toast.error('Error cargando bonificaciones')
   } finally {
@@ -1366,19 +1371,23 @@ async function descargarExcel() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
+  // Todo a la vez (2026-11-19): antes los asesores y el estado del recálculo
+  // esperaban a que terminara la lista del mes, una vuelta más al servidor
+  // cada uno. Nada de esto depende de lo otro.
   cargarIndependientes()
   cargarListas()
-  await cargar()
-  await cargarTodosVendedores()
+  cargar()
+  cargarTodosVendedores()
   // Si quedó un recálculo andando (se salió y volvió), se sigue esperando.
-  try {
-    const { data } = await api.get('/comisiones/recalcular/estado', { silencioso: true })
-    if (data.estado === 'pedido' || data.estado === 'corriendo') {
-      recalculando.value = true
-      esperarRecalculo()
-    }
-  } catch { /* sin acceso o sin red: nada que esperar */ }
+  api.get('/comisiones/recalcular/estado', { silencioso: true })
+    .then(({ data }) => {
+      if (data.estado === 'pedido' || data.estado === 'corriendo') {
+        recalculando.value = true
+        esperarRecalculo()
+      }
+    })
+    .catch(() => { /* sin acceso o sin red: nada que esperar */ })
 })
 </script>
 
