@@ -19,6 +19,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import DesglosePorTipo from '@/components/reportes/DesglosePorTipo.vue'
 import CarteraLista from '@/components/reportes/CarteraLista.vue'
+import ProduccionAtrasos from '@/components/reportes/ProduccionAtrasos.vue'
 import SaldosAFavorLista from '@/components/reportes/SaldosAFavorLista.vue'
 import { formatPct } from '@/utils/descuentos'
 import { useAuthStore } from '@/stores/auth'
@@ -311,11 +312,6 @@ function varLabel(pct) {
   if (pct === null || pct === undefined) return 'Sin datos anteriores'
   return (pct >= 0 ? '↑ ' : '↓ ') + formatPct(Math.abs(pct)) + '% vs período anterior'
 }
-function retrasoColor(d) {
-  if (d > 7)  return 'bg-red-100 text-red-700'
-  if (d >= 3) return 'bg-orange-100 text-orange-700'
-  return 'bg-yellow-100 text-yellow-700'
-}
 
 // ── Carga de datos ────────────────────────────────────────────────────────────
 async function cargarTodo() {
@@ -338,7 +334,7 @@ async function cargarTodo() {
       auth.isSupervisor ? getStatsTiendas(p) : Promise.resolve({ data: [] }),
       getProductos({ ...p, limit: 10, tipo: ordenProductos.value }),
       getCartera(p),
-      api.get('/reportes/retrasos'),
+      api.get('/reportes/retrasos', { params: tiendaFiltro.value ? { tienda_id: tiendaFiltro.value } : {} }),
       getStatsCategorias(p),
       getProductosTipos(p),
     ]
@@ -1066,45 +1062,9 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- ══════ TAB: PRODUCCIÓN ══════ -->
-      <div v-show="tabActivo === 'produccion'" class="space-y-3">
-        <!-- Lo que está atrasado AHORA, no lo que se atrasó en el período. -->
-        <p class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-          Es lo que está atrasado hoy, sin importar el período de arriba.
-        </p>
-        <div class="flex items-center justify-between">
-          <p class="text-sm text-gray-500">{{ retrasos.length }} orden{{ retrasos.length !== 1 ? 'es' : '' }} atrasada{{ retrasos.length !== 1 ? 's' : '' }}</p>
-          <button
-              @click="exportar('retrasos')"
-              :disabled="exportandoTipo !== null"
-              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
-            >{{ exportandoTipo === 'retrasos' ? 'Exportando...' : 'Exportar' }}</button>
-        </div>
-        <ul class="space-y-2">
-          <li v-for="r in retrasos" :key="r.orden_id"
-            @click="router.push({ name: 'orden-detalle', params: { id: r.orden_id } })"
-            class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow">
-            <div class="flex justify-between items-start mb-1">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 mb-0.5">
-                  <p class="font-semibold text-sm text-gray-800">
-                    Orden {{ r.serie ? `${r.serie}-${r.serie_numero}` : `#${r.numero_orden ?? r.orden_id}` }}
-                  </p>
-                  <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{{ r.items_count }} item{{ r.items_count !== 1 ? 's' : '' }}</span>
-                </div>
-                <p class="text-xs text-gray-600">{{ r.cliente }} · {{ r.vendedor }}</p>
-                <p class="text-xs text-gray-400">
-                  {{ r.tienda }} ·
-                  <span v-if="r.fecha_compromiso">Compromiso: {{ r.fecha_compromiso }}</span>
-                  <span v-else>Sin fecha de producción · creada {{ r.created_at?.substring(0, 10) }}</span>
-                </p>
-              </div>
-              <span :class="['ml-2 flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full', retrasoColor(r.dias_retraso)]">
-                +{{ r.dias_retraso }}d
-              </span>
-            </div>
-          </li>
-        </ul>
-        <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin órdenes atrasadas.</p>
+      <!-- Lo que está atrasado AHORA, no lo que se atrasó en el período. La tienda de arriba sí manda. -->
+      <div v-show="tabActivo === 'produccion'">
+        <ProduccionAtrasos :atrasos="retrasos" :tienda-id="tiendaFiltro" />
       </div>
 
       <!-- ══════ TAB: CANALES ══════ -->

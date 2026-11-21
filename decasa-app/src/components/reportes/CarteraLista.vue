@@ -19,6 +19,7 @@ import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import GraficaFinanzas from '@/components/finanzas/GraficaFinanzas.vue'
+import FiltroTipoOrden from '@/components/reportes/FiltroTipoOrden.vue'
 import { TIPOS_ORDEN, TIPO_ORDEN } from '@/utils/tiposOrden'
 import { ArrowDownTrayIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 
@@ -314,33 +315,8 @@ async function descargarExcel() {
       </div>
 
       <!-- Filtro por tipo -->
-      <!-- Cuatro columnas fijas, nombre arriba y cuántas abajo: en 390 px
-           una fila de pastillas con "Restauraciones 9" se salía de la pantalla. -->
-      <div class="bg-gray-100 rounded-xl p-1 grid grid-cols-4 gap-1">
-        <button
-          type="button"
-          @click="tipoFiltro = ''"
-          :class="['rounded-lg px-1 py-1.5 text-[11px] font-semibold transition leading-tight',
-            !tipoFiltro ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
-        >
-          Todo
-          <span class="block text-gray-400 font-normal">{{ ordenes.length }}</span>
-        </button>
-        <button
-          v-for="t in porTipo" :key="t.clave"
-          type="button"
-          @click="tipoFiltro = t.clave"
-          :disabled="!t.ordenes"
-          :class="['rounded-lg px-1 py-1.5 text-[11px] font-semibold transition leading-tight min-w-0 disabled:opacity-40',
-            tipoFiltro === t.clave ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
-        >
-          <span class="block truncate">{{ t.corto }}</span>
-          <span class="flex items-center justify-center gap-1 text-gray-400 font-normal">
-            <span class="w-1.5 h-1.5 rounded-sm shrink-0" :style="{ background: t.color }" />
-            {{ t.ordenes }}
-          </span>
-        </button>
-      </div>
+      <FiltroTipoOrden v-model="tipoFiltro" :total="ordenes.length"
+        :cuantas="Object.fromEntries(porTipo.map(t => [t.clave, t.ordenes]))" />
 
       <template v-if="ordenes.length">
         <!-- Cifras rápidas -->

@@ -518,12 +518,24 @@ class ReporteController extends Controller
             ->toArray();
     }
 
+    /**
+     * Las órdenes atrasadas hoy (no dependen del período).
+     *
+     * Además de cuánto llevan de atraso, cada fila dice de qué tipo es (venta,
+     * restauración o FV2, con Orden::sqlTipo), cuánto vale, por qué cuenta
+     * como atrasada y en qué van sus piezas en el taller: con eso Reportes →
+     * Producción pinta sus gráficas. Con `tienda_id` (no vendedor) y
+     * `tipo_orden` se filtra igual la pantalla y el Excel.
+     */
     private function buildRetrasos(Request $request): array
     {
         $user = $request->user();
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
+        $tiendaId   = $vendedorId ? null : $request->query('tienda_id');
+        $tipoOrden  = $request->query('tipo_orden');
+        $sqlTipo    = Orden::sqlTipo('o');
 
-        return DB::table('ordenes as o')
+        $filas = DB::table('ordenes as o')
             ->join('clientes as c',         'c.id',            '=', 'o.cliente_id')
             ->join('usuarios as u',         'u.id',            '=', 'o.vendedor_id')
             ->join('tiendas as t',          't.id',            '=', 'o.tienda_id')
@@ -531,7 +543,11 @@ class ReporteController extends Controller
             ->leftJoin('produccion as pr',  'pr.orden_item_id','=', 'oi.id')
             ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
-            ->groupBy('o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
+            ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
+            ->when(in_array($tipoOrden, ['venta', 'restauracion', 'fv2'], true),
+                fn($q) => $q->whereRaw("({$sqlTipo}) = ?", [$tipoOrden]))
+            ->groupBy('o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero', 'o.numero_anulado', 'o.cotizacion_numero',
+                      'o.valor_total', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
             ->havingRaw('
                 (MIN(pr.fecha_compromiso) IS NOT NULL AND MIN(pr.fecha_compromiso) < CURDATE())
                 OR MAX(pr.estado = "retrasado") = 1
@@ -556,11 +572,40 @@ class ReporteController extends Controller
                     THEN DATEDIFF(CURDATE(), COALESCE(MIN(pr.fecha_compromiso), MIN(oi.fecha_entrega_prom)))
                     ELSE DATEDIFF(CURDATE(), DATE_ADD(DATE(o.created_at), INTERVAL 30 DAY))
                 END                   AS dias_retraso,
-                COUNT(DISTINCT oi.id) AS items_count
+                COUNT(DISTINCT oi.id) AS items_count,
+                o.numero_anulado,
+                o.cotizacion_numero,
+                o.valor_total,
+                (' . $sqlTipo . ') AS tipo,
+                MAX(CASE WHEN pr.estado = "retrasado" THEN 1 ELSE 0 END) AS marcada_retrasada,
+                COUNT(DISTINCT CASE WHEN pr.estado = "pendiente" THEN pr.id END) AS piezas_sin_empezar,
+                COUNT(DISTINCT CASE WHEN pr.estado IN ("en_proceso", "retrasado") THEN pr.id END) AS piezas_en_proceso,
+                COUNT(DISTINCT CASE WHEN pr.estado IN ("listo", "pendiente_despachador", "entregado") THEN pr.id END) AS piezas_listas
             ')
             ->orderByDesc('dias_retraso')
-            ->get()
-            ->toArray();
+            ->get();
+
+        // El número que tiene en papel (#2567, R-1098, FV2-45), como en la cartera.
+        foreach ($filas as $f) {
+            $f->referencia = (new Orden)->forceFill([
+                'estado'            => $f->estado,
+                'numero_orden'      => $f->numero_orden,
+                'serie'             => $f->serie,
+                'serie_numero'      => $f->serie_numero,
+                'numero_anulado'    => $f->numero_anulado,
+                'cotizacion_numero' => $f->cotizacion_numero,
+            ])->referencia;
+            $f->tipo              = $f->tipo ?: 'venta';
+            $f->valor_total       = (float) $f->valor_total;
+            $f->dias_retraso      = (int) $f->dias_retraso;
+            $f->items_count       = (int) $f->items_count;
+            $f->marcada_retrasada = (bool) $f->marcada_retrasada;
+            foreach (['piezas_sin_empezar', 'piezas_en_proceso', 'piezas_listas'] as $k) {
+                $f->{$k} = (int) $f->{$k};
+            }
+        }
+
+        return $filas->toArray();
     }
 
     // ─── Row builders (Excel flat arrays) ────────────────────────────────────
@@ -757,20 +802,32 @@ class ReporteController extends Controller
 
     private function rowsRetrasos(Request $request): array
     {
-        $rows = collect($this->buildRetrasos($request))->map(fn($r) => [
-            $r->orden_id, $r->cliente, $r->telefono, $r->vendedor, $r->tienda,
-            $r->estado, $r->items_count, $r->fecha_compromiso ?? 'Sin fecha',
-            $r->dias_retraso, $r->created_at,
+        // Lo mismo que la pantalla, con su filtro de tienda y de tipo.
+        $nombreTipo = ['venta' => 'Venta', 'restauracion' => 'Restauración', 'fv2' => 'FV2'];
+        $filas = collect($this->buildRetrasos($request));
+        $rows = $filas->map(fn($r) => [
+            $r->referencia, $nombreTipo[$r->tipo] ?? 'Venta', $r->cliente, $r->telefono, $r->vendedor, $r->tienda,
+            $this->estadoLabel($r->estado), $r->items_count,
+            $r->piezas_sin_empezar, $r->piezas_en_proceso, $r->piezas_listas,
+            $r->valor_total, $r->fecha_compromiso ?? 'Sin fecha',
+            $r->dias_retraso, $r->created_at ? \Illuminate\Support\Carbon::parse($r->created_at)->format('Y-m-d') : '',
         ]);
+
+        $tipoOrden = $request->query('tipo_orden');
+        $meta = $this->metaStr(null, null, $request->user()->rol === 'vendedor' ? null : $request->query('tienda_id'));
+        if (isset($nombreTipo[$tipoOrden])) {
+            $meta = trim($meta . ' · Solo ' . ['venta' => 'ventas', 'restauracion' => 'restauraciones', 'fv2' => 'FV2'][$tipoOrden], ' ·');
+        }
 
         return [
             $rows,
-            ['Orden ID', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda',
-             'Estado', 'Items', 'Fecha Compromiso', 'Días Retraso', 'Fecha Creación'],
+            ['Orden', 'Tipo', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda',
+             'Estado', 'Items', 'Piezas sin empezar', 'Piezas en proceso', 'Piezas listas',
+             'Valor', 'Fecha Compromiso', 'Días Retraso', 'Fecha Creación'],
             'ordenes_atrasadas_' . \App\Services\RangoFechas::hoyTexto() . '.xlsx',
             'Órdenes Atrasadas',
-            [],
-            $this->metaStr(null, null),
+            ['', '', '', '', '', '', '', '', '', '', 'TOTAL', $filas->sum('valor_total'), '', '', ''],
+            $meta,
         ];
     }
 
