@@ -52,6 +52,9 @@ class CarteraTest extends TestCase
         Schema::create('pagos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->decimal('monto', 12, 2);
         });
+        Schema::create('orden_items', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->boolean('es_restauracion')->default(false);
+        });
 
         DB::table('tiendas')->insert([['id' => 1, 'nombre' => 'Norte'], ['id' => 2, 'nombre' => 'Sur'], ['id' => 9, 'nombre' => 'Independientes']]);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente']);
@@ -150,5 +153,36 @@ class CarteraTest extends TestCase
         $this->actingAs($this->ana)->get('/api/reportes/exportar?tipo=pendientes')
             ->assertOk()
             ->assertHeader('content-disposition');
+    }
+
+    public function test_cada_fila_dice_de_que_tipo_es_y_se_puede_filtrar(): void
+    {
+        $venta = $this->orden(['vendedor_id' => $this->ana->id, 'tienda_id' => 1]);
+        $fv2   = $this->orden(['vendedor_id' => $this->ana->id, 'tienda_id' => 1, 'serie' => 'FV2', 'serie_numero' => 3]);
+        $serieR = $this->orden(['vendedor_id' => $this->ana->id, 'tienda_id' => 1, 'serie' => 'R', 'serie_numero' => 1]);
+        // Sin serie R pero todo lo que lleva es del cliente: también es restauración.
+        $soloMuebles = $this->orden(['vendedor_id' => $this->ana->id, 'tienda_id' => 1, 'numero_orden' => 10]);
+        DB::table('orden_items')->insert([['orden_id' => $soloMuebles, 'es_restauracion' => true]]);
+        // Mezcla un producto con una restauración: es venta.
+        $mixta = $this->orden(['vendedor_id' => $this->ana->id, 'tienda_id' => 1, 'numero_orden' => 11]);
+        DB::table('orden_items')->insert([
+            ['orden_id' => $mixta, 'es_restauracion' => true],
+            ['orden_id' => $mixta, 'es_restauracion' => false],
+        ]);
+
+        $tipos = Cartera::de($this->supervisor)->pluck('tipo', 'orden_id')->all();
+        $this->assertSame('venta', $tipos[$venta]);
+        $this->assertSame('fv2', $tipos[$fv2]);
+        $this->assertSame('restauracion', $tipos[$serieR]);
+        $this->assertSame('restauracion', $tipos[$soloMuebles]);
+        $this->assertSame('venta', $tipos[$mixta]);
+
+        $this->assertSame([$serieR, $soloMuebles], $this->ids(Cartera::de($this->supervisor, null, 'restauracion')));
+        $this->assertSame([$fv2], $this->ids(Cartera::de($this->supervisor, null, 'fv2')));
+        // Un tipo que no existe no filtra nada.
+        $this->assertCount(5, Cartera::de($this->supervisor, null, 'otro'));
+
+        $this->actingAs($this->supervisor)->get('/api/reportes/exportar?tipo=pendientes&tipo_orden=fv2')
+            ->assertOk()->assertHeader('content-disposition');
     }
 }

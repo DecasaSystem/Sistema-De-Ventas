@@ -720,10 +720,13 @@ class ReporteController extends Controller
     private function rowsPendientes(Request $r): array
     {
         $tiendaId = $r->query('tienda_id');
-        $filas    = \App\Services\Cartera::de($r->user(), $tiendaId ? (int) $tiendaId : null);
+        // `tipo_orden` y no `tipo`: `tipo` ya dice qué Excel es (pendientes).
+        $tipoOrden = $r->query('tipo_orden');
+        $filas     = \App\Services\Cartera::de($r->user(), $tiendaId ? (int) $tiendaId : null, $tipoOrden ?: null);
+        $nombreTipo = ['venta' => 'Venta', 'restauracion' => 'Restauración', 'fv2' => 'FV2'];
 
         $rows = $filas->map(fn ($o) => [
-            $o['referencia'], $o['cliente'], $o['telefono'], $o['vendedor'], $o['tienda'],
+            $o['referencia'], $nombreTipo[$o['tipo']] ?? 'Venta', $o['cliente'], $o['telefono'], $o['vendedor'], $o['tienda'],
             $this->estadoLabel($o['estado']), $o['valor_total'], $o['total_pagado'], $o['saldo_pendiente'],
             $o['dias_sin_pagar'],
             $o['created_at'] ? \Illuminate\Support\Carbon::parse($o['created_at'])->format('Y-m-d') : '',
@@ -737,14 +740,17 @@ class ReporteController extends Controller
                 ? 'Mis ventas'
                 : 'Tienda: ' . (DB::table('tiendas')->where('id', $usuario->tienda_default_id)->value('nombre') ?? ''))
             : $this->metaStr(null, null, $tiendaId);
+        if (isset($nombreTipo[$tipoOrden])) {
+            $meta = trim($meta . ' · Solo ' . ['venta' => 'ventas', 'restauracion' => 'restauraciones', 'fv2' => 'FV2'][$tipoOrden], ' ·');
+        }
 
         return [
             $rows,
-            ['Orden', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda', 'Estado',
+            ['Orden', 'Tipo', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda', 'Estado',
              'Valor Total', 'Total Pagado', 'Saldo Pendiente', 'Días', 'Fecha'],
             'cartera_por_cobrar_' . \App\Services\RangoFechas::hoyTexto() . '.xlsx',
             'Cartera por cobrar',
-            ['', '', '', '', '', 'TOTAL', $filas->sum('valor_total'), $filas->sum('total_pagado'), $filas->sum('saldo_pendiente'), '', ''],
+            ['', '', '', '', '', '', 'TOTAL', $filas->sum('valor_total'), $filas->sum('total_pagado'), $filas->sum('saldo_pendiente'), '', ''],
             $meta,
         ];
     }

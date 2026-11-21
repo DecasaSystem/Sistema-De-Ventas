@@ -31,9 +31,12 @@ class Cartera
     /**
      * @return Collection<int, array> una fila por orden, de la que más debe a la que menos
      */
-    public static function de(Usuario $usuario, ?int $tiendaId = null): Collection
+    public static function de(Usuario $usuario, ?int $tiendaId = null, ?string $tipo = null): Collection
     {
         $pagado = '(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = o.id)';
+        // Venta, restauración o FV2: la misma regla de Reportes y Estadísticas
+        // (Orden::sqlTipo), para que la cartera parta la plata igual que ellos.
+        $sqlTipo = Orden::sqlTipo('o');
 
         $q = DB::table('ordenes as o')
             ->leftJoin('clientes as c', 'c.id', '=', 'o.cliente_id')
@@ -48,8 +51,15 @@ class Cartera
                 c.telefono AS telefono,
                 u.nombre   AS vendedor,
                 t.nombre   AS tienda,
-                {$pagado}  AS total_pagado
+                {$pagado}  AS total_pagado,
+                ({$sqlTipo}) AS tipo
             ");
+
+        // El filtro de la pantalla (Todo / Ventas / Restauraciones / FV2) vale
+        // también para el Excel: lo que se descarga es lo que se ve.
+        if (in_array($tipo, ['venta', 'restauracion', 'fv2'], true)) {
+            $q->whereRaw("({$sqlTipo}) = ?", [$tipo]);
+        }
 
         if ($usuario->rol === 'vendedor') {
             $q->where(function ($w) use ($usuario) {
@@ -83,6 +93,7 @@ class Cartera
                     'orden_id'        => (int) $o->id,
                     'referencia'      => $referencia,
                     'estado'          => $o->estado,
+                    'tipo'            => $o->tipo ?: 'venta',
                     'created_at'      => $o->created_at,
                     'cliente'         => $o->cliente,
                     'telefono'        => $o->telefono,

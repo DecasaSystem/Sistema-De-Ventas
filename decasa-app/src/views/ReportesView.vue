@@ -1060,7 +1060,7 @@ onBeforeUnmount(() => {
 
       <!-- ══════ TAB: CARTERA ══════ -->
       <!-- La tienda elegida arriba manda: la lista y el Excel salen de ella. -->
-      <div v-show="tabActivo === 'cartera'">
+      <div v-show="tabActivo === 'cartera'" class="space-y-3">
         <SaldosAFavorLista v-if="auth.isSupervisor || auth.isFacturador" :tienda-id="tiendaFiltro" />
         <CarteraLista :ordenes="cartera" :tienda-id="tiendaFiltro" />
       </div>

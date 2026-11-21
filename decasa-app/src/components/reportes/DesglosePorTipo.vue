@@ -13,6 +13,7 @@
  * nunca alcanza.
  */
 import { computed } from 'vue'
+import { TIPOS_ORDEN } from '@/utils/tiposOrden'
 
 const props = defineProps({
   /**
@@ -32,11 +33,8 @@ const props = defineProps({
   soloBarra: { type: Boolean, default: false },
 })
 
-const TIPOS = [
-  { clave: 'venta',        label: 'Ventas',         color: '#2a78d6' },
-  { clave: 'restauracion', label: 'Restauraciones', color: '#eb6834' },
-  { clave: 'fv2',          label: 'FV2 (descuento)', color: '#1baf7a' },
-]
+// Los mismos de la cartera: un solo lugar para nombre y color.
+const TIPOS = TIPOS_ORDEN
 
 const cop = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO')
 

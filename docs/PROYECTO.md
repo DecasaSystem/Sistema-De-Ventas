@@ -138,7 +138,7 @@ Laravel 13 / PHP 8.4. Dependencias clave: `laravel/sanctum`, `laravel/reverb`,
 | `AnticiposComision` | Libro de anticipos de comisión y su descuento al pagar |
 | `CambiosDePlata` | Detecta qué cambios de una orden mueven plata (requieren aprobación) |
 | `DescuentoCondicionadoService` | Descuento que se pierde si se paga con tarjeta/Addi/otro |
-| `Cartera` | Órdenes que deben plata (misma regla para pantalla y Excel) |
+| `Cartera` | Órdenes que deben plata (misma regla para pantalla y Excel). Cada fila trae su `tipo` (venta, restauración, FV2, con `Orden::sqlTipo`); la pantalla filtra por tipo con gráficas (dona por tipo, antigüedad, por tienda/vendedor) y el Excel recibe `tipo_orden` para sacar lo mismo |
 | `ConsumoTelas` | Apartar / descontar / soltar metros de tela según las ventas |
 | `MovimientoTraslado` | Mover stock entre tiendas (con tela y apartados) |
 | `ReservaDeposito` | Dejar piezas terminadas en la Reserva de Fábrica |
