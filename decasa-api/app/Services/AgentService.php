@@ -2443,9 +2443,10 @@ class AgentService
                 ->limit(30)
                 ->get()
                 ->map(fn($p) => (object) [
-                    'tipo'     => 'ingreso_venta',
+                    // Una devolución de plata es un pago negativo: no es venta.
+                    'tipo'     => (float) $p->monto < 0 ? 'devolucion' : 'ingreso_venta',
                     'monto'    => $p->monto,
-                    'concepto' => 'Venta #' . $p->orden_id,
+                    'concepto' => ((float) $p->monto < 0 ? 'Devolución de plata #' : 'Venta #') . $p->orden_id,
                     'usuario'  => $p->vendedor?->nombre,
                     'metodo'   => $p->metodo,
                     'fecha'    => $p->created_at,

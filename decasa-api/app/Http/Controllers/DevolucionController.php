@@ -44,6 +44,8 @@ class DevolucionController extends Controller
             'id'             => $d->id,
             'orden_id'       => $d->orden_id,
             'orden_referencia' => $d->orden?->referencia,
+            // Para proponer la caja de donde sale el efectivo al devolver la plata.
+            'orden_tienda_id' => $d->orden?->tienda_id,
             'cliente'        => $d->orden?->cliente?->nombre,
             'orden_item_id'  => $d->orden_item_id,
             'producto'       => $item?->nombre_custom ?: ($item?->producto?->nombre ?? 'Ítem eliminado'),
@@ -316,6 +318,8 @@ class DevolucionController extends Controller
             // efectivo, que es lo que se hacía antes (todo salía de la caja).
             'metodo'     => 'nullable|in:efectivo,transferencia,otro',
             'referencia' => 'nullable|string|max:100',
+            // De qué caja salió el efectivo. Sin el dato, la de la tienda de la orden.
+            'caja_tienda_id' => 'nullable|integer|exists:tiendas,id',
         ], [
             'monto.required_if' => 'Falta cuánto se le devuelve al cliente.',
         ]);
@@ -338,6 +342,7 @@ class DevolucionController extends Controller
                 default        => $referenciaCancelada = $this->reembolsar(
                     $devolucion, (float) $data['monto'], $data['metodo'] ?? 'efectivo', $data['referencia'] ?? null,
                     (bool) ($data['vuelve_al_stock'] ?? false), $usuario,
+                    isset($data['caja_tienda_id']) ? (int) $data['caja_tienda_id'] : null,
                 ),
             };
 
@@ -744,7 +749,7 @@ class DevolucionController extends Controller
      *
      * @return string|null la referencia de la orden si quedó cancelada
      */
-    private function reembolsar(Devolucion $devolucion, float $monto, string $metodo, ?string $referencia, bool $vuelveAlStock, Usuario $usuario): ?string
+    private function reembolsar(Devolucion $devolucion, float $monto, string $metodo, ?string $referencia, bool $vuelveAlStock, Usuario $usuario, ?int $cajaTiendaId = null): ?string
     {
         $orden = Orden::lockForUpdate()->findOrFail($devolucion->orden_id);
         $item  = \App\Models\OrdenItem::lockForUpdate()->find($devolucion->orden_item_id);
@@ -796,8 +801,7 @@ class DevolucionController extends Controller
         if ($monto > 0) {
             \App\Models\Pago::create([
                 'orden_id'    => $orden->id,
-                'vendedor_id' => $orden->vendedor_id,
-                'tienda_id'   => $orden->tienda_id,
+                ...\App\Models\Pago::salidaDeCaja($orden, $usuario, $cajaTiendaId),
                 'tipo'        => 'reembolso',
                 'monto'       => -$monto,
                 'metodo'      => $metodo,

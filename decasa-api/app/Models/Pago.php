@@ -23,6 +23,53 @@ class Pago extends Model
                 $pago->tienda_id = Orden::where('id', $pago->orden_id)->value('tienda_id');
             }
         });
+
+        // La caja se suma con los pagos de cada momento: corregir o borrar uno
+        // viejo cambia el saldo. Queda anotado en la caja (CajaBitacora) para
+        // que siempre se sepa por qué subió o bajó.
+        static::updated(function (Pago $pago) {
+            if ($pago->wasChanged(['monto', 'metodo', 'tienda_id', 'vendedor_id', 'despacho_item_id'])) {
+                CajaBitacora::anotarCambio($pago);
+            }
+        });
+        static::deleted(function (Pago $pago) {
+            CajaBitacora::anotarBorrado($pago, self::$motivoDelBorrado);
+        });
+    }
+
+    /**
+     * Por qué se están borrando pagos (lo pone quien borra la orden o el
+     * borrador, para que la caja lo diga). Se limpia al terminar.
+     */
+    public static ?string $motivoDelBorrado = null;
+
+    /**
+     * A nombre de quién y de qué caja sale una devolución de plata (pago
+     * negativo `tipo = reembolso`).
+     *
+     * Antes quedaba a nombre del vendedor de la orden y en la tienda de la
+     * orden: si un supervisor devolvía en El Edén la plata de una orden de
+     * Norte, bajaba la caja de Norte con el nombre de la vendedora, y si la
+     * orden era de un independiente, bajaba su caja propia. Ahora es de quien
+     * la entregó y de la caja que él dice (o la de la orden si no dice).
+     */
+    public static function salidaDeCaja(Orden $orden, Usuario $quien, ?int $cajaTiendaId = null): array
+    {
+        return [
+            'vendedor_id' => $quien->id,
+            'tienda_id'   => $cajaTiendaId ?: $orden->tienda_id,
+        ];
+    }
+
+    /** Borra los pagos uno a uno (así cada uno deja su rastro en la caja). */
+    public static function borrarDeLaOrden(int $ordenId, ?string $motivo = null): void
+    {
+        self::$motivoDelBorrado = $motivo;
+        try {
+            self::where('orden_id', $ordenId)->get()->each->delete();
+        } finally {
+            self::$motivoDelBorrado = null;
+        }
     }
 
     protected $fillable = [

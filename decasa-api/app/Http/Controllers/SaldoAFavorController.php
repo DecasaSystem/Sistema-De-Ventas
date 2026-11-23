@@ -80,6 +80,8 @@ class SaldoAFavorController extends Controller
             'metodo'     => 'required|in:efectivo,transferencia,otro',
             'referencia' => 'nullable|string|max:100',
             'motivo'     => 'required|string|min:3|max:500',
+            // De qué caja salió el efectivo (sin el dato, la de la tienda de la orden).
+            'caja_tienda_id' => 'nullable|integer|exists:tiendas,id',
         ], [
             'metodo.required' => 'Escoge cómo se le devolvió la plata.',
             'motivo.required' => 'Escribe por qué se le devuelve.',
@@ -100,8 +102,7 @@ class SaldoAFavorController extends Controller
 
             Pago::create([
                 'orden_id'    => $orden->id,
-                'vendedor_id' => $orden->vendedor_id,
-                'tienda_id'   => $orden->tienda_id,
+                ...Pago::salidaDeCaja($orden, $usuario, isset($data['caja_tienda_id']) ? (int) $data['caja_tienda_id'] : null),
                 'tipo'        => 'reembolso',
                 'monto'       => -round((float) $data['monto'], 2),
                 'metodo'      => $data['metodo'],

@@ -693,4 +693,182 @@ class DevolucionTest extends TestCase
             ['monto' => 100000, 'metodo' => 'efectivo', 'motivo' => 'x x x'])->assertStatus(403);
         $this->actingAs($otro)->getJson('/api/saldos-a-favor')->assertStatus(403);
     }
+
+    // ── La caja registra todo (usuario, 2026-11-23) ─────────────────────────
+    // "Se restó cosas en una caja y ni siquiera se sabe por qué": la devolución
+    // salía como "Venta" con "+$-200.000", corregir o borrar un pago cambiaba
+    // el saldo sin rastro y anular un egreso lo borraba de verdad.
+
+    private function prepararCaja(): void
+    {
+        Schema::table('usuarios', function (Blueprint $t) {
+            $t->boolean('independiente')->default(false);
+            $t->unsignedBigInteger('tienda_default_id')->nullable();
+        });
+        DB::table('tiendas')->insert(['id' => 2, 'nombre' => 'Decasa El Edén']);
+        Schema::table('tiendas', function (Blueprint $t) {
+            $t->boolean('es_independientes')->default(false);
+            $t->boolean('activa')->default(true);
+        });
+        // Sin la columna, SQLite toma "despacho_item_id" como texto y la caja
+        // no encuentra ningún pago.
+        if (! Schema::hasColumn('pagos', 'despacho_item_id')) {
+            Schema::table('pagos', fn (Blueprint $t) => $t->unsignedBigInteger('despacho_item_id')->nullable());
+        }
+        (require database_path('migrations/2026_11_24_000001_bitacora_de_caja.php'))->up();
+    }
+
+    public function test_la_devolucion_sale_en_la_caja_como_devolucion_de_quien_la_entrego_y_de_la_caja_escogida(): void
+    {
+        [$orden, $cama, $mesas] = $this->ordenConTresCosas();
+        $this->prepararCaja();
+        $vendedora = Usuario::create(['nombre' => 'Paola', 'email' => 'p@d.com', 'password' => 'x', 'rol' => 'vendedor', 'created_at' => now()]);
+        $orden->update(['vendedor_id' => $vendedora->id]);
+        $mesas->update(['cantidad_entregada' => 2]);
+        $this->pagar($orden, 2600000);
+        DB::table('pagos')->update(['tienda_id' => 2]);   // el abono entró en El Edén
+        $jefa = $this->jefa();
+
+        $this->actingAs($jefa)->postJson("/api/devoluciones/{$this->devolver($orden, $cama)->id}/decidir", [
+            'decision' => 'reembolso', 'monto' => 200000, 'caja_tienda_id' => 2,
+        ])->assertOk();
+
+        $pago = \App\Models\Pago::where('tipo', 'reembolso')->first();
+        $this->assertSame($jefa->id, (int) $pago->vendedor_id, 'a nombre de quien la entregó, no de la vendedora');
+        $this->assertSame(2, (int) $pago->tienda_id, 'sale de la caja que se escogió, no de la de la orden');
+
+        $balance = $this->actingAs($jefa)->getJson('/api/caja/balance?tienda_id=2')->assertOk();
+        $this->assertEquals(2600000, $balance->json('ingreso_ventas'));
+        $this->assertEquals(200000, $balance->json('devoluciones'));
+        $this->assertEquals(2400000, $balance->json('balance'));
+
+        $fila = collect($this->actingAs($jefa)->getJson('/api/caja/movimientos?tienda_id=2')->json())
+            ->firstWhere('tipo', 'devolucion');
+        $this->assertNotNull($fila, 'sale como devolución, no como venta');
+        $this->assertEquals(200000, $fila['monto']);
+        $this->assertStringContainsString('Devolución de plata', $fila['concepto']);
+        $this->assertSame('Manuela', $fila['usuario']);
+
+        // La tienda de la orden (Norte) no se toca.
+        $this->assertEquals(0, $this->actingAs($jefa)->getJson('/api/caja/balance?tienda_id=1')->json('balance'));
+    }
+
+    public function test_corregir_un_pago_de_efectivo_a_transferencia_queda_en_la_caja(): void
+    {
+        [$orden] = $this->ordenConTresCosas();
+        $this->prepararCaja();
+        $this->pagar($orden, 500000);
+        $jefa = $this->jefa();
+
+        $this->actingAs($jefa);
+        \App\Models\Pago::first()->update(['metodo' => 'transferencia']);
+
+        $bit = \App\Models\CajaBitacora::sole();
+        $this->assertSame(1, (int) $bit->tienda_id);
+        $this->assertEquals(-500000, (float) $bit->efecto);
+        $this->assertSame($jefa->id, (int) $bit->usuario_id);
+        $this->assertStringContainsString('transferencia', $bit->descripcion);
+
+        // El saldo ya trae el cambio: el renglón explica, no se suma otra vez.
+        $this->assertEquals(0, $this->getJson('/api/caja/balance?tienda_id=1')->json('balance'));
+        $fila = collect($this->getJson('/api/caja/movimientos?tienda_id=1')->json())->firstWhere('tipo', 'correccion');
+        $this->assertEquals(-500000, $fila['monto']);
+        $this->assertTrue($fila['no_suma']);
+
+        // Cambiar solo el monto también.
+        \App\Models\Pago::first()->update(['metodo' => 'efectivo']);
+        \App\Models\Pago::first()->update(['monto' => 450000]);
+        $this->assertEquals([-500000, 500000, -50000],
+            \App\Models\CajaBitacora::orderBy('id')->pluck('efecto')->map(fn ($e) => (float) $e)->all());
+
+        // Lo que no es de caja no deja renglón.
+        $this->pagar($orden, 100000, 'tarjeta');
+        \App\Models\Pago::where('metodo', 'tarjeta')->first()->update(['monto' => 90000]);
+        $this->assertSame(3, \App\Models\CajaBitacora::count());
+    }
+
+    public function test_borrar_los_pagos_de_una_orden_queda_en_la_caja(): void
+    {
+        [$orden] = $this->ordenConTresCosas();
+        $this->prepararCaja();
+        $this->pagar($orden, 300000);
+        $this->pagar($orden, 100000, 'transferencia');
+
+        $this->actingAs($this->jefa());
+        \App\Models\Pago::borrarDeLaOrden($orden->id, 'Orden FV2-100 eliminada: subida dos veces');
+
+        $this->assertSame(0, \App\Models\Pago::count());
+        $bit = \App\Models\CajaBitacora::sole();   // la transferencia no era de caja
+        $this->assertSame('borrado', $bit->motivo);
+        $this->assertEquals(-300000, (float) $bit->efecto);
+        $this->assertStringContainsString('subida dos veces', $bit->descripcion);
+        $this->assertSame($orden->id, (int) $bit->orden_id);
+    }
+
+    public function test_anular_un_egreso_no_lo_borra(): void
+    {
+        $this->ordenConTresCosas();
+        $this->prepararCaja();
+        $jefa = $this->jefa();
+        $mov = CajaMovimiento::create(['tienda_id' => 1, 'usuario_id' => $jefa->id, 'tipo' => 'egreso',
+                                       'monto' => 80000, 'concepto' => 'Domicilio']);
+
+        $this->actingAs($jefa);
+        $this->assertEquals(-80000, $this->getJson('/api/caja/balance?tienda_id=1')->json('balance'));
+
+        $this->deleteJson("/api/caja/movimiento/{$mov->id}", ['motivo' => 'Lo pagó la fábrica'])->assertNoContent();
+
+        $mov->refresh();
+        $this->assertNotNull($mov->anulado_at, 'sigue existiendo');
+        $this->assertSame($jefa->id, (int) $mov->anulado_por_id);
+        $this->assertEquals(0, $this->getJson('/api/caja/balance?tienda_id=1')->json('balance'), 'ya no suma');
+
+        $fila = collect($this->getJson('/api/caja/movimientos?tienda_id=1')->json())->firstWhere('id', 'mov_' . $mov->id);
+        $this->assertTrue($fila['anulado']);
+        $this->assertSame('Lo pagó la fábrica', $fila['motivo_anulacion']);
+        $this->assertSame('Manuela', $fila['anulado_por']);
+
+        $this->deleteJson("/api/caja/movimiento/{$mov->id}")->assertStatus(422);
+    }
+
+    /** Caso real de producción: la #1275 restó $1 M de la caja que nunca salieron. */
+    public function test_la_correccion_de_la_1275_devuelve_el_millon_a_la_caja(): void
+    {
+        $this->prepararCaja();
+        if (! Schema::hasTable('orden_ediciones')) {
+            Schema::create('orden_ediciones', function (Blueprint $t) {
+                $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id');
+                $t->json('cambios'); $t->timestamp('created_at')->nullable();
+            });
+        }
+        $jefa = $this->jefa();
+        DB::table('tiendas')->insert(['id' => 5, 'nombre' => 'Decasa Unicentro Pereira']);
+        DB::table('clientes')->insert(['id' => 9, 'nombre' => 'Jairo arcila', 'created_at' => now(), 'updated_at' => now()]);
+        $orden = Orden::create(['cliente_id' => 9, 'tienda_id' => 5, 'estado' => 'cancelado',
+                                'valor_total' => 0, 'numero_orden' => 1275]);
+        \App\Models\Pago::create(['orden_id' => $orden->id, 'tienda_id' => 5, 'tipo' => 'anticipo',
+                                  'monto' => 1000000, 'metodo' => 'transferencia']);
+        $devolucion = \App\Models\Pago::create(['orden_id' => $orden->id, 'tienda_id' => 5, 'tipo' => 'reembolso',
+                                  'monto' => -1000000, 'metodo' => 'efectivo', 'notas' => 'Devolución del saldo a favor']);
+
+        $this->actingAs($jefa);
+        $this->assertEquals(-1000000, $this->getJson('/api/caja/balance?tienda_id=5')->json('balance'));
+
+        $migracion = require database_path('migrations/2026_11_24_000002_devolucion_1275_no_salio_de_la_caja.php');
+        ob_start(); $migracion->up(); ob_end_clean();
+
+        $this->assertSame('otro', $devolucion->fresh()->metodo);
+        $this->assertEquals(-1000000, (float) $devolucion->fresh()->monto, 'el monto no cambia: salió hacia la #1316');
+        $this->assertEquals(0, $this->getJson('/api/caja/balance?tienda_id=5')->json('balance'));
+
+        $bit = \App\Models\CajaBitacora::sole();
+        $this->assertEquals(1000000, (float) $bit->efecto);
+        $this->assertSame(5, (int) $bit->tienda_id);
+        $this->assertStringContainsString('#1316', $bit->descripcion);
+        $this->assertSame(1, OrdenMensaje::where('orden_id', $orden->id)->count());
+
+        // Otra vez no hace nada.
+        ob_start(); $migracion->up(); ob_end_clean();
+        $this->assertSame(1, \App\Models\CajaBitacora::count());
+    }
 }

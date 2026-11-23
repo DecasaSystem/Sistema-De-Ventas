@@ -15,6 +15,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
+import CajaDeSalida from '@/components/common/CajaDeSalida.vue'
 import { getDevoluciones, decidirDevolucion } from '@/api/devoluciones'
 import {
   ArrowUturnLeftIcon, WrenchScrewdriverIcon, BanknotesIcon,
@@ -151,6 +152,7 @@ const referencia   = ref('')
 const reembolsoVuelve = ref(null)
 const notas        = ref('')
 const guardando    = ref(false)
+const cajaSalida   = ref(null)   // de qué caja sale el efectivo
 
 // Efectivo baja la caja de la tienda; transferencia u otro, no.
 const METODOS = [
@@ -167,6 +169,7 @@ function abrirReembolso(d) {
   referencia.value = ''
   reembolsoVuelve.value = null
   notas.value = ''
+  cajaSalida.value = d.orden_tienda_id ?? null
 }
 
 async function confirmarReembolso() {
@@ -179,6 +182,7 @@ async function confirmarReembolso() {
       referencia: metodo.value !== 'efectivo' ? (referencia.value.trim() || null) : null,
       vuelve_al_stock: reembolsoVuelve.value === true,
       notas: notas.value.trim() || null,
+      caja_tienda_id: metodo.value === 'efectivo' ? cajaSalida.value : null,
     })
     toast.success(metodo.value === 'efectivo'
       ? 'Registrado: el reembolso salió de la caja de la tienda'
@@ -380,6 +384,7 @@ async function confirmarReembolso() {
                   >{{ m.t }}</button>
                 </div>
               </div>
+              <CajaDeSalida v-if="metodo === 'efectivo'" v-model="cajaSalida" :tienda-orden-id="reembolsando?.orden_tienda_id" />
               <div v-if="metodo !== 'efectivo'">
                 <label class="block text-xs font-semibold text-gray-500 mb-1.5">Referencia</label>
                 <input v-model="referencia" maxlength="100" placeholder="N.º de la transferencia (opcional)" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
@@ -390,7 +395,7 @@ async function confirmarReembolso() {
               </div>
               <p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
                 Lo devuelto deja de cobrarse y la venta baja (también la bonificación). La plata queda
-                como un reembolso en los pagos de la orden{{ metodo === 'efectivo' ? ' y sale de la caja de la tienda' : '' }}.
+                como un reembolso en los pagos de la orden{{ metodo === 'efectivo' ? ' y sale de la caja escogida, donde queda como "Devolución"' : '' }}.
                 Si con esto no le queda nada, la orden se cancela.
               </p>
             </div>

@@ -295,6 +295,20 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   ebanista) llevan **caja propia**. `pagos.tienda_id` = dónde entró el dinero
   (independiente de a quién se abona la venta). Pagos cobrados en una entrega se
   marcan aparte (`caja:cobros-de-entrega`).
+  **El saldo no se guarda: se suma cada vez** con los pagos en efectivo de ese momento.
+  Por eso, desde el 2026-11-23 (usuario: "se restó y no se sabe por qué"):
+  - Las devoluciones de plata (pago negativo `tipo=reembolso`) salen como **"Devolución"**
+    (antes "Venta efectivo" con "+$-200.000") y el saldo trae `devoluciones` aparte.
+    Quedan a nombre de **quien entregó la plata** y en la caja que escoge
+    (`caja_tienda_id`, de fábrica la de la orden): `Pago::salidaDeCaja`, en Devoluciones,
+    Garantías y "Devolver plata". Pantalla: `components/common/CajaDeSalida.vue`.
+  - Corregir un pago (monto, medio, tienda, quién) o borrarlo con su orden/borrador deja un
+    renglón en `caja_bitacora` (`CajaBitacora`, lo anota `Pago` solo en `updated`/`deleted`).
+    **No suma**: el saldo ya trae el cambio; explica cuánto subió o bajó, quién y por qué.
+    Borrar pagos siempre con `Pago::borrarDeLaOrden` (un `->pagos()->delete()` de consulta
+    no dispara los eventos y no deja rastro).
+  - Un ingreso o egreso manual ya no se borra: se **anula** (`anulado_at`, `anulado_por_id`,
+    `motivo_anulacion`), deja de sumar y se ve tachado.
 - `FacturacionController`: lista para vendedores con `facturacion = true`.
 - **Facturación electrónica con Alegra** (2026-11-09): `FacturacionElectronicaController`,
   `Services/Facturacion/*`, `Services/Alegra/ClienteAlegra`, reglas en `Support/ReglasFacturacion`

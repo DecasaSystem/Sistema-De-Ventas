@@ -16,12 +16,17 @@ class CajaMovimiento extends Model
         'concepto',
         'descripcion',
         'comprobante_url',
+        // Anular en vez de borrar: deja de sumar y se sigue viendo.
+        'anulado_at',
+        'anulado_por_id',
+        'motivo_anulacion',
     ];
 
     protected function casts(): array
     {
         return [
             'monto' => 'decimal:2',
+            'anulado_at' => 'datetime',
         ];
     }
 
@@ -33,5 +38,10 @@ class CajaMovimiento extends Model
     public function usuario()
     {
         return $this->belongsTo(Usuario::class);
+    }
+
+    public function anuladoPor()
+    {
+        return $this->belongsTo(Usuario::class, 'anulado_por_id');
     }
 }

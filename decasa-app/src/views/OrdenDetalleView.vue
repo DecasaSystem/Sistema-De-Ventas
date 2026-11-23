@@ -19,6 +19,7 @@ import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
 import { devolverPlata as devolverPlataApi } from '@/api/ordenes'
+import CajaDeSalida from '@/components/common/CajaDeSalida.vue'
 import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
@@ -1297,12 +1298,14 @@ const dpMonto      = ref(0)
 const dpMetodo     = ref('efectivo')
 const dpReferencia = ref('')
 const dpMotivo     = ref('')
+const dpCaja       = ref(null)   // de qué caja sale el efectivo
 const dpGuardando  = ref(false)
 
 function abrirDevolverPlata() {
   dpMonto.value      = Number(orden.value?.saldo_a_favor) || 0
   dpMetodo.value     = 'efectivo'
   dpReferencia.value = ''
+  dpCaja.value       = orden.value?.tienda_id ?? null
   dpMotivo.value     = orden.value?.estado === 'cancelado' ? 'Orden cancelada' : ''
   showDevolverPlata.value = true
 }
@@ -1315,6 +1318,7 @@ async function confirmarDevolverPlata() {
       metodo: dpMetodo.value,
       referencia: dpMetodo.value !== 'efectivo' ? (dpReferencia.value.trim() || null) : null,
       motivo: dpMotivo.value.trim(),
+      caja_tienda_id: dpMetodo.value === 'efectivo' ? dpCaja.value : null,
     })
     showDevolverPlata.value = false
     toast.success(data?.message || 'Listo')
@@ -4678,6 +4682,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               </button>
             </div>
           </div>
+          <CajaDeSalida v-if="dpMetodo === 'efectivo'" v-model="dpCaja" :tienda-orden-id="orden?.tienda_id" />
           <div v-if="dpMetodo !== 'efectivo'">
             <label class="block text-xs font-semibold text-gray-500 mb-1.5">Referencia</label>
             <input v-model="dpReferencia" maxlength="100" placeholder="N.º de la transferencia (opcional)"
@@ -4689,7 +4694,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
           </div>
           <p class="text-xs text-gray-500">
-            {{ dpMetodo === 'efectivo' ? 'Sale de la caja de la tienda.' : 'No toca la caja de la tienda.' }}
+            {{ dpMetodo === 'efectivo' ? 'Sale de esa caja y queda ahí como "Devolución".' : 'No toca la caja de la tienda.' }}
             Se avisa a facturación.
           </p>
           <div class="flex gap-3">

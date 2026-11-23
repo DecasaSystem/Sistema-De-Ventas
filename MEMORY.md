@@ -1168,6 +1168,32 @@ escribiendo precios (Fase 1b).
   la pestaña que se ve al abrir) ni lo de los totales repetidos por mes en Listas (~10 consultas con
   2–3 meses atrasados). Trampa: una prueba que llama `loQueHayPorPagar(null)` depende del día
   (el 20 cambia qué meses entran); pasarle el mes.
+- **La caja registra todo** (2026-11-23, **sin subir**, rama `claude/caja-registro-incompleto-387b8d`,
+  trae **migración** `2026_11_24_000001_bitacora_de_caja`: crea `caja_bitacora` y agrega
+  `caja_movimientos.anulado_at/anulado_por_id/motivo_anulacion`; solo agrega). Queja del usuario:
+  "se restó cosas en una caja y ni siquiera se sabe por qué". Causa de fondo: el saldo se suma
+  cada vez con los pagos de ese momento, así que cambiar uno viejo lo mueve sin rastro. Arreglado:
+  devoluciones como "Devolución" (salían como "Venta" con "+$-200.000"), a nombre de quien entregó
+  la plata y de la caja que escoge (antes: vendedor y tienda de la orden); correcciones y borrados
+  de pagos dejan renglón en la caja (no suma); egresos/ingresos manuales se anulan, no se borran.
+  Detalle en `docs/PROYECTO.md` §6.4. **Caso real (producción, solo lectura, 2026-11-23):** #1275
+  (Jairo Arcila, Unicentro Pereira) pagó $1 M por **transferencia** en octubre; el 19 nov la
+  cancelaron, el cliente pasó la plata a la #1316 y Juan David lo registró con "Devolver plata" en
+  **efectivo** (pago 1029, −$1 M): la caja de Unicentro bajó $1 M que nunca salió del cajón (se veía
+  como "Venta efectivo #1275 +$-1.000.000" de Juan Esteban). En la #1316 entró como abono por
+  transferencia (pago 1052, 23 nov). Se corrige con la migración
+  `2026_11_24_000002_devolucion_1275_no_salio_de_la_caja` (pedido del usuario; **sin subir**): el pago
+  1029 pasa a medio "otro" (el monto no cambia) y deja renglón en la caja, historial y chat; solo si lo
+  encuentra tal cual. Los reembolsos no se editan desde la app (`PagoController::update` los bloquea). No hay forma de "pasar el saldo a favor a otra orden" (por eso se
+  usó Devolver plata). También bajaron cajas sin rastro por correcciones de efectivo a otro medio
+  (oct–nov): Norte $5,55 M (#4301, #4310), Unicentro $2,83 M (#1281, R-1135, #1299), Circunvalar
+  $1,89 M (#1226), El Edén $1,35 M (#4390, 21 nov). Esas sí eran errores de registro corregidos.
+  **Quedan sin decidir (preguntar al usuario):** (1) marcar a alguien independiente saca de la caja
+  de su tienda TODO su efectivo viejo (se mira quién es independiente hoy; pasó el 2026-11-13 con
+  Margarita, Juan Peláez y Nicolás); (2) el efectivo cobrado al entregar nunca entra a la caja ni
+  hay cómo registrar que el conductor lo trajo; (3) la lista trae solo los últimos 60, sin filtro
+  de fechas ni cierre/arqueo diario. Las devoluciones viejas siguen con el vendedor y la tienda de
+  la orden (no se movieron).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

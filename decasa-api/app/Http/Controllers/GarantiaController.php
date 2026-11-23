@@ -37,6 +37,8 @@ class GarantiaController extends Controller
             'orden_id'         => $g->orden_id,
             'orden_referencia' => $g->orden?->referencia,
             'orden_estado'     => $g->orden?->estado,
+            // Para proponer la caja de donde sale el efectivo del reembolso.
+            'orden_tienda_id'  => $g->orden?->tienda_id,
             'cliente'          => $g->orden?->cliente?->nombre,
             'cliente_telefono' => $g->orden?->cliente?->telefono,
             'orden_item_id'    => $g->orden_item_id,
@@ -250,6 +252,8 @@ class GarantiaController extends Controller
             'tienda_id'  => 'required_if:destino,inventario|nullable|integer',
             'referencia' => 'nullable|string|max:100',
             'monto'      => 'nullable|numeric|min:0',
+            // De qué caja salió el efectivo (sin el dato, la de la tienda de la orden).
+            'caja_tienda_id' => 'nullable|integer|exists:tiendas,id',
         ], [
             'metodo.required'       => 'Escoge cómo se le devolvió la plata.',
             'destino.required'      => 'Escoge qué se hace con lo que devolvió: inventario o merma.',

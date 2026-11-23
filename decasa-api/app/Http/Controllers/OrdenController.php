@@ -19,6 +19,7 @@ use App\Models\DespachoItem;
 use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\OrdenMensaje;
+use App\Models\Pago;
 use App\Models\Produccion;
 use App\Models\Producto;
 use App\Models\ProductoVariante;
@@ -4729,7 +4730,7 @@ class OrdenController extends Controller
             Produccion::borrarConLoQueCuelga($produccionIds);
             DespachoItem::where('orden_id', $orden->id)->delete();
             Comision::where('orden_id', $orden->id)->delete();
-            $orden->pagos()->delete();
+            Pago::borrarDeLaOrden($orden->id, "Orden {$referencia} eliminada: {$data['motivo']}");
             OrdenItem::whereIn('id', $itemIds)->delete();
             $orden->delete();
         });
@@ -4837,7 +4838,7 @@ class OrdenController extends Controller
             Produccion::borrarConLoQueCuelga(Produccion::whereIn('orden_item_id', $itemIds)->pluck('id'));
             DB::table('consultas_costo')->where('orden_id', $orden->id)->delete();
             DB::table('orden_ediciones')->where('orden_id', $orden->id)->delete();
-            $orden->pagos()->delete();
+            Pago::borrarDeLaOrden($orden->id, 'Borrador eliminado');
             OrdenItem::whereIn('id', $itemIds)->delete();
             $orden->delete();
         });

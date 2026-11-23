@@ -17,6 +17,7 @@ import { recibirGarantiaEnTaller, registrarVisitaGarantia, recibirDevolucionGara
 import { getTiendas } from '@/api/ordenes'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import DecidirGarantiaModal from './DecidirGarantiaModal.vue'
+import CajaDeSalida from '@/components/common/CajaDeSalida.vue'
 import { ESTADOS, DECISION_TEXTO, PREFERENCIA_TEXTO, fechaCorta, pesos, diasPara } from './garantias'
 import { ShieldCheckIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 
@@ -64,9 +65,11 @@ const devMetodo    = ref('efectivo')
 const devReferencia = ref('')
 const devDestino   = ref('merma')
 const devTienda    = ref('')
+const devCaja      = ref(null)   // de qué caja sale el efectivo
 const tiendas      = ref([])
 
 async function abrirDevolucion() {
+  devCaja.value = g.value.orden_tienda_id ?? null
   devolviendo.value = true
   if (!tiendas.value.length) {
     try { tiendas.value = (await getTiendas()).data.filter(t => t.activa !== false && !t.es_independientes) } catch {}
@@ -82,6 +85,7 @@ async function guardarDevolucion() {
       referencia: devReferencia.value.trim() || null,
       destino: devDestino.value,
       tienda_id: devDestino.value === 'inventario' ? devTienda.value : null,
+      caja_tienda_id: devMetodo.value === 'efectivo' ? devCaja.value : null,
     })
     toast.success('Listo: se registró la devolución de la plata')
     devolviendo.value = false
@@ -273,7 +277,7 @@ async function guardarVisita() {
                 {{ m[1] }}
               </button>
             </div>
-            <p v-if="devMetodo === 'efectivo'" class="text-[11px] text-gray-400 mt-1">Sale de la misma caja por donde entró la venta.</p>
+            <div v-if="devMetodo === 'efectivo'" class="mt-2"><CajaDeSalida v-model="devCaja" :tienda-orden-id="g.orden_tienda_id" /></div>
             <input v-else v-model="devReferencia" placeholder="Referencia (opcional)" class="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
           </div>
 

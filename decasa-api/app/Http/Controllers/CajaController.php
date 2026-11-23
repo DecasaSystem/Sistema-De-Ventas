@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CajaBitacora;
 use App\Models\CajaMovimiento;
 use App\Models\Pago;
 use App\Models\Tienda;
+use App\Support\Esquema;
 use Illuminate\Http\Request;
 
 class CajaController extends Controller
@@ -38,6 +40,17 @@ class CajaController extends Controller
         return $q->where('independiente', true);
     }
 
+    /** ¿Ya existe la anulación de movimientos manuales? (pruebas con esquemas a mano) */
+    private static function hayAnulacion(): bool
+    {
+        return Esquema::columna('caja_movimientos', 'anulado_at');
+    }
+
+    /** Solo los movimientos manuales que suman: un anulado ya no cuenta. */
+    private static function vigentes($q)
+    {
+        return self::hayAnulacion() ? $q->whereNull('anulado_at') : $q;
+    }
 
     /**
      * Pagos en efectivo que entraron a la caja de una tienda.
@@ -47,6 +60,9 @@ class CajaController extends Controller
      * caen a la tienda de su orden, que es lo que se asumía entonces.
      *
      * Lo cobrado al entregar no cuenta (ver Pago::scopeEntraACaja).
+     *
+     * Incluye las devoluciones de plata en efectivo (pagos negativos `tipo =
+     * reembolso`): restan. Ver filaDePago para cómo se muestran.
      *
      * Va en un solo sitio a propósito: el saldo, la lista de movimientos y el
      * resumen por tienda deben filtrar igual o el total no cuadra con el detalle.
@@ -65,7 +81,7 @@ class CajaController extends Controller
     }
 
     /**
-     * Movimientos manuales de la caja de una tienda.
+     * Movimientos manuales de la caja de una tienda que suman (sin los anulados).
      *
      * Deja por fuera a quien lleva caja propia: su sede está guardada en el
      * movimiento porque la columna no admite nulos, pero su plata es suya y ya
@@ -76,20 +92,122 @@ class CajaController extends Controller
      */
     public static function movimientosDeTienda(int $tiendaId)
     {
+        return self::vigentes(self::movimientosDeTiendaConAnulados($tiendaId));
+    }
+
+    /** Lo mismo, con los anulados: la lista los muestra tachados. */
+    private static function movimientosDeTiendaConAnulados(int $tiendaId)
+    {
         return CajaMovimiento::where('tienda_id', $tiendaId)
             ->whereDoesntHave('usuario', fn($q) => self::esDeCajaPropia($q));
     }
 
+    /**
+     * Cómo se ve un pago en la lista de la caja.
+     *
+     * Una devolución de plata (pago negativo `tipo = reembolso`, de Devoluciones,
+     * Garantías o "Devolver plata") salía como "Venta efectivo #4300" en verde
+     * con "+$-200.000": la caja bajaba y nadie sabía por qué (usuario,
+     * 2026-11-23). Ahora es "Devolución" con su motivo.
+     */
+    public static function filaDePago(Pago $p): array
+    {
+        $ref = $p->orden?->referencia ?? ('#' . $p->orden_id);
+        $esDevolucion = (float) $p->monto < 0 || $p->tipo === 'reembolso';
+
+        return [
+            'id'              => 'pago_' . $p->id,
+            'tipo'            => $esDevolucion ? 'devolucion' : 'ingreso_venta',
+            'monto'           => abs((float) $p->monto),
+            'concepto'        => $esDevolucion ? 'Devolución de plata ' . $ref : 'Venta efectivo ' . $ref,
+            'descripcion'     => $p->notas,
+            'comprobante_url' => null,
+            'usuario'         => $p->vendedor?->nombre,
+            'fecha'           => $p->created_at,
+            'metodo'          => $p->metodo,
+            'tipo_pago'       => $p->tipo,
+            'orden_id'        => $p->orden_id,
+        ];
+    }
+
+    private static function filaDeMovimiento(CajaMovimiento $m): array
+    {
+        return [
+            'id'              => 'mov_' . $m->id,
+            'tipo'            => $m->tipo,
+            'monto'           => (float) $m->monto,
+            'concepto'        => $m->concepto,
+            'descripcion'     => $m->descripcion,
+            'comprobante_url' => $m->comprobante_url,
+            'usuario'         => $m->usuario?->nombre,
+            'fecha'           => $m->created_at,
+            'metodo'          => null,
+            'tipo_pago'       => null,
+            'anulado'         => (bool) ($m->anulado_at ?? false),
+            'anulado_at'      => $m->anulado_at ?? null,
+            'anulado_por'     => $m->anulado_at ? $m->anuladoPor?->nombre : null,
+            'motivo_anulacion' => $m->motivo_anulacion ?? null,
+        ];
+    }
+
+    /**
+     * Un cambio de un pago viejo (corrección o borrado). No suma: el saldo ya
+     * lo trae; está para que se sepa por qué subió o bajó.
+     */
+    private static function filaDeBitacora(CajaBitacora $b): array
+    {
+        return [
+            'id'              => 'bit_' . $b->id,
+            'tipo'            => 'correccion',
+            'monto'           => (float) $b->efecto,
+            'concepto'        => $b->concepto,
+            'descripcion'     => $b->descripcion,
+            'comprobante_url' => null,
+            'usuario'         => $b->usuario?->nombre,
+            'fecha'           => $b->created_at,
+            'metodo'          => null,
+            'tipo_pago'       => null,
+            'motivo'          => $b->motivo,
+            'orden_id'        => $b->orden_id,
+            'no_suma'         => true,
+        ];
+    }
+
+    private static function bitacora(?int $tiendaId, ?int $usuarioId, int $limite)
+    {
+        if (! Esquema::tabla('caja_bitacora')) return collect();
+
+        return CajaBitacora::with('usuario:id,nombre')
+            ->when($usuarioId, fn($q) => $q->where('caja_usuario_id', $usuarioId))
+            ->when(! $usuarioId, fn($q) => $q->where('tienda_id', $tiendaId)->whereNull('caja_usuario_id'))
+            ->latest()->limit($limite)->get()
+            ->map(fn($b) => self::filaDeBitacora($b));
+    }
+
+    private static function conAnulador($q)
+    {
+        return self::hayAnulacion() ? $q->with('anuladoPor:id,nombre') : $q;
+    }
+
+    /** Entradas por ventas (positivas) y devoluciones (lo que salió) por separado. */
+    private static function partirVentas($pagos): array
+    {
+        $entradas = (float) (clone $pagos)->where('monto', '>', 0)->sum('monto');
+        $salidas  = (float) (clone $pagos)->where('monto', '<', 0)->sum('monto');
+        return [$entradas, abs($salidas)];
+    }
+
     private function balancePorUsuario(int $userId): array
     {
-        $ingresoVentas = Pago::entraACaja()->where('vendedor_id', $userId)->sum('monto');
-        $ingresoManual = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'ingreso_manual')->sum('monto');
-        $egresos       = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'egreso')->sum('monto');
+        [$ingresoVentas, $devoluciones] = self::partirVentas(Pago::entraACaja()->where('vendedor_id', $userId));
+        $ingresoManual = self::vigentes(CajaMovimiento::where('usuario_id', $userId))->where('tipo', 'ingreso_manual')->sum('monto');
+        $egresos       = self::vigentes(CajaMovimiento::where('usuario_id', $userId))->where('tipo', 'egreso')->sum('monto');
 
         return [
             'tienda_id'      => null,
-            'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
+            'balance'        => (float) ($ingresoVentas - $devoluciones + $ingresoManual - $egresos),
             'ingreso_ventas' => (float) $ingresoVentas,
+            'devoluciones'   => (float) $devoluciones,
             'ingreso_manual' => (float) $ingresoManual,
             'egresos'        => (float) $egresos,
         ];
@@ -114,12 +232,13 @@ class CajaController extends Controller
                 'tienda_id'      => null,
                 'balance'        => 0,
                 'ingreso_ventas' => 0,
+                'devoluciones'   => 0,
                 'ingreso_manual' => 0,
                 'egresos'        => 0,
             ]);
         }
 
-        $ingresoVentas = self::efectivoDeTienda($tiendaId)->sum('monto');
+        [$ingresoVentas, $devoluciones] = self::partirVentas(self::efectivoDeTienda($tiendaId));
 
         $ingresoManual = self::movimientosDeTienda($tiendaId)
             ->where('tipo', 'ingreso_manual')
@@ -131,53 +250,35 @@ class CajaController extends Controller
 
         return response()->json([
             'tienda_id'      => $tiendaId,
-            'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
+            'balance'        => (float) ($ingresoVentas - $devoluciones + $ingresoManual - $egresos),
             'ingreso_ventas' => (float) $ingresoVentas,
+            'devoluciones'   => (float) $devoluciones,
             'ingreso_manual' => (float) $ingresoManual,
             'egresos'        => (float) $egresos,
         ]);
     }
 
+    private const RELACIONES_PAGO = [
+        'vendedor:id,nombre',
+        // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
+        'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
+    ];
+
     private function movimientosPorUsuario(int $userId, int $limite): \Illuminate\Support\Collection
     {
-        $pagos = Pago::with([
-                'vendedor:id,nombre',
-                // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
-                'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
-            ])
+        $pagos = Pago::with(self::RELACIONES_PAGO)
             ->entraACaja()
             ->where('vendedor_id', $userId)
             ->latest()->limit($limite)->get()
-            ->map(fn($p) => [
-                'id'              => 'pago_' . $p->id,
-                'tipo'            => 'ingreso_venta',
-                'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta efectivo ' . ($p->orden?->referencia ?? '#' . $p->orden_id),
-                'descripcion'     => $p->notas,
-                'comprobante_url' => null,
-                'usuario'         => $p->vendedor?->nombre,
-                'fecha'           => $p->created_at,
-                'metodo'          => $p->metodo,
-                'tipo_pago'       => $p->tipo,
-            ]);
+            ->map(fn($p) => self::filaDePago($p));
 
-        $manuales = CajaMovimiento::with('usuario:id,nombre')
+        $manuales = self::conAnulador(CajaMovimiento::with('usuario:id,nombre'))
             ->where('usuario_id', $userId)
             ->latest()->limit($limite)->get()
-            ->map(fn($m) => [
-                'id'              => 'mov_' . $m->id,
-                'tipo'            => $m->tipo,
-                'monto'           => (float) $m->monto,
-                'concepto'        => $m->concepto,
-                'descripcion'     => $m->descripcion,
-                'comprobante_url' => $m->comprobante_url,
-                'usuario'         => $m->usuario?->nombre,
-                'fecha'           => $m->created_at,
-                'metodo'          => null,
-                'tipo_pago'       => null,
-            ]);
+            ->map(fn($m) => self::filaDeMovimiento($m));
 
-        return collect($pagos)->merge($manuales)->sortByDesc('fecha')->values();
+        return collect($pagos)->merge($manuales)->merge(self::bitacora(null, $userId, $limite))
+            ->sortByDesc('fecha')->values();
     }
 
     public function movimientos(Request $request)
@@ -200,47 +301,22 @@ class CajaController extends Controller
         }
 
         $pagos = self::efectivoDeTienda($tiendaId)
-            ->with([
-                'vendedor:id,nombre',
-                // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
-                'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
-            ])
+            ->with(self::RELACIONES_PAGO)
             ->latest()
             ->limit($limite)
             ->get()
-            ->map(fn($p) => [
-                'id'              => 'pago_' . $p->id,
-                'tipo'            => 'ingreso_venta',
-                'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta efectivo ' . ($p->orden?->referencia ?? '#' . $p->orden_id),
-                'descripcion'     => $p->notas,
-                'comprobante_url' => null,
-                'usuario'         => $p->vendedor?->nombre,
-                'fecha'           => $p->created_at,
-                'metodo'          => $p->metodo,
-                'tipo_pago'       => $p->tipo,
-            ]);
+            ->map(fn($p) => self::filaDePago($p));
 
-        // Mismo filtro que el saldo: la lista y el total tienen que cuadrar.
-        $manuales = self::movimientosDeTienda($tiendaId)->with('usuario:id,nombre')
+        // Mismo filtro que el saldo (más los anulados, que se ven tachados y no suman).
+        $manuales = self::conAnulador(self::movimientosDeTiendaConAnulados($tiendaId)->with('usuario:id,nombre'))
             ->latest()
             ->limit($limite)
             ->get()
-            ->map(fn($m) => [
-                'id'              => 'mov_' . $m->id,
-                'tipo'            => $m->tipo,
-                'monto'           => (float) $m->monto,
-                'concepto'        => $m->concepto,
-                'descripcion'     => $m->descripcion,
-                'comprobante_url' => $m->comprobante_url,
-                'usuario'         => $m->usuario?->nombre,
-                'fecha'           => $m->created_at,
-                'metodo'          => null,
-                'tipo_pago'       => null,
-            ]);
+            ->map(fn($m) => self::filaDeMovimiento($m));
 
         $todos = collect($pagos)
             ->merge($manuales)
+            ->merge(self::bitacora($tiendaId, null, $limite))
             ->sortByDesc('fecha')
             ->values();
 
@@ -286,10 +362,35 @@ class CajaController extends Controller
         );
     }
 
-    public function eliminarMovimiento(int $id)
+    /**
+     * DELETE /caja/movimiento/{id} — anula un ingreso o egreso manual.
+     *
+     * Antes se borraba de verdad: la caja cambiaba y no quedaba ni que había
+     * existido. Ahora deja de sumar y se sigue viendo tachado, con quién lo
+     * anuló, cuándo y por qué.
+     */
+    public function eliminarMovimiento(Request $request, int $id)
     {
+        $data = $request->validate([
+            'motivo' => 'nullable|string|max:500',
+        ]);
+
         $mov = CajaMovimiento::findOrFail($id);
-        $mov->delete();
+
+        if (! self::hayAnulacion()) {
+            $mov->delete();
+            return response()->noContent();
+        }
+
+        if ($mov->anulado_at) {
+            return response()->json(['message' => 'Ese movimiento ya estaba anulado.'], 422);
+        }
+
+        $mov->forceFill([
+            'anulado_at'       => now(),
+            'anulado_por_id'   => auth()->id(),
+            'motivo_anulacion' => isset($data['motivo']) ? trim($data['motivo']) ?: null : null,
+        ])->save();
 
         return response()->noContent();
     }
@@ -302,7 +403,7 @@ class CajaController extends Controller
 
         // Los movimientos manuales de todas las tiendas en UNA consulta (antes
         // eran dos por tienda), con el mismo filtro que movimientosDeTienda().
-        $manuales = CajaMovimiento::whereIn('tienda_id', $tiendas->pluck('id'))
+        $manuales = self::vigentes(CajaMovimiento::whereIn('tienda_id', $tiendas->pluck('id')))
             ->whereDoesntHave('usuario', fn($q) => self::esDeCajaPropia($q))
             ->whereIn('tipo', ['ingreso_manual', 'egreso'])
             ->groupBy('tienda_id', 'tipo')
@@ -311,7 +412,7 @@ class CajaController extends Controller
             ->mapWithKeys(fn ($f) => [$f->tienda_id . '|' . $f->tipo => $f->total]);
 
         $resumen = $tiendas->map(function ($tienda) use ($manuales) {
-            $ingresoVentas = self::efectivoDeTienda($tienda->id)->sum('monto');
+            [$ingresoVentas, $devoluciones] = self::partirVentas(self::efectivoDeTienda($tienda->id));
 
             $ingresoManual = $manuales[$tienda->id . '|ingreso_manual'] ?? 0;
             $egresos       = $manuales[$tienda->id . '|egreso'] ?? 0;
@@ -324,8 +425,9 @@ class CajaController extends Controller
                 // poder distinguirla al comparar tiendas.
                 'es_fabrica'     => (bool) $tienda->es_fabrica,
                 'es_independiente' => false,
-                'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
+                'balance'        => (float) ($ingresoVentas - $devoluciones + $ingresoManual - $egresos),
                 'ingreso_ventas' => (float) $ingresoVentas,
+                'devoluciones'   => (float) $devoluciones,
                 'ingreso_manual' => (float) $ingresoManual,
                 'egresos'        => (float) $egresos,
             ];
@@ -347,6 +449,7 @@ class CajaController extends Controller
                     'es_independiente' => true,
                     'balance'        => $b['balance'],
                     'ingreso_ventas' => $b['ingreso_ventas'],
+                    'devoluciones'   => $b['devoluciones'],
                     'ingreso_manual' => $b['ingreso_manual'],
                     'egresos'        => $b['egresos'],
                 ];

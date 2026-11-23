@@ -15,11 +15,15 @@ import {
   TrashIcon,
   ChevronDownIcon,
   ArrowDownTrayIcon,
+  ArrowUturnLeftIcon,
+  PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
 import InputPesos from '@/components/common/InputPesos.vue'
+import { useToast } from '@/composables/useToast'
 
 const auth = useAuthStore()
+const toast = useToast()
 
 // ── Selección (tienda o ebanista) ─────────────────────────────────────────────
 const tiendas   = ref([])
@@ -60,7 +64,7 @@ async function cargarTiendas() {
 }
 
 // ── Balance ───────────────────────────────────────────────────────────────────
-const balance  = ref({ balance: 0, ingreso_ventas: 0, ingreso_manual: 0, egresos: 0 })
+const balance  = ref({ balance: 0, ingreso_ventas: 0, devoluciones: 0, ingreso_manual: 0, egresos: 0 })
 const cargando = ref(true)
 
 async function cargarBalance() {
@@ -209,16 +213,22 @@ async function guardarIngreso() {
   }
 }
 
-// ── Eliminar movimiento ───────────────────────────────────────────────────────
+// ── Anular movimiento ─────────────────────────────────────────────────────────
+// Ya no se borra: deja de sumar y queda tachado con quién, cuándo y por qué.
+// Antes se borraba de verdad y la caja cambiaba sin dejar rastro.
 const eliminando = ref(null)
+const motivosAnular = reactive({})
 
 async function eliminar(mov) {
-  if (!mov.id.startsWith('mov_')) return
-  if (!confirm(`¿Eliminar "${mov.concepto}"?`)) return
+  if (!mov.id.startsWith('mov_') || mov.anulado) return
+  if (!confirm(`¿Anular "${mov.concepto}"? Deja de sumar en la caja y queda a la vista como anulado.`)) return
   eliminando.value = mov.id
   try {
-    await eliminarMovimiento(mov.id.replace('mov_', ''))
+    await eliminarMovimiento(mov.id.replace('mov_', ''), (motivosAnular[mov.id] || '').trim() || null)
+    toast.success('Movimiento anulado')
     await cargarTodo()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo anular.')
   } finally {
     eliminando.value = null
   }
@@ -243,7 +253,10 @@ function formatFecha(iso) {
 }
 
 function tipoLabel(tipo) {
-  return { ingreso_venta: 'Venta', ingreso_manual: 'Ingreso', egreso: 'Egreso' }[tipo] ?? tipo
+  return {
+    ingreso_venta: 'Venta', ingreso_manual: 'Ingreso', egreso: 'Egreso',
+    devolucion: 'Devolución', correccion: 'Corrección',
+  }[tipo] ?? tipo
 }
 
 function tipoBadgeClass(tipo) {
@@ -251,6 +264,8 @@ function tipoBadgeClass(tipo) {
     ingreso_venta:  'bg-green-100 text-green-700',
     ingreso_manual: 'bg-blue-100 text-blue-700',
     egreso:         'bg-red-100 text-red-700',
+    devolucion:     'bg-red-100 text-red-700',
+    correccion:     'bg-amber-100 text-amber-800',
   }[tipo] ?? 'bg-gray-100 text-gray-600'
 }
 
@@ -259,7 +274,42 @@ function tipoIcono(tipo) {
     ingreso_venta:  ShoppingCartIcon,
     ingreso_manual: ArrowUpCircleIcon,
     egreso:         ArrowDownCircleIcon,
+    devolucion:     ArrowUturnLeftIcon,
+    correccion:     PencilSquareIcon,
   }[tipo] ?? BanknotesIcon
+}
+
+// Cuánto movió la caja, con su signo. La devolución y el egreso restan; la
+// corrección trae su propio signo (cuánto subió o bajó el saldo).
+function efecto(mov) {
+  const n = Number(mov.monto) || 0
+  if (mov.tipo === 'egreso' || mov.tipo === 'devolucion') return -Math.abs(n)
+  return n
+}
+
+function montoTexto(mov) {
+  const n = efecto(mov)
+  return (n < 0 ? '-' : '+') + '$' + formatMonto(Math.abs(n))
+}
+
+function montoClase(mov) {
+  if (mov.anulado) return 'text-gray-400 line-through'
+  if (mov.tipo === 'correccion') return 'text-amber-700'
+  return efecto(mov) < 0 ? 'text-red-600' : 'text-green-600'
+}
+
+function iconoFondo(mov) {
+  return {
+    ingreso_venta: 'bg-green-100', ingreso_manual: 'bg-blue-100', egreso: 'bg-red-100',
+    devolucion: 'bg-red-100', correccion: 'bg-amber-100',
+  }[mov.tipo] ?? 'bg-gray-100'
+}
+
+function iconoColor(mov) {
+  return {
+    ingreso_venta: 'text-green-600', ingreso_manual: 'text-blue-600', egreso: 'text-red-600',
+    devolucion: 'text-red-600', correccion: 'text-amber-700',
+  }[mov.tipo] ?? 'text-gray-500'
 }
 
 function fechaCompleta(iso) {
@@ -272,12 +322,14 @@ function fechaCompleta(iso) {
 function exportarExcelCaja() {
   const filas = movimientos.value.map(m => ({
     'Fecha':       fechaCompleta(m.fecha),
-    'Tipo':        tipoLabel(m.tipo),
+    'Tipo':        tipoLabel(m.tipo) + (m.anulado ? ' (anulado)' : ''),
     'Concepto':    m.concepto ?? '',
     'Método':      m.metodo ?? '',
-    'Monto':       (m.tipo === 'egreso' ? -1 : 1) * (Number(m.monto) || 0),
+    'Monto':       efecto(m),
+    // La corrección explica un cambio que el saldo ya trae; lo anulado no cuenta.
+    'Suma al saldo': m.no_suma ? 'No (ya está en el saldo)' : (m.anulado ? 'No (anulado)' : 'Sí'),
     'Registrado por': m.usuario ?? '',
-    'Descripción': m.descripcion ?? '',
+    'Descripción': [m.descripcion, m.anulado ? `Anulado por ${m.anulado_por ?? '—'}${m.motivo_anulacion ? ': ' + m.motivo_anulacion : ''}` : null].filter(Boolean).join(' · '),
   }))
   exportarExcel(filas, { nombreArchivo: 'caja_movimientos', hoja: 'Movimientos' })
 }
@@ -326,10 +378,16 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
         <div :class="balancePositivo ? 'text-green-600' : 'text-red-600'" class="text-4xl font-bold mb-5">
           ${{ formatMonto(balance.balance) }}
         </div>
-        <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="grid gap-2 text-center" :class="Number(balance.devoluciones) > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'">
           <div class="bg-green-50 rounded-xl p-3">
             <p class="text-[11px] text-gray-500 font-medium mb-1">Ventas</p>
             <p class="text-sm font-bold text-green-700">+${{ formatMonto(balance.ingreso_ventas) }}</p>
+          </div>
+          <!-- Plata devuelta a clientes en efectivo (Devoluciones, Garantías,
+               saldo a favor). Antes se restaba dentro de "Ventas" sin decirlo. -->
+          <div v-if="Number(balance.devoluciones) > 0" class="bg-red-50 rounded-xl p-3">
+            <p class="text-[11px] text-gray-500 font-medium mb-1">Devoluciones</p>
+            <p class="text-sm font-bold text-red-700">-${{ formatMonto(balance.devoluciones) }}</p>
           </div>
           <div class="bg-blue-50 rounded-xl p-3">
             <p class="text-[11px] text-gray-500 font-medium mb-1">Ingresos</p>
@@ -398,20 +456,12 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
             >
               <!-- Ícono tipo -->
               <div
-                :class="{
-                  'bg-green-100': mov.tipo === 'ingreso_venta',
-                  'bg-blue-100':  mov.tipo === 'ingreso_manual',
-                  'bg-red-100':   mov.tipo === 'egreso',
-                }"
+                :class="[iconoFondo(mov), mov.anulado ? 'opacity-50' : '']"
                 class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
               >
                 <component
                   :is="tipoIcono(mov.tipo)"
-                  :class="{
-                    'text-green-600': mov.tipo === 'ingreso_venta',
-                    'text-blue-600':  mov.tipo === 'ingreso_manual',
-                    'text-red-600':   mov.tipo === 'egreso',
-                  }"
+                  :class="iconoColor(mov)"
                   class="w-4 h-4"
                 />
               </div>
@@ -422,21 +472,22 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
                   <span :class="tipoBadgeClass(mov.tipo)" class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
                     {{ tipoLabel(mov.tipo) }}
                   </span>
+                  <span v-if="mov.anulado" class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Anulado</span>
                   <span v-if="mov.metodo" class="text-[10px] text-gray-400">· {{ mov.metodo }}</span>
                   <!-- Dot si tiene comprobante -->
                   <PhotoIcon v-if="mov.comprobante_url" class="w-3 h-3 text-gray-300" title="Tiene comprobante" />
                 </div>
-                <p class="text-sm font-medium text-gray-900 truncate">{{ mov.concepto }}</p>
+                <p class="text-sm font-medium truncate" :class="mov.anulado ? 'text-gray-400 line-through' : 'text-gray-900'">{{ mov.concepto }}</p>
                 <p class="text-xs text-gray-400">{{ mov.usuario }} · {{ formatFecha(mov.fecha) }}</p>
               </div>
 
               <!-- Monto + chevron -->
               <div class="flex items-center gap-2 flex-shrink-0">
                 <span
-                  :class="mov.tipo === 'egreso' ? 'text-red-600' : 'text-green-600'"
+                  :class="montoClase(mov)"
                   class="font-bold text-sm min-w-[80px] text-right"
                 >
-                  {{ mov.tipo === 'egreso' ? '-' : '+' }}${{ formatMonto(mov.monto) }}
+                  {{ montoTexto(mov) }}
                 </span>
                 <ChevronDownIcon
                   class="w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0"
@@ -448,6 +499,19 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
             <!-- Sección expandida -->
             <Transition name="expand">
               <div v-if="expandidos[mov.id]" class="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+
+                <!-- Corrección: explica un cambio que el saldo ya trae -->
+                <p v-if="mov.no_suma" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                  {{ mov.motivo === 'borrado' ? 'Se borró un pago en efectivo' : 'Se corrigió un pago en efectivo' }}
+                  y por eso el saldo {{ efecto(mov) < 0 ? 'bajó' : 'subió' }} ${{ formatMonto(Math.abs(efecto(mov))) }}.
+                  Este renglón no se suma otra vez: el saldo ya lo tiene en cuenta.
+                </p>
+
+                <!-- Anulado: ya no suma -->
+                <p v-if="mov.anulado" class="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+                  Anulado{{ mov.anulado_por ? ' por ' + mov.anulado_por : '' }}{{ mov.anulado_at ? ' el ' + fechaCompleta(mov.anulado_at) : '' }}.
+                  Ya no suma en la caja.{{ mov.motivo_anulacion ? ' Motivo: ' + mov.motivo_anulacion : '' }}
+                </p>
 
                 <!-- Descripción -->
                 <div>
@@ -470,16 +534,24 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
                   </a>
                 </div>
 
-                <!-- Eliminar (solo supervisor, solo movimientos manuales) -->
-                <button
-                  v-if="auth.isSupervisor && mov.id.startsWith('mov_')"
-                  @click="eliminar(mov)"
-                  :disabled="eliminando === mov.id"
-                  class="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
-                >
-                  <TrashIcon class="w-3.5 h-3.5" />
-                  {{ eliminando === mov.id ? 'Eliminando...' : 'Eliminar movimiento' }}
-                </button>
+                <!-- Anular (solo supervisor, solo movimientos manuales). No se borra:
+                     queda tachado con quién y por qué. -->
+                <div v-if="auth.isSupervisor && mov.id.startsWith('mov_') && !mov.anulado" class="space-y-2">
+                  <input
+                    v-model="motivosAnular[mov.id]"
+                    maxlength="500"
+                    placeholder="¿Por qué se anula? (opcional)"
+                    class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    @click="eliminar(mov)"
+                    :disabled="eliminando === mov.id"
+                    class="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                  >
+                    <TrashIcon class="w-3.5 h-3.5" />
+                    {{ eliminando === mov.id ? 'Anulando...' : 'Anular movimiento' }}
+                  </button>
+                </div>
 
               </div>
             </Transition>

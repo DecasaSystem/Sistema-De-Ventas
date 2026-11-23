@@ -347,8 +347,8 @@ class GarantiaService
      *    tienda y la comisión pendiente lo siguen; una comisión ya pagada no
      *    se toca (decisión del dueño, 2026-10-09).
      *  - La plata sale como un pago NEGATIVO de tipo `reembolso`, a nombre de
-     *    quien recibió la venta y en su tienda: si fue en efectivo baja la
-     *    misma caja por donde entró; si fue transferencia, no toca la caja. El
+     *    quien la entrega y de la caja de donde sale (Pago::salidaDeCaja; sin
+     *    escogerla, la de la tienda de la orden): si fue en efectivo baja esa caja; si fue transferencia, no toca la caja. El
      *    saldo, la cartera y el 50 % de la comisión lo cuentan solos.
      *  - Lo devuelto vuelve al inventario de una tienda (si sirve) o sale
      *    como merma: ya había salido del inventario al entregarlo.
@@ -410,8 +410,7 @@ class GarantiaService
             if ($monto > 0) {
                 $pago = \App\Models\Pago::create([
                     'orden_id'    => $orden->id,
-                    'vendedor_id' => $orden->vendedor_id,
-                    'tienda_id'   => $orden->tienda_id,
+                    ...\App\Models\Pago::salidaDeCaja($orden, $quien, isset($data['caja_tienda_id']) ? (int) $data['caja_tienda_id'] : null),
                     'tipo'        => 'reembolso',
                     'monto'       => -$monto,
                     'metodo'      => $data['metodo'],
