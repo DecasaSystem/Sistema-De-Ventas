@@ -473,6 +473,51 @@ class ComisionesAtrasadasTest extends TestCase
     // ── El Excel de Listas (?detalle=1) ──────────────────────────────────────
     // Tiene que cuadrar peso a peso con Listas: mismas cifras, más campos.
 
+    // ── Excel "Pagos pendientes": estado de cuenta por persona ────────────────
+    //
+    // Usuario, 2026-11-23: "¿y si lo tengo con meses atrasados, o con algunos
+    // abonos y falta?". Septiembre atrasado con un abono, octubre listo y
+    // noviembre todavía en curso.
+
+    public function test_pagos_pendientes_dice_lo_mismo_que_listas_y_lo_que_todavia_no(): void
+    {
+        $this->abonar(100_000)->assertOk();
+        $this->orden('2026-11-05', 12_000_000);
+
+        $listas = $this->jefe()->getJson('/api/comisiones/por-pagar?detalle=1')->assertOk()->json();
+        $r = $this->jefe()->getJson('/api/comisiones/pagos-pendientes')->assertOk()->json();
+
+        // Lo que toca es exactamente lo de Listas: lo que dice que se entrega es lo que se paga.
+        foreach (['lista', 'se_descuenta', 'entregar'] as $campo) {
+            $this->assertEquals($listas[$campo], $r['por_pagar'][$campo], $campo);
+        }
+
+        [$sep, $oct] = $r['por_pagar']['personas'][0]['bloques'];
+        $this->assertTrue($sep['atrasada']);
+        $this->assertEquals(100_000, $sep['abonos']);
+        $this->assertEquals(300_000, $sep['se_descuenta']);            // anticipo + abono
+        $this->assertEqualsWithDelta($sep['lista'] - 300_000, $sep['entregar'], 1);
+        $this->assertEquals(0, $sep['pagado_mes']);
+        $this->assertEquals(0, $sep['pendiente_mes']);
+        $this->assertEqualsWithDelta($sep['lista'], $sep['comision_mes'], 1);
+
+        // Noviembre todavía no se puede pagar: el mes no ha terminado.
+        $nov = collect($r['todavia_no'])->firstWhere('mes', '2026-11');
+        $this->assertNotNull($nov);
+        $this->assertSame(self::JUAN, $nov['vendedor_id']);
+        $this->assertTrue($nov['mes_en_curso']);
+        $this->assertFalse($nov['llego_el_dia']);
+        $this->assertGreaterThan(0, $nov['pendiente']);
+        $this->assertNotEmpty($nov['ordenes']);
+        // Lo que ya está listo no se repite como "todavía no".
+        $this->assertNull(collect($r['todavia_no'])->firstWhere('mes', '2026-09'));
+    }
+
+    public function test_un_vendedor_sin_bonificaciones_no_ve_los_pagos_pendientes(): void
+    {
+        $this->actingAs(Usuario::find(self::JUAN))->getJson('/api/comisiones/pagos-pendientes')->assertStatus(403);
+    }
+
     public function test_el_detalle_del_excel_dice_las_mismas_cifras_que_listas(): void
     {
         // Una venta de octubre pagada con tarjeta: la franquicia le resta a la base.

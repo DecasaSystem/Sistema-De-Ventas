@@ -1177,6 +1177,7 @@ function resumenEstadoLabel(r) {
 // mes solo se podía escoger en Resumen. Ahora se escoge qué y de qué mes, y
 // el mes completo sale entero, sin los filtros de la pantalla.
 //   · Lo que se va a pagar → utils/excelListas.js
+//   · Pagos pendientes     → utils/excelPendientes.js (estado de cuenta por persona)
 //   · Un mes completo      → utils/excelComisiones.js
 //   · Una tienda           → utils/excelTienda.js (para mandárselo al equipo)
 //   · Cómo va el mes       → utils/excelComoVa.js (el mes en curso, estimado)
@@ -1184,7 +1185,7 @@ function resumenEstadoLabel(r) {
 // pantalla haya cargado antes.
 const exportando = ref(false)
 const hojaExcel  = ref(false)
-const excelOpcion    = ref('listas')   // listas | mes | tienda | como_va
+const excelOpcion    = ref('listas')   // listas | pendientes | mes | tienda | persona | como_va
 const excelMesListas = ref('')         // '' = todo lo que hay por pagar
 const excelMes       = ref(mesDeHoy())
 const excelVendedor  = ref('')         // '' = todas las personas
@@ -1354,6 +1355,26 @@ async function exportarExcelComoVa() {
   return true
 }
 
+// Pagos pendientes (usuario, 2026-11-23): un estado de cuenta por persona con
+// meses atrasados y abonos a medias: cuánto le toca, cuánto ya se le dio y
+// cuánto falta, más lo que todavía no se puede pagar (utils/excelPendientes.js).
+async function exportarExcelPendientes() {
+  const { data } = await api.get('/comisiones/pagos-pendientes')
+  const { exportarPendientesExcel, hayPendientes } = await import('@/utils/excelPendientes')
+  if (!hayPendientes(data)) {
+    toast.error('No hay bonificaciones pendientes por pagar.')
+    return false
+  }
+  const meses = [...new Set([
+    data.por_pagar?.mes_que_toca,
+    ...(data.por_pagar?.personas ?? []).flatMap(p => p.bloques.map(b => b.mes)),
+    ...(data.todavia_no ?? []).map(t => t.mes),
+  ].filter(Boolean))]
+  const reglas = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m)])))
+  await exportarPendientesExcel({ datos: data, reglas, generadoPor: auth.usuario?.nombre })
+  return true
+}
+
 async function descargarExcel() {
   if (excelOpcion.value === 'mes' && !excelMes.value) {
     toast.error('Escoge el mes.')
@@ -1370,6 +1391,7 @@ async function descargarExcel() {
   exportando.value = true
   try {
     const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
+      : excelOpcion.value === 'pendientes' ? await exportarExcelPendientes()
       : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
       : excelOpcion.value === 'tienda' ? await exportarExcelTienda()
       : excelOpcion.value === 'persona' ? await exportarExcelPersona()
@@ -2962,6 +2984,18 @@ onMounted(() => {
                   <input type="month" v-model="excelMesListas" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
                 </div>
               </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 1b. Pagos pendientes: estado de cuenta por persona -->
+        <label class="block rounded-xl border p-3 cursor-pointer"
+          :class="excelOpcion === 'pendientes' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
+          <div class="flex items-start gap-2">
+            <input type="radio" value="pendientes" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">Pagos pendientes</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Por persona, mes por mes: cuánto le toca, cuánto ya se le dio en abonos y anticipos, cuánto falta y desde cuándo está atrasado. También lo que todavía no se puede pagar y por qué.</p>
             </div>
           </div>
         </label>

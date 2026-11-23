@@ -643,6 +643,20 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   era un solo botón que bajaba uno u otro según la pestaña. "Cómo va" usa
   `GET /comisiones/metas?avance=1` (vendido y lo que cuenta: `avanceDeMetas`, solo cuando se
   pide) y los campos `pagado_orden` / `valor_orden_entera` de cada renglón; no calcula plata.
+- **Excel "Pagos pendientes"** (2026-11-23, sin migración; usuario: "¿y si lo tengo con meses
+  atrasados, o con algunos abonos y falta?"): segunda opción del botón Excel
+  (`utils/excelPendientes.js`). Un estado de cuenta por persona: cada mes que toca pagar con la
+  bonificación del mes, lo ya pagado de ese mes, lo que toca, lo que ya se le dio (anticipos y
+  abonos, cada uno con su fecha) y lo que falta entregar, con los días de atraso; abajo lo que
+  todavía no se puede pagar con el porqué (la mitad sin pagar, el día de pago, la meta, el mes en
+  curso) y lo que ya no se va a pagar. Hojas: Resumen, Por persona, Todavía no (con las órdenes
+  que el cliente tiene que terminar de pagar) y Anticipos y abonos. Sale de
+  `GET /comisiones/pagos-pendientes` (`datosPagosPendientes`): `por_pagar` es
+  `loQueHayPorPagar(null, true)` (lo de Listas, ahora con `pagado_mes` y `pendiente_mes` por
+  bloque) y `todavia_no` las tarjetas del mismo `resumenDelMes` de cada mes con algo pendiente
+  (12 meses hacia atrás) y de los que no llegan a su día de pago. Cada mes se calcula una sola vez
+  (`loQueHayPorPagar` acepta el resumen ya calculado). No calcula plata. Tests en
+  `ComisionesAtrasadasTest` (sección pagos pendientes).
 - **Excel de una tienda** (2026-11-05, sin migración): cuarta opción del botón Excel, "Una
   tienda, para los vendedores" (`utils/excelTienda.js`). Pedido del dueño: escoger tienda y mes
   y mandárselo al equipo ("agosto de El Edén para Sebastián y Gladys"). Hojas: **La tienda**

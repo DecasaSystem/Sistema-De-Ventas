@@ -3029,6 +3029,25 @@ class ComisionController extends Controller
             : collect($t['ordenes'] ?? [])->where('estado', 'lista')->sum('monto_comision'));
     }
 
+    /** Lo ya pagado de una tarjeta del resumen (a un independiente, lo registrado). */
+    private static function loPagadoDe(array $t): float
+    {
+        return (float) (! empty($t['es_independiente'])
+            ? ($t['comision_pagada'] ?? 0)
+            : collect($t['ordenes'] ?? [])->where('estado', 'pagada')->sum('monto_comision'));
+    }
+
+    /**
+     * Lo de una tarjeta que todavía no se puede pagar. A un independiente: lo
+     * que no está listo (su bolsón no cuelga de sus órdenes, igual que lo listo).
+     */
+    private static function loPendienteDe(array $t): float
+    {
+        return (float) (! empty($t['es_independiente'])
+            ? max(0.0, (float) ($t['comision_total'] ?? 0) - (float) ($t['comision_lista_total'] ?? 0))
+            : collect($t['ordenes'] ?? [])->where('estado', 'pendiente')->sum('monto_comision'));
+    }
+
     /**
      * Los meses donde puede haber algo listo sin pagar, hasta el que toca.
      *
@@ -3085,8 +3104,11 @@ class ComisionController extends Controller
      * la tarjeta, y aparte va la cuenta de cada tienda en cada mes. Las cifras
      * son las mismas: sale del mismo resumen.
      */
-    public function loQueHayPorPagar(?string $soloMes = null, bool $conDetalle = false): array
+    public function loQueHayPorPagar(?string $soloMes = null, bool $conDetalle = false, ?\Closure $resumen = null): array
     {
+        // $resumen: quien ya va a calcular esos meses (el Excel de pagos
+        // pendientes) pasa los que tiene para no calcular dos veces el mismo mes.
+        $resumen  ??= fn (string $m) => $this->resumenDelMes($m, $conDetalle);
         $hoy        = self::hoy();
         $diaDePago  = self::ultimoDiaDePago($hoy);
         $mesQueToca = $diaDePago->copy()->subMonthsNoOverflow((int) ReglasComision::valor('meses_espera', $diaDePago->format('Y-m')))->format('Y-m');
@@ -3102,7 +3124,7 @@ class ComisionController extends Controller
         $vendioSinPago = [];
         $trimestreQueToca = self::trimestreDeMes($mesQueToca);
         foreach ($meses as $mes) {
-            foreach ($this->resumenDelMes($mes, $conDetalle) as $t) {
+            foreach ($resumen($mes) as $t) {
                 $lista = round(self::loListoDe($t));
                 $claveTienda = $mes . '_' . (int) $t['tienda_id'];
                 // Solo el mes que toca, o el trimestre que toca en una trimestral:
@@ -3138,6 +3160,10 @@ class ComisionController extends Controller
                     'cuenta'        => $t['cuenta'] ?? null,
                     'independiente' => $t['independiente'] ?? null,
                     'comision_mes'  => (float) ($t['comision_total'] ?? 0),
+                    // Lo de ese mes que ya se pagó y lo que todavía espera: el
+                    // Excel de pagos pendientes dice "le toca, ya se le pagó, falta".
+                    'pagado_mes'    => round(self::loPagadoDe($t)),
+                    'pendiente_mes' => round(self::loPendienteDe($t)),
                 ] + self::porQueDelBloque($t, $mes) : []) + [
                     'mes'              => $mes,
                     'vendedor_id'      => (int) $t['vendedor_id'],
@@ -3266,6 +3292,97 @@ class ComisionController extends Controller
             'tiendas'          => array_values($tiendas),
             'tiendas_sin_pago' => $sinPago,
         ] : []);
+    }
+
+    /**
+     * GET /api/comisiones/pagos-pendientes
+     *
+     * El Excel "Pagos pendientes" (usuario, 2026-11-23): un estado de cuenta por
+     * persona con lo que toca pagar, lo que ya se le dio y lo que falta, también
+     * con meses atrasados o abonos a medias ("¿y si lo tengo con meses atrasados,
+     * o con algunos abonos y falta?"), más lo que todavía no se puede pagar.
+     *
+     * No calcula plata aparte:
+     *   - por_pagar: lo mismo que Listas (loQueHayPorPagar con detalle), así lo
+     *     que dice que se entrega es lo que se paga.
+     *   - todavia_no: de cada mes con algo pendiente (los últimos 12 hasta hoy),
+     *     las tarjetas del mismo resumen del mes con lo que espera y sus órdenes.
+     * Cada mes se calcula una sola vez aunque salga en las dos partes.
+     */
+    public function pagosPendientes(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        return response()->json($this->datosPagosPendientes());
+    }
+
+    /** Lo de pagosPendientes(), aparte para poder probarlo sin la petición. */
+    public function datosPagosPendientes(): array
+    {
+        $calculados = [];
+        $resumen = function (string $m) use (&$calculados) {
+            return $calculados[$m] ??= $this->resumenDelMes($m, true);
+        };
+
+        $porPagar = $this->loQueHayPorPagar(null, true, $resumen);
+
+        $hoy    = self::hoy();
+        $mesHoy = $hoy->format('Y-m');
+        $desde  = Carbon::parse($porPagar['mes_que_toca'] . '-01')->subMonthsNoOverflow(11)->format('Y-m');
+
+        // Los meses con algo pendiente guardado (la tarea de las 6:30 lo pone
+        // al día) y siempre los que todavía no llegan a su día de pago.
+        $meses = Comision::where('estado', 'pendiente')->whereBetween('mes_venta', [$desde, $mesHoy])
+            ->distinct()->pluck('mes_venta')->all();
+        for ($m = Carbon::parse($porPagar['mes_que_toca'] . '-01')->addMonthNoOverflow(); $m->format('Y-m') <= $mesHoy; $m->addMonthNoOverflow()) {
+            $meses[] = $m->format('Y-m');
+        }
+        $meses = array_values(array_unique($meses));
+        sort($meses);
+
+        $todaviaNo = [];
+        foreach ($meses as $mes) {
+            foreach ($resumen($mes) as $t) {
+                $pendiente = round(self::loPendienteDe($t));
+                if ($pendiente <= 0) continue;
+
+                $seCobra = self::calcularFechaDisponible(Carbon::parse($mes . '-01'), (int) $t['tienda_id']);
+                $todaviaNo[] = [
+                    'mes'              => $mes,
+                    'vendedor_id'      => (int) $t['vendedor_id'],
+                    'vendedor_nombre'  => $t['vendedor_nombre'],
+                    'tienda_id'        => (int) $t['tienda_id'],
+                    'tienda_nombre'    => $t['tienda_nombre'],
+                    'es_independiente' => ! empty($t['es_independiente']),
+                    'periodicidad'     => $t['periodicidad'] ?? 'mensual',
+                    'se_cobra_el'      => $seCobra,
+                    'llego_el_dia'     => $hoy->toDateString() >= $seCobra,
+                    'mes_en_curso'     => $mes >= $mesHoy,
+                    'comision_mes'     => round((float) ($t['comision_total'] ?? 0)),
+                    'pagado'           => round(self::loPagadoDe($t)),
+                    'lista'            => round(self::loListoDe($t)),
+                    'pendiente'        => $pendiente,
+                    'cuenta'           => $t['cuenta'] ?? null,
+                    'trimestre'        => $t['resumen_tienda']['pool']['trimestre'] ?? null,
+                    'ordenes'          => collect($t['ordenes'] ?? [])->where('estado', 'pendiente')
+                        ->reject(fn ($o) => ($o['forma_pago'] ?? null) === 'fuera_del_pool')
+                        ->map(fn ($o) => collect($o)->only([
+                            'orden_id', 'orden_referencia', 'orden_numero', 'cliente_nombre', 'forma_pago', 'es_restauracion',
+                            'estado', 'valor_orden', 'valor_total_orden', 'pagado', 'req_50_pct', 'monto_comision',
+                            'fecha_venta', 'fecha_disponible',
+                        ])->all())->values()->all(),
+                ];
+            }
+        }
+
+        return [
+            'hoy'        => $hoy->toDateString(),
+            'desde'      => $desde,
+            'por_pagar'  => $porPagar,
+            'todavia_no' => $todaviaNo,
+        ];
     }
 
     /**

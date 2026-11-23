@@ -563,6 +563,13 @@ escribiendo precios (Fase 1b).
   Detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla de plata. Por defecto
   mío (**falta que el dueño confirme**): lo sacan los mismos que hoy (acceso a Comisiones);
   "falta cobrar" usa el mayor entre el % para cobrar y el % para la meta.
+- **Excel "Pagos pendientes"** (2026-11-23, **subido a `main`** ese día, sin migración, rama
+  `claude/analisis-modulo-comisiones-2853b9`). Pedido del usuario: "Lo que se va a pagar" no dice
+  bien cuánto le tocaba a cada uno en cada mes atrasado, cuánto se le dio en abonos y cuánto falta.
+  Estado de cuenta por persona, detalle en `docs/PROYECTO.md` (Comisiones). No cambió ninguna regla
+  ni cifra. Por defecto mío (**falta confirmar**): lo que todavía no se puede pagar mira 12 meses
+  hacia atrás e incluye el mes en curso (estimado, en ámbar); lo que ya no se va a pagar (mes
+  cerrado sin meta) sale aparte y no suma a lo que falta.
 - **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en

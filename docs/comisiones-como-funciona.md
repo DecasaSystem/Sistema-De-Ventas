@@ -57,7 +57,9 @@ Lo vendido sin la mitad pagada es venta, pero no suma a la meta hasta que la pag
 - **Anticipos y abonos:** lo que se le dio antes se descuenta al pagar, del más viejo al más
   nuevo. La comisión no cambia; cambia lo que se entrega.
 - **Excel:** "Lo que se va a pagar" (con un comprobante por persona para firmar y la hoja Por
-  cobrar), "Un mes completo", "Una tienda, para los vendedores" (una tienda en un mes, una hoja
+  cobrar), "Pagos pendientes" (estado de cuenta por persona: cada mes con lo que le toca, lo que
+  ya se le dio en abonos y anticipos, lo que falta y desde cuándo está atrasado, más lo que
+  todavía no se puede pagar y por qué), "Un mes completo", "Una tienda, para los vendedores" (una tienda en un mes, una hoja
   por persona con lo que se le paga y por qué, para mandársela al equipo; o un independiente solo,
   con sus ventas y el bolsón) y "Cómo va el mes"
   (estimado).
