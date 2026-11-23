@@ -174,6 +174,14 @@ class AnexoGarantiaController extends Controller
         if (strlen((string) json_encode($orden)) > self::MAX_BYTES_ORDEN) {
             return [null, 'La orden es demasiado grande para mandarla con el enlace.'];
         }
+        // El 5 % de efectivo con un anticipo en tarjeta, Addi u "otro": al crear
+        // la orden el servidor no lo da (OrdenController::store), así que el
+        // total que el cliente firmaría nunca cuadra. Pasaba en bucle
+        // (2026-11-23): "la orden cambió", se mandaba otra vez, firmaba y otra
+        // vez lo mismo. Mejor frenarlo aquí, antes de que el cliente firme.
+        if (self::pierdeElDescuentoAlCrear($orden)) {
+            return [null, 'El descuento por pagar en efectivo o transferencia no aplica si el anticipo se paga con tarjeta, Addi u otro medio. Quita ese descuento o cambia el medio del anticipo, y vuelve a enviarlo.'];
+        }
         // Lo que se va a crear es lo que el cliente ve y firma: si no cuadran,
         // la pantalla armó una cosa y mostró otra.
         if ($huella && ! hash_equals($huella, AnexoGarantia::huella($orden['items'], (float) ($resumen['descuentos'] ?? 0)))) {
@@ -187,6 +195,24 @@ class AnexoGarantiaController extends Controller
         unset($orden['guardar_borrador'], $orden['firma_url'], $orden['anexo_id']);
 
         return [$orden, null];
+    }
+
+    /**
+     * ¿La orden trae descuento condicionado y un anticipo que lo hace perder?
+     * Los mismos medios que mira OrdenController::store: los del anticipo
+     * partido o, si no, el del anticipo (si hay anticipo).
+     */
+    private static function pierdeElDescuentoAlCrear(array $orden): bool
+    {
+        $conDescuento = (float) ($orden['descuento_condicionado_monto'] ?? 0) > 0
+                     || (float) ($orden['descuento_condicionado_pct'] ?? 0) > 0;
+        if (! $conDescuento) return false;
+
+        $metodos = ! empty($orden['anticipo_pagos']) && is_array($orden['anticipo_pagos'])
+            ? array_column($orden['anticipo_pagos'], 'metodo')
+            : ((float) ($orden['anticipo_monto'] ?? 0) > 0 ? [$orden['anticipo_metodo'] ?? 'efectivo'] : []);
+
+        return collect($metodos)->contains(fn ($m) => Orden::metodoPierdeDescuento($m));
     }
 
     /**

@@ -259,6 +259,46 @@ class AnexoGarantiaTest extends TestCase
         $this->assertSame(0, Orden::count());
     }
 
+    /**
+     * Bucle visto el 2026-11-23: con el 5 % de efectivo y el anticipo con
+     * tarjeta, la pantalla le mostraba al cliente el total con descuento y el
+     * servidor se lo quitaba al crear la orden. La huella nunca cuadraba:
+     * "la orden cambió", se mandaba otra vez, firmaba y volvía a decir lo mismo.
+     */
+    public function test_descuento_de_efectivo_con_anticipo_en_tarjeta_no_deja_la_firma_en_bucle(): void
+    {
+        // Con anticipo se guarda el pago (el esquema de arriba no lo necesitaba).
+        Schema::table('pagos', fn (Blueprint $t) => $t->unsignedBigInteger('tienda_id')->nullable());
+        $v = $this->vendedor();
+        $orden = [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'whatsapp',
+            'anticipo_monto' => 50000, 'anticipo_metodo' => 'tarjeta',
+            'descuento_condicionado_monto' => 5000,
+            'items' => [['producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 100000, 'es_personalizado' => false]],
+        ];
+        $enlace = fn (array $orden, int $descuentos) => $this->actingAs($v)->postJson('/api/anexos', [
+            'cliente_id' => 1, 'modo' => 'remoto',
+            'resumen' => [
+                'total' => 100000 - $descuentos, 'descuentos' => $descuentos,
+                'items' => [['nombre' => 'Mesa', 'cantidad' => 1, 'precio' => 100000]],
+                'lineas' => $this->lineas(),
+            ],
+            'orden' => $orden,
+        ]);
+
+        // Una pantalla vieja todavía lo manda con el descuento: no se envía un
+        // enlace que nunca va a servir.
+        $enlace($orden, 5000)->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'tarjeta'));
+        $this->assertSame(0, AnexoGarantia::count());
+
+        // La pantalla de ahora ya no lo da (como el servidor): firma y se crea.
+        unset($orden['descuento_condicionado_monto']);
+        $r = $enlace($orden, 0)->assertCreated();
+        $this->postJson("/api/public/anexos/{$r->json('token')}/firmar", $this->respuestas())->assertOk();
+
+        $this->actingAs($v)->postJson('/api/ordenes', [...$orden, 'anexo_id' => $r->json('id')])->assertCreated();
+    }
+
     public function test_no_se_usa_un_anexo_sin_firmar_ni_el_de_otro_cliente(): void
     {
         $v = $this->vendedor();

@@ -2654,7 +2654,24 @@ const baseCondicionado = computed(() =>
   Math.max(0, subtotalItems.value - descuentoTotal.value)
 )
 
+// El anticipo con tarjeta, Addi u "otro" hace perder el descuento desde el
+// principio: el servidor no lo da al crear la orden (OrdenController::store,
+// mismos medios). Antes la pantalla lo seguía mostrando y el cliente firmaba
+// ese total; al crear la orden no cuadraba y pedía firmar otra vez, en bucle.
+const anticipoPierdeDescuento = computed(() => {
+  // (lo de "esperando precio" se mira directo: hayItemsCotizar se declara más abajo)
+  if (modoGuardarBorrador.value || items.value.some(i => i._cotizarPrecio) || !(Number(anticipo_monto.value) > 0)) return false
+  const metodos = pagoSplit.value
+    ? [
+        (Number(anticipo_monto1_input.value) || 0) > 0 ? anticipo_metodo.value : null,
+        Number(anticipo_monto.value) - (Number(anticipo_monto1_input.value) || 0) > 0 ? anticipo_metodo2.value : null,
+      ].filter(Boolean)
+    : [anticipo_metodo.value]
+  return metodos.some(m => !['efectivo', 'transferencia'].includes(m))
+})
+
 const descuentoCondicionado = computed(() => {
+  if (anticipoPierdeDescuento.value) return 0
   const v = Number(descuentoCondInput.value) || 0
   const bruto = descuentoCondModo.value === 'pct'
     ? montoDePct(pctValido(v), baseCondicionado.value)
@@ -6221,6 +6238,15 @@ onBeforeUnmount(() => {
             >{{ pct }}%</button>
           </div>
         </div>
+
+        <!-- Pusieron el 5 % de efectivo y el anticipo va con tarjeta/Addi/otro:
+             el descuento no aplica y el total ya se ve sin él (igual que lo
+             guarda el servidor y lo ve el cliente al firmar). -->
+        <p v-if="anticipoPierdeDescuento && Number(descuentoCondInput) > 0"
+          class="text-xs text-amber-700 border border-amber-300 rounded-lg px-3 py-2">
+          Con este medio de pago no aplica el descuento por pagar en efectivo o transferencia:
+          el total ya está sin él. Si el cliente paga en efectivo o transferencia, cambia el medio y el descuento vuelve.
+        </p>
 
         <!-- Modo pago simple (un solo método) -->
         <template v-if="!pagoSplit">

@@ -1386,6 +1386,16 @@ Decisiones del dueño del 2026-10-08:
   orden a la vista las da por vistas. Un grupo nuevo en `TiposNotificacion` hay que agregarlo también
   a `leLlegaPorRol` (si no, se ofrece a todos). No visto en el navegador.
 
+- **Firma remota en bucle: "la orden cambió"** (2026-11-23, **sin subir**, sin migración). Con el
+  5 % de efectivo (descuento condicionado) y el anticipo con tarjeta/Addi/otro, Nueva orden seguía
+  mostrando el total con descuento y se lo mandaba al cliente; `OrdenController::store` no lo da
+  con ese anticipo, así que la huella nunca cuadraba: firmar, "cambió", reenviar, firmar… sin fin.
+  No cambió ninguna regla de plata: la pantalla ahora hace lo mismo que el servidor
+  (`anticipoPierdeDescuento`, total sin el descuento y aviso en el paso del anticipo) y
+  `POST /anexos` frena el enlace con esa combinación (`pierdeElDescuentoAlCrear`). Test en
+  `AnexoGarantiaTest`. Si vuelve a pasar un bucle así, buscar otra cuenta que la pantalla y
+  `store` hagan distinto (la huella compara líneas y descuentos).
+
 - **"Las notificaciones recientes se borran solas"** (2026-11-09, **sin subir**, sin migración,
   rama `claude/notificaciones-ordenes-chat-51d65d`). El servidor nunca borra avisos (solo la
   persona con la papelera o "Limpiar"). Lo que pasaba era en la campana: se pedía **una sola
