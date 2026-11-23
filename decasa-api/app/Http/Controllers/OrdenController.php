@@ -383,6 +383,16 @@ class OrdenController extends Controller
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
             'anticipo_monto'                       => 'required|numeric|min:0',
+            // En un borrador: lo que el vendedor puso del anticipo, para
+            // seguirlo igual. No se registra ningún pago (ver anticipo_borrador).
+            'anticipo_plan'                        => 'nullable|array',
+            'anticipo_plan.monto'                  => 'nullable|numeric|min:0',
+            'anticipo_plan.metodo'                 => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
+            'anticipo_plan.referencia'             => 'nullable|string|max:100',
+            'anticipo_plan.partido'                => 'nullable|boolean',
+            'anticipo_plan.monto1'                 => 'nullable|numeric|min:0',
+            'anticipo_plan.metodo2'                => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
+            'anticipo_plan.referencia2'            => 'nullable|string|max:100',
             'anticipo_metodo'                      => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_referencia'                  => 'nullable|string|max:100',
             'anticipo_pagos'                       => 'nullable|array|min:1',
@@ -901,6 +911,13 @@ class OrdenController extends Controller
                 // Solo se escribe prendida: apagada es el valor por defecto.
                 ...($fv2SinIva ? ['sin_descontar_iva' => true] : []),
             ];
+            // El borrador guarda el anticipo que se puso (sin registrarlo) para
+            // seguirlo igual; al confirmar, ya es un pago de verdad y se quita.
+            // Antes se perdía y al seguirlo volvía a $0 y en efectivo (2026-11-23).
+            if (\App\Support\Esquema::columna('ordenes', 'anticipo_borrador')) {
+                $campos['anticipo_borrador'] = $guardarBorrador && ! empty($data['anticipo_plan'])
+                    ? $data['anticipo_plan'] : null;
+            }
 
             if ($borrador) {
                 // La venta sigue siendo de quien la empezó, aunque la termine

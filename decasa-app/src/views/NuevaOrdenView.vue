@@ -2787,7 +2787,13 @@ async function cargarReceptoresCotizar() {
 }
 
 async function irAPaso3() {
-  anticipo_monto.value = minimoAnticipo.value
+  // Lo que ya se había puesto (al volver del paso 2, o al seguir un borrador o
+  // el respaldo) se respeta si todavía alcanza y cabe; si no, el mínimo. Antes
+  // se pisaba siempre y el anticipo "no quedaba guardado".
+  const puesto = Number(anticipo_monto.value) || 0
+  if (!(puesto > 0 && puesto >= minimoAnticipo.value && puesto <= valorTotal.value)) {
+    anticipo_monto.value = minimoAnticipo.value
+  }
   step.value = 3
   if (hayItemsCotizar.value) await cargarReceptoresCotizar()
 }
@@ -3247,6 +3253,17 @@ function armarPayload() {
       anticipo_pct:         anticipo_pct.value,
       anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
+      // Un borrador no registra el anticipo (va en $0), pero lo guarda para
+      // seguirlo igual: antes al seguirlo volvía a $0 y en efectivo.
+      anticipo_plan: modoGuardarBorrador.value ? {
+        monto:       Number(anticipo_monto.value) || 0,
+        metodo:      anticipo_metodo.value,
+        referencia:  anticipo_referencia.value || undefined,
+        partido:     !!pagoSplit.value,
+        monto1:      Number(anticipo_monto1_input.value) || 0,
+        metodo2:     anticipo_metodo2.value,
+        referencia2: anticipo_referencia2.value || undefined,
+      } : undefined,
       anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
       ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
         anticipo_pagos: [
@@ -3814,6 +3831,17 @@ async function cargarBorradorServidor() {
     descuentoCondModo.value  = 'monto'
     descuentoCondInput.value = Number(o.descuento_condicionado) || 0
     anticipo_pct.value       = Number(o.anticipo_pct) || 50
+    // El anticipo que se había puesto (el borrador no lo registra como pago).
+    const ap = o.anticipo_borrador
+    if (ap && typeof ap === 'object') {
+      anticipo_monto.value        = Number(ap.monto) || 0
+      anticipo_metodo.value       = ap.metodo || 'efectivo'
+      anticipo_referencia.value   = ap.referencia ?? ''
+      pagoSplit.value             = !!ap.partido
+      anticipo_monto1_input.value = Number(ap.monto1) || 0
+      anticipo_metodo2.value      = ap.metodo2 || 'transferencia'
+      anticipo_referencia2.value  = ap.referencia2 ?? ''
+    }
 
     notas.value                 = o.notas ?? ''
     fechaSugeridaVendedor.value = (o.fecha_sugerida_vendedor ?? '').slice(0, 10)

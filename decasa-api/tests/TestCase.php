@@ -71,6 +71,7 @@ abstract class TestCase extends BaseTestCase
         // Declaración de diseños especiales (2026_10_25_000001).
         $agregar('orden_items',    'ficha_especial',     fn ($t) => $t->json('ficha_especial')->nullable());
         $agregar('ordenes',        'declaracion_foto_url', fn ($t) => $t->string('declaracion_foto_url', 500)->nullable());
+        $agregar('ordenes',        'anticipo_borrador',  fn ($t) => $t->json('anticipo_borrador')->nullable());
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
         // que hasta una prueba que solo crea órdenes necesita dónde escribirla.

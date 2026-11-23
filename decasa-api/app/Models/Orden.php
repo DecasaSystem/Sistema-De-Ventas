@@ -62,6 +62,8 @@ class Orden extends Model
     ];
 
     protected $fillable = [
+        // Lo que el vendedor puso del anticipo en un borrador (no es plata recibida).
+        'anticipo_borrador',
         'cliente_id',
         'vendedor_id',
         'tienda_id',
@@ -195,6 +197,7 @@ class Orden extends Model
             'entrega_inmediata' => 'boolean',
             'listo_entrega_at' => 'datetime',
             'factura_fotos'    => 'array',
+            'anticipo_borrador' => 'array',
             'confirmada_en'    => 'datetime',
             'cotizada_en'      => 'datetime',
             'cotizacion_valida_hasta' => 'date',

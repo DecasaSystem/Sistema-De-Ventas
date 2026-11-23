@@ -365,6 +365,34 @@ class BorradorNoReservaTest extends TestCase
         $this->assertSame(1, OrdenItem::where('orden_id', $ordenId)->count());
     }
 
+    /**
+     * El anticipo puesto se guarda con el borrador (sin registrar ningún pago)
+     * y vuelve al seguirlo. Antes volvía a $0 y en efectivo (2026-11-23).
+     */
+    public function test_el_borrador_guarda_el_anticipo_que_se_puso_sin_cobrarlo(): void
+    {
+        (require base_path('database/migrations/2026_11_23_000001_anticipo_en_borradores.php'))->up();
+        $v = $this->vendedor();
+        [$ordenId] = $this->borradorCon2Items($v);
+
+        $plan = ['monto' => 100000, 'metodo' => 'transferencia', 'referencia' => 'TX-9', 'partido' => true,
+                 'monto1' => 60000, 'metodo2' => 'efectivo'];
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'borrador_id' => $ordenId, 'guardar_borrador' => true, 'anticipo_plan' => $plan,
+        ]))->assertCreated();
+
+        $this->assertSame(0, DB::table('pagos')->count(), 'un borrador no registra pagos');
+        $this->actingAs($v)->getJson("/api/ordenes/{$ordenId}/para-continuar")->assertOk()
+            ->assertJsonPath('anticipo_borrador.monto', 100000)
+            ->assertJsonPath('anticipo_borrador.metodo', 'transferencia')
+            ->assertJsonPath('anticipo_borrador.partido', true)
+            ->assertJsonPath('anticipo_borrador.monto1', 60000);
+
+        // Al confirmarla ya no es un borrador: lo guardado se quita.
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['borrador_id' => $ordenId]))->assertCreated();
+        $this->assertNull(Orden::find($ordenId)->anticipo_borrador);
+    }
+
     public function test_un_borrador_ya_confirmado_no_se_confirma_dos_veces(): void
     {
         $v = $this->vendedor();

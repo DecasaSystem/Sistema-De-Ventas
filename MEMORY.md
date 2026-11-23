@@ -1386,7 +1386,7 @@ Decisiones del dueño del 2026-10-08:
   orden a la vista las da por vistas. Un grupo nuevo en `TiposNotificacion` hay que agregarlo también
   a `leLlegaPorRol` (si no, se ofrece a todos). No visto en el navegador.
 
-- **Firma remota en bucle: "la orden cambió"** (2026-11-23, **sin subir**, sin migración). Con el
+- **Firma remota en bucle: "la orden cambió"** (2026-11-23, **subido a `main`** ese día, commit 91d26ca3, sin migración; lo del anticipo de abajo, **sin subir**). Con el
   5 % de efectivo (descuento condicionado) y el anticipo con tarjeta/Addi/otro, Nueva orden seguía
   mostrando el total con descuento y se lo mandaba al cliente; `OrdenController::store` no lo da
   con ese anticipo, así que la huella nunca cuadraba: firmar, "cambió", reenviar, firmar… sin fin.
@@ -1395,6 +1395,13 @@ Decisiones del dueño del 2026-10-08:
   `POST /anexos` frena el enlace con esa combinación (`pierdeElDescuentoAlCrear`). Test en
   `AnexoGarantiaTest`. Si vuelve a pasar un bucle así, buscar otra cuenta que la pantalla y
   `store` hagan distinto (la huella compara líneas y descuentos).
+  **Mismo día, el anticipo "no se guardaba"** (pista del usuario: en el celular lo perdía al
+  recargar/seguir; en el PC, hecho de nuevo, sí lo dejó). Dos causas: (1) guardar como borrador
+  (la venta virtual mientras el cliente firma) manda el anticipo en $0 y el servidor solo guardaba
+  el %; al seguirlo volvía a $0 y en efectivo. Ahora va como `anticipo_plan` y queda en
+  `ordenes.anticipo_borrador` (JSON, **migración** `2026_11_23_000001_anticipo_en_borradores`, solo
+  agrega; se borra al confirmar; no es plata recibida). (2) `irAPaso3` ponía siempre el mínimo al
+  pasar del paso 2 al 3: ahora respeta lo puesto si alcanza y cabe. Test en `BorradorNoReservaTest`.
 
 - **"Las notificaciones recientes se borran solas"** (2026-11-09, **sin subir**, sin migración,
   rama `claude/notificaciones-ordenes-chat-51d65d`). El servidor nunca borra avisos (solo la
