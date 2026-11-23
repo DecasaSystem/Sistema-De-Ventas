@@ -414,6 +414,11 @@ const porPagar = computed(() => listasData.value.personas ?? [])
 
 const totalPorPagar = computed(() => Number(listasData.value.lista) || 0)
 
+/** Lo que falta entregar de un mes atrasado, sin lo que ya se dio en abonos y anticipos. */
+function faltaDelMes(mes) {
+  return porPagar.value.reduce((s, p) => s + p.bloques.filter(b => b.mes === mes).reduce((t, b) => t + (Number(b.entregar) || 0), 0), 0)
+}
+
 const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
   'septiembre', 'octubre', 'noviembre', 'diciembre']
 
@@ -2463,21 +2468,24 @@ onMounted(() => {
           >
             <ExclamationCircleIcon class="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
             <p class="text-xs text-red-700">
-              <span class="font-semibold">{{ cop(a.lista) }} de {{ nombreMes(a.mes) }} sin pagar</span>
+              <span class="font-semibold">{{ cop(faltaDelMes(a.mes)) }} de {{ nombreMes(a.mes) }} sin pagar</span>
               desde el {{ diaCorto(a.se_cobra_el) }} ({{ a.personas }} persona{{ a.personas !== 1 ? 's' : '' }}).
               Van primero en cada tarjeta.
             </p>
           </div>
 
+          <!-- La cifra grande es lo que falta entregar: con un abono ya dado,
+               mostrar la bonificación entera hacía pensar que se debía todo
+               (usuario, 2026-11-23). La bonificación completa va debajo. -->
           <div class="bg-white border border-green-100 rounded-xl px-4 py-3 flex justify-between items-center">
             <div>
-              <p class="text-xs font-semibold text-green-700">Total por pagar</p>
+              <p class="text-xs font-semibold text-green-700">{{ listasData.se_descuenta > 0 ? 'Falta por pagar' : 'Total por pagar' }}</p>
               <p class="text-[10px] text-gray-500">
                 {{ porPagar.length }} persona{{ porPagar.length !== 1 ? 's' : '' }}
-                <template v-if="listasData.se_descuenta > 0"> · a entregar {{ cop(listasData.entregar) }}</template>
+                <template v-if="listasData.se_descuenta > 0"> · bonificación {{ cop(totalPorPagar) }} − ya se les dio {{ cop(listasData.se_descuenta) }}</template>
               </p>
             </div>
-            <p class="text-lg font-bold text-green-700">{{ cop(totalPorPagar) }}</p>
+            <p class="text-lg font-bold text-green-700">{{ cop(listasData.se_descuenta > 0 ? listasData.entregar : totalPorPagar) }}</p>
           </div>
 
           <div
@@ -2494,7 +2502,12 @@ onMounted(() => {
                     <template v-if="mesesDe(p).length > 1"> · {{ mesesDe(p).length }} meses por pagar</template>
                   </p>
                 </div>
-                <p class="text-lg font-bold text-green-700 shrink-0">{{ cop(p.lista) }}</p>
+                <div class="text-right shrink-0">
+                  <p class="text-lg font-bold text-green-700">{{ cop(p.entregar) }}</p>
+                  <p v-if="p.se_descuenta > 0" class="text-[10px] text-gray-500 leading-tight">
+                    falta de {{ cop(p.lista) }}<br>ya se le dio {{ cop(p.se_descuenta) }}
+                  </p>
+                </div>
               </div>
 
               <!-- Un bloque por mes, del más viejo al más nuevo -->
@@ -2526,7 +2539,10 @@ onMounted(() => {
                       </p>
                     </div>
                     <div class="text-right shrink-0 flex items-start gap-1">
-                      <span class="text-sm font-semibold text-gray-800">{{ cop(b.lista) }}</span>
+                      <span class="text-sm font-semibold text-gray-800">
+                        {{ cop(b.entregar) }}
+                        <span v-if="b.se_descuenta > 0" class="block text-[10px] font-normal text-gray-500">de {{ cop(b.lista) }}</span>
+                      </span>
                       <ChevronUpIcon v-if="expandidosListas.has(claveBloque(p, b))" class="w-4 h-4 text-gray-300 mt-0.5" />
                       <ChevronDownIcon v-else class="w-4 h-4 text-gray-300 mt-0.5" />
                     </div>

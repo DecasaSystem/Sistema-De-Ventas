@@ -570,6 +570,9 @@ escribiendo precios (Fase 1b).
   ni cifra. Por defecto mío (**falta confirmar**): lo que todavía no se puede pagar mira 12 meses
   hacia atrás e incluye el mes en curso (estimado, en ámbar); lo que ya no se va a pagar (mes
   cerrado sin meta) sale aparte y no suma a lo que falta.
+  Mismo día (usuario, **subido a `main`**): en Listas la cifra grande (tarjeta, cada mes, total y
+  aviso de atrasados) es **lo que falta entregar**, ya sin anticipos ni abonos; la bonificación
+  completa va debajo en pequeño. Antes salía el total y con un abono dado parecía que se debía todo.
 - **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en
