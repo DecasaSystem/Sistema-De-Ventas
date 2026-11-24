@@ -489,6 +489,21 @@ function textoPendientes(p, b) {
   return out
 }
 
+/**
+ * La marca de una orden que todavía no cuenta, con las mismas reglas que la
+ * línea naranja de arriba: le falta la mitad (y cuánto), espera la meta o el
+ * trimestre, o ya no bonifica porque la tienda no llegó a la meta.
+ */
+function porQueNoCuenta(p, b, o) {
+  const r = reglasListasDe(b.mes, b.tienda_id, p.vendedor_id)
+  if (!o.cumple_pago) {
+    const falta = Math.max(0, Math.ceil((Number(o.valor_total) || 0) * (Number(r.req_pagado_pct) || 0) - (Number(o.pagado) || 0)))
+    return `Le faltan ${cop(falta)} para ${laParte(r.req_pagado_pct)}`
+  }
+  if (b.periodicidad === 'trimestral') return 'Espera el cierre del trimestre'
+  return b.cuenta?.meta_cumplida === false ? 'No bonifica: no hubo meta' : 'Espera la meta'
+}
+
 /** Por qué no le dio nada lo que vendió en una tienda sin comisión (la misma cuenta de abajo). */
 function motivoSinPago(v) {
   const t = tiendasSinPago.value.find(x => x.tienda_id === v.tienda_id && x.mes === v.mes_de_la_cuenta)
@@ -2534,6 +2549,9 @@ onMounted(() => {
                         {{ desgloseDelBloque(b).map(x => `${x.nombre} ${cop(x.monto)}`).join(' + ') }}
                       </p>
                       <p v-for="(t, i) in textoPendientes(p, b)" :key="i" class="text-[10px] text-orange-500 mt-0.5">{{ t }}</p>
+                      <p v-if="(b.ordenes_pendientes ?? []).length && !expandidosListas.has(claveBloque(p, b))" class="text-[10px] text-blue-600 font-semibold mt-0.5">
+                        Toca el mes para ver cuáles
+                      </p>
                       <p v-if="b.es_independiente && b.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600 mt-0.5">
                         incluye bolsón de restauraciones
                       </p>
@@ -2595,6 +2613,29 @@ onMounted(() => {
                         <span class="text-gray-400 ml-1">/ {{ cop(o.valor_orden) }}</span>
                       </div>
                     </div>
+                    <!-- Las que todavía no cuentan, una por una: antes solo salía
+                         "3 todavía pendientes" y no se sabía cuáles (usuario, 2026-11-24). -->
+                    <template v-if="(b.ordenes_pendientes ?? []).length">
+                      <p class="text-[10px] font-semibold text-amber-700 uppercase tracking-wide pt-1">Todavía no cuentan</p>
+                      <div
+                        v-for="o in b.ordenes_pendientes"
+                        :key="'pend' + (o.orden_id ?? o.referencia)"
+                        class="flex items-center justify-between gap-2 text-xs rounded-lg px-3 py-2 border border-amber-200"
+                      >
+                        <div class="flex items-center gap-2 min-w-0">
+                          <button
+                            v-if="o.orden_id"
+                            @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
+                            class="font-semibold text-blue-600 hover:text-blue-800 truncate"
+                          >{{ o.referencia ?? 'Orden' }}</button>
+                          <span v-else class="font-semibold text-gray-600 truncate">{{ o.referencia ?? 'Orden' }}</span>
+                          <span v-if="o.cliente" class="text-gray-400 truncate">{{ o.cliente }}</span>
+                        </div>
+                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-amber-100 text-amber-800">
+                          {{ porQueNoCuenta(p, b, o) }}
+                        </span>
+                      </div>
+                    </template>
                     <p v-if="b.es_independiente" class="text-[10px] text-sky-700">
                       Además de sus órdenes cobra su parte del bolsón de restauraciones:
                       el total del mes ya lo incluye.
