@@ -525,6 +525,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/numeracion/convertir',   [OrdenController::class, 'convertirSerie'])->whereNumber('id');
     Route::patch('/ordenes/{id}/numeracion',            [OrdenController::class, 'cambiarNumero'])->whereNumber('id');
     Route::patch('/ordenes/{id}/fecha-venta',           [OrdenController::class, 'cambiarFechaVenta'])->whereNumber('id');
+    // Lo que se le olvidó agregar a una orden ya entregada (solo super admin).
+    Route::post('/ordenes/{id}/agregar-entregado',      [OrdenController::class, 'agregarProductoEntregado'])->whereNumber('id');
     // Antes de cancelar: qué órdenes se correrían si se anula sin dejar hueco.
     Route::get('/ordenes/{id}/anulacion',               [OrdenController::class, 'previsualizarAnulacion'])->whereNumber('id');
     // Antes de eliminar (solo supervisor): si se puede, qué se lleva y qué se correría.

@@ -31,6 +31,7 @@ import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.
 import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
 import FirmaRemotaOrden from '@/components/ordenes/FirmaRemotaOrden.vue'
 import CambiarFechaVentaModal from '@/components/ordenes/CambiarFechaVentaModal.vue'
+import AgregarEntregadoModal from '@/components/ordenes/AgregarEntregadoModal.vue'
 import DeclaracionOrden from '@/components/anexo/DeclaracionOrden.vue'
 import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -54,7 +55,7 @@ import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { textoRebaja } from '@/utils/promociones'
 import { formatoDuracion } from '@/utils/duracion'
 import { useAjustesSistema } from '@/utils/ajustesSistema'
-import { PhotoIcon } from '@heroicons/vue/24/outline'
+import { PhotoIcon, PlusCircleIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
 import { pdfAImagen, sePuedeCompartir, compartirImagen, descargarImagen } from '@/utils/pdfAImagen'
@@ -1210,6 +1211,17 @@ const puedeCambiarProducto = computed(() => {
 
 async function onCambioHecho() {
   showCambio.value = false
+  await cargarOrden()
+}
+
+// Lo que se le olvidó al vendedor en una orden ya entregada: entra ya
+// entregado y la orden sube. Solo super admin (ver AgregarEntregadoModal).
+const showAgregarEntregado = ref(false)
+const puedeAgregarEntregado = computed(() =>
+  !!auth.usuario?.es_super_admin && orden.value?.estado === 'entregado')
+
+async function onAgregadoEntregado() {
+  showAgregarEntregado.value = false
   await cargarOrden()
 }
 
@@ -3542,8 +3554,23 @@ onMounted(() => { cargarTipos(); cargarOrden() })
            oculta cuando la orden esta entregada y pagada —no hay estado que
            cambiar ni saldo que cobrar— y estos botones son justamente los
            que hacen falta en ese momento. -->
-      <div v-if="auth.isSupervisor && (orden.estado === 'entregado' || puedeCambiarProducto)" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <div v-if="(auth.isSupervisor && (orden.estado === 'entregado' || puedeCambiarProducto)) || puedeAgregarEntregado" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Después de entregada</p>
+
+        <!-- Al vendedor se le olvidó poner algo que el cliente sí se llevó:
+             entra ya entregado y la venta sube. Solo super admin. -->
+        <div v-if="puedeAgregarEntregado" class="space-y-1.5">
+          <button
+            @click="showAgregarEntregado = true"
+            class="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-blue-700 bg-white border border-blue-200 rounded-xl py-2.5 hover:bg-gray-100 transition-colors"
+          >
+            <PlusCircleIcon class="w-4 h-4" />
+            Agregar lo que se olvidó en la orden
+          </button>
+          <p class="text-[11px] text-gray-400 leading-snug">
+            Para lo que el cliente se llevó y no quedó en la orden. Entra ya entregado: la orden sube y sigue entregada.
+          </p>
+        </div>
 
         <!-- El cliente devuelve algo que ya recibió porque no le sirvió y lo
              cambia por otra cosa (no es garantía: no se dañó). Distinto de
@@ -4022,6 +4049,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
     </template>
+
+    <!-- Modal: agregar lo que se olvidó a una orden entregada (super admin) -->
+    <AgregarEntregadoModal
+      v-if="showAgregarEntregado && orden"
+      :orden="orden"
+      @cerrar="showAgregarEntregado = false"
+      @hecho="onAgregadoEntregado"
+    />
 
     <!-- Modal: garantía de algo ya entregado -->
     <CambioProductoModal

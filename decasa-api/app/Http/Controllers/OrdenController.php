@@ -4915,6 +4915,42 @@ class OrdenController extends Controller
         ]);
     }
 
+    /**
+     * POST /api/ordenes/{id}/agregar-entregado
+     *
+     * Agregar a una orden ya entregada el producto que se le olvidó al
+     * vendedor (solo super admin, usuario 2026-11-24). Ver
+     * App\Services\AgregarProductoEntregado.
+     */
+    public function agregarProductoEntregado(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if (! \App\Support\RangoDeUsuarios::esSuperAdmin($usuario)) {
+            return response()->json(['message' => 'Solo un super admin puede agregar productos a una orden ya entregada.'], 403);
+        }
+
+        $data = $request->validate([
+            'tipo'            => 'required|in:catalogo,otro',
+            'producto_id'     => 'required_if:tipo,catalogo|nullable|integer|exists:productos,id',
+            'variante_id'     => 'nullable|integer',
+            'combo_config_id' => 'nullable|integer',
+            'sale_de'         => 'required_if:tipo,catalogo|nullable|in:tienda,ninguna',
+            'tienda_id'       => 'required_if:sale_de,tienda|nullable|integer|exists:tiendas,id',
+            'nombre'          => 'required_if:tipo,otro|nullable|string|max:200',
+            'cantidad'        => 'required|integer|min:1|max:999',
+            'precio_unitario' => 'required|numeric|min:1',
+            'motivo'          => 'required|string|min:3|max:300',
+        ]);
+
+        $orden = Orden::findOrFail($id);
+        $r = \App\Services\AgregarProductoEntregado::aplicar($orden, $data, $usuario);
+
+        return response()->json([
+            'message' => 'Producto agregado. La orden queda entregada con un total de $' . number_format((float) $r['orden']->valor_total, 0, ',', '.') . '.',
+            'avisos'  => $r['avisos'],
+        ]);
+    }
+
     /** PATCH /api/ordenes/{id}/numeracion — corregir el número a mano. */
     public function cambiarNumero(Request $request, int $id)
     {

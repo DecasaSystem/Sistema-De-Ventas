@@ -84,3 +84,8 @@ export const cambiarNumeroOrden = (id, numero) =>
 // La venta era del 31 y se subió el 1: la pasa al día que de verdad fue.
 // Solo super admin. data: { fecha: 'YYYY-MM-DD', motivo }
 export const cambiarFechaVenta = (id, data) => api.patch(`/ordenes/${id}/fecha-venta`, data)
+// A una orden ya entregada se le olvidó un producto que el cliente sí se
+// llevó: entra ya entregado y la orden sube. Solo super admin.
+// data: { tipo: 'catalogo'|'otro', producto_id, variante_id, combo_config_id,
+//         sale_de: 'tienda'|'ninguna', tienda_id, nombre, cantidad, precio_unitario, motivo }
+export const agregarProductoEntregado = (id, data) => api.post(`/ordenes/${id}/agregar-entregado`, data)

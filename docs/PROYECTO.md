@@ -567,6 +567,29 @@ entregada"). Solo supervisor.
   (`sincronizarValorOrden`). Queda una `Devolucion` en estado `cambio` y el
   rastro en el hilo de la orden.
 
+### 6.9d Agregar lo que se olvidó a una orden entregada (super admin)
+`POST /ordenes/{id}/agregar-entregado` → `Services/AgregarProductoEntregado`; pantalla
+`components/ordenes/AgregarEntregadoModal.vue` (Detalle de la orden → "Después de
+entregada"). **Solo super admin** y solo con la orden en `entregado`. Editar orden
+sigue sin dejar agregar productos a una orden que ya salió (para nadie).
+
+- Para lo que el cliente **ya se llevó** y el vendedor no puso en la orden: el
+  renglón nace con `cantidad_entregada = cantidad` y queda como una entrega directa
+  más (`EntregaService::entregarEnMostrador`, motivo en `firma_omitida_motivo`), con
+  el `entregado_at` de la última entrega de la orden (no mueve la fecha que mira
+  Facturación). La orden sigue `entregado`.
+- **Del catálogo, salió de una tienda**: se aparta y se entrega (`GarantiaService::apartar`
+  + la entrega): baja `cantidad_disponible` de esa tienda (y variante/medida), con
+  movimiento `salida`. Exige libres de verdad (`stockLibre`).
+- **No salió del inventario** (del catálogo) u **Otro** (texto libre): `producto_unico`,
+  no toca stock, no va al taller y no pide declaración. En una orden de restauración
+  solo entra "Otro" (como restauración): ventas y restauraciones van separadas.
+- Total con `Orden::recalcularTotal`, bonificación con `sincronizarValorOrden` (ya
+  pagada: la diferencia se paga aparte). Historial (`item_nuevo_*`, `valor_total`),
+  aviso de cambio de dinero a facturación y supervisores (`AvisoFacturacion`) y a
+  quien vendió. Facturación: sin facturar, la factura sale con el renglón nuevo; ya
+  facturada, la orden sale en "Con diferencias". Tests en `AgregarProductoEntregadoTest`.
+
 ### 6.10 Comisiones
 `ComisionController` (el más complejo), `ComisionIndependientes`,
 `AnticiposComision`, modelos `Comision`, `MetaTienda`, `TiendaAsesor`,

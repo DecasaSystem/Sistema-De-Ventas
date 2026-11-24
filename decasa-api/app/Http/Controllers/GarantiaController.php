@@ -321,7 +321,10 @@ class GarantiaController extends Controller
      */
     public function stock(Request $request)
     {
-        if (! GarantiaService::puedeDecidir($request->user())) {
+        // El super admin también: lo usa para agregar a una orden entregada lo
+        // que se le olvidó al vendedor (AgregarProductoEntregado).
+        if (! GarantiaService::puedeDecidir($request->user())
+            && ! \App\Support\RangoDeUsuarios::esSuperAdmin($request->user())) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 

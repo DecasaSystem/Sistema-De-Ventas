@@ -1710,6 +1710,16 @@ Decisiones del dueño del 2026-10-08:
   pagado, Listas paga la diferencia. Mes cerrado en Finanzas: solo avisa. Por defecto mío (**falta
   confirmar**): sin límite de días hacia atrás, no a una fecha futura. Tests en `CambiarFechaDeVentaTest`
   (no cubren el cobro de más al salir de un mes pagado).
+- **Agregar lo que se olvidó a una orden ya entregada** (usuario, 2026-11-24, **subido a `main`** ese día, sin migración,
+  rama `claude/superadmin-edit-delivered-orders-a391c5`). Pedido: el cliente se llevó algo que el
+  vendedor no puso en la orden, la venta vale menos y no cuadran las bonificaciones; "solamente el
+  superadministrador, para que no se enloquezca todo", la orden queda entregada y que no dañe
+  facturación. Puerta aparte (`POST /ordenes/{id}/agregar-entregado`, `Services/AgregarProductoEntregado`,
+  detalle en `docs/PROYECTO.md` §6.9d); Editar orden sigue igual. No cambió ninguna regla de plata: el
+  valor sube por los caminos de siempre. Por defecto mío (**falta confirmar**): un producto por vez;
+  precio obligatorio (> 0); "No salió del inventario" y "Otro" quedan como `producto_unico`; la entrega
+  nueva toma la fecha de la última entrega (no hoy); no registra el pago (se hace con "Registrar pago").
+  Visto en el navegador con servidor falso (390 px, claro y oscuro) el 2026-11-24.
 - **Revisión de cancelaciones y devoluciones** (2026-11-17, pedido del usuario; informe con 9
   problemas en la carpeta de notas de la sesión). **Todo arreglado y subido a `main` el 2026-11-17**
   (sin migración, rama `claude/upbeat-archimedes-cded7e`). Decisiones del usuario ese día: (1) cancelar
