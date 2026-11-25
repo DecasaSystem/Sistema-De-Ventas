@@ -26,6 +26,7 @@ class UsuarioController extends Controller
             // rol hace de oficio (Lijador, Laquero...) y aparece en Nómina.
             'no_usa_programa'     => (bool) $u->no_usa_programa,
             'apto_comisiones'     => (bool) $u->apto_comisiones,
+            'apto_compartir_ventas' => (bool) ($u->apto_compartir_ventas ?? false),
             'apto_produccion'     => (bool) $u->apto_produccion,
             'periodicidad'        => $u->periodicidad,
             'nomina_sueldo_id'    => $u->nomina_sueldo_id,
@@ -151,6 +152,7 @@ class UsuarioController extends Controller
             'password'          => 'required_if:no_usa_programa,false,0|nullable|string|min:8|confirmed',
             'cedula'            => 'nullable|string|max:20|unique:usuarios,cedula',
             'apto_comisiones'   => 'boolean',
+            'apto_compartir_ventas' => 'boolean',
             'apto_produccion'   => 'boolean',
             'periodicidad'      => ['nullable', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
             'nomina_sueldo_id'  => 'nullable|exists:nomina_sueldos,id',
@@ -238,6 +240,10 @@ class UsuarioController extends Controller
             'no_usa_programa'     => $noUsaPrograma,
             // Quien no usa el programa no hace ventas: no puede ser apto.
             'apto_comisiones'     => ! $noUsaPrograma && $request->boolean('apto_comisiones'),
+            // Ayudar a cerrar una venta sí lo puede hacer quien no entra al
+            // programa: no la registra él, solo se comparte con él.
+            ...(\App\Support\Esquema::columna('usuarios', 'apto_compartir_ventas')
+                ? ['apto_compartir_ventas' => $request->boolean('apto_compartir_ventas')] : []),
             // La gente de fábrica ES el taller: se marca sola, para que no haya
             // que acordarse y para que salga de una al cerrar un paso.
             'apto_produccion'     => $noUsaPrograma || $request->boolean('apto_produccion'),
@@ -359,6 +365,7 @@ class UsuarioController extends Controller
             'no_usa_programa'   => 'sometimes|boolean',
             'password'          => 'sometimes|nullable|string|min:8|confirmed',
             'apto_comisiones'   => 'nullable|boolean',
+            'apto_compartir_ventas' => 'nullable|boolean',
             'apto_produccion'   => 'nullable|boolean',
             'periodicidad'      => ['sometimes', 'required', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
             'nomina_sueldo_id'  => 'sometimes|nullable|exists:nomina_sueldos,id',
@@ -611,6 +618,11 @@ class UsuarioController extends Controller
         if ($request->has('apto_comisiones')) {
             $data['apto_comisiones'] = ! $usuario->no_usa_programa && $request->boolean('apto_comisiones');
         }
+        if (! \App\Support\Esquema::columna('usuarios', 'apto_compartir_ventas')) {
+            unset($data['apto_compartir_ventas']);
+        } elseif ($request->has('apto_compartir_ventas')) {
+            $data['apto_compartir_ventas'] = $request->boolean('apto_compartir_ventas');
+        }
         if ($request->has('apto_produccion')) {
             // A quien no usa el programa no se le puede quitar: es del taller.
             $data['apto_produccion'] = $usuario->no_usa_programa || $request->boolean('apto_produccion');
@@ -786,12 +798,33 @@ class UsuarioController extends Controller
         // meterse a ningún equipo —no se veía en el selector—. Por eso se pide
         // aparte y no se quita el filtro: dejarlo por defecto es lo que impide
         // que una venta se comparta con uno mismo.
+        //
+        // `con_ayudantes=1` (Nueva orden y Editar orden) trae además a quien no
+        // es de ventas pero tiene en su ficha "Apto para ventas" o "Apto para
+        // compartir ventas" (usuario, 2026-11-25: conductores y gente del
+        // taller que ayudan a cerrar ventas). Cada uno viene con lo que se
+        // puede hacer con él: ser el vendedor o solo compartir. Sin el
+        // parámetro la lista es la de siempre: la usa el equipo de una tienda
+        // en Bonificaciones, y un ayudante no es del equipo de ninguna.
+        $conAyudantes = $request->boolean('con_ayudantes');
+        $hayCompartir = \App\Support\Esquema::columna('usuarios', 'apto_compartir_ventas');
+
         return response()->json(
-            Usuario::whereIn('rol', ['vendedor', 'supervisor'])
+            Usuario::query()
+                ->where(function ($q) use ($conAyudantes, $hayCompartir) {
+                    $q->whereIn('rol', Usuario::ROLES_DE_VENTA);
+                    if ($conAyudantes) {
+                        $q->orWhere('apto_comisiones', true)->orWhere('independiente', true);
+                        if ($hayCompartir) $q->orWhere('apto_compartir_ventas', true);
+                    }
+                })
                 ->where('activo', true)
                 ->when(! $request->boolean('incluirme'), fn ($q) => $q->where('id', '!=', $yo->id))
                 ->with('tiendaDefault:id,nombre')
-                ->select('id', 'nombre', 'tienda_default_id', 'independiente')
+                ->select(array_merge(
+                    ['id', 'nombre', 'tienda_default_id', 'independiente', 'rol', 'apto_comisiones'],
+                    $hayCompartir ? ['apto_compartir_ventas'] : []
+                ))
                 ->orderBy('nombre')
                 ->get()
                 ->map(fn($u) => [
@@ -801,6 +834,10 @@ class UsuarioController extends Controller
                     // Lo necesita la pantalla para saber si puede compartir la
                     // venta con un almacen.
                     'independiente' => (bool) $u->independiente,
+                    'puede_vender'    => $u->puedeVender(),
+                    'puede_compartir' => $u->puedeCompartirVentas(),
+                    // No es de ventas: en bonificaciones no tiene tienda.
+                    'ayuda_en_ventas' => $u->ayudaEnVentas(),
                 ])
         );
     }

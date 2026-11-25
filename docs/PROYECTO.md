@@ -239,7 +239,19 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   propio botón porque el navegador solo lo abre justo después de un toque. Sin backend.
 - **Chat de la orden** (`OrdenMensajeController`, `ChatOrden.vue`): dudas entre vendedores,
   supervisores y Producción; varias fotos por mensaje (`orden_mensajes.imagenes`), cada
-  una se sube al elegirla con reintento. Se cierra al quedar lista para entrega.
+  una se sube al elegirla con reintento. Solo se cierra si la orden se cancela (desde
+  2026-11-25; antes también al quedar lista para entrega y al entregarse). El autor edita o
+  elimina su mensaje (`PATCH`/`DELETE /ordenes/{id}/mensajes/{mensajeId}`): queda marcado con
+  fecha y hora y lo de antes en `ediciones`. `clave` por envío evita repetidos al reintentar.
+  La lista de Órdenes marca los mensajes sin leer (`GET /mensajes-de-ordenes/sin-leer`).
+  A quién se arroba (`destinatarios`): supervisores, quien gestiona Producción, vendedor y
+  covendedor, y los vendedores de la tienda de la orden y de la tienda compartida
+  (`tienda_abonada_id`), en grupos con "Toda la tienda"; siempre filtrado con
+  `puedeParticipar` (también los avisos). La pantalla vuelve a pedir el hilo cada minuto y al
+  volver a la app (respaldo del WebSocket); el aviso `orden_mensaje` abre la orden con
+  `?chat=<mensaje>` y baja hasta el chat. Las notas automáticas (cancelar, garantías,
+  devoluciones, firma…) entran solo por `OrdenMensaje::delSistema` (`es_sistema`): salen en
+  vivo, se pintan aparte y no meten a quien hizo la acción en los avisos del hilo.
 - **Visibilidad:** `Orden::scopeVisiblesPara` / `laPuedeVer` / `laPuedeCobrar` /
   `laPuedeEditar` (ver `MEMORY.md` §2).
 
@@ -597,7 +609,7 @@ sigue sin dejar agregar productos a una orden que ya salió (para nadie).
 Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones-como-funciona.md) (el
 `explicacion_modulo_comisiones.txt` de la raíz quedó como histórico). Para los usuarios: Comisiones → Ayuda.
 
-**FV2 sin quitar el IVA** (2026-11-25, regla `iva_en_fv2`, migración `2026_11_26_000001` desde 2026-10): `ReglasComision::fv2SinIva`.
+**FV2 sin quitar el IVA** (2026-11-25, regla `iva_en_fv2`, migración `2026_11_26_000002` desde 2026-10): `ReglasComision::fv2SinIva`.
 En `enriquecer` la FV2 va entera para todos (`$fv2Entera`); en `libroDelPool` se juntan las FV2 que cuentan
 (`ventas_fv2`) y `poolDe`/`desglosePool` agregan la línea `fv2` (la meta se mide con lo que vale);
 `ComisionIndependientes::ivaDe` y el almacén igual. Listas lo explica con `cuenta.ventas_fv2`.
@@ -773,6 +785,25 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   la regla se prende en un mes en que el covendedor ya cobró su mitad, lo que falta sale como
   diferencia. No cambia: la restauración que sube alguien de tienda y comparte con un
   independiente (entra entera al bolsón; la tienda cobra sobre su mitad).
+- **Quien ayuda en ventas sin ser de ventas** (usuario, 2026-11-25; migración
+  `2026_11_26_000001_apto_para_compartir_ventas`, solo agrega `usuarios.apto_compartir_ventas`).
+  En Trabajadores → ficha, a quien no es vendedor ni supervisor (conductor, taller): **Apto para
+  ventas** (la columna vieja `apto_comisiones`, que antes no hacía nada; al prenderla la pantalla le
+  abre Nueva orden y Órdenes) lo deja ser el vendedor de una orden, y **Apto para compartir
+  ventas** lo pone en la lista de co-vendedor. `GET /asesores?con_ayudantes=1` (Nueva orden,
+  Editar orden) los trae con `puede_vender` / `puede_compartir` / `ayuda_en_ventas`; sin el
+  parámetro la lista es la de siempre (equipos de Bonificaciones). El servidor ahora revisa a
+  quién se le pone una venta (`Usuario::puedeVender`) y con quién se comparte
+  (`puedeCompartirVentas`, `OrdenController::porQueNoSeComparteCon`); antes aceptaba a cualquiera.
+  En bonificaciones (`ComisionController::esAyudanteDeVentas`: rol que no es vendedor ni
+  supervisor y no independiente, ventas desde `CORTE_AYUDANTES` = 2026-11-26): **no tiene tienda**.
+  Su renglón se abre siempre (antes, sin tienda, no se le abría y su mitad no la cobraba nadie) con
+  la tienda a la que cuenta la venta, solo para que salga ahí en Listas; cobra `sin_meta_5`
+  (÷ 1,19 × 5 %, `pct_individual`, la mitad pagada y el día de pago); una restauración, su 5 % sin
+  esperar la meta. **Lo suyo no suma a la meta ni al pool** (`sinAyudantes` en los totales, el
+  libro del pool y las restauraciones que ayudan), para no pagar dos veces. Se mira el rol de hoy,
+  no la marca: apagarla no cambia lo vendido. Listas lo explica (`motivo_individual =
+  ayuda_en_ventas`). Tests en `AyudanteDeVentasTest`.
 - **Órdenes fuera del pool** (2026-10-23, dueño, por la conciliación de Norte): un
   supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
   Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -10,7 +11,7 @@ import { conReintento } from '@/utils/colaPeticiones'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   ChatBubbleLeftRightIcon, PaperAirplaneIcon, AtSymbolIcon, LockClosedIcon,
-  PhotoIcon, XMarkIcon,
+  PhotoIcon, XMarkIcon, InformationCircleIcon, PencilSquareIcon, TrashIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -21,6 +22,7 @@ const props = defineProps({
 const auth  = useAuthStore()
 const toast = useToast()
 const notif = useNotificacionesStore()
+const route = useRoute()
 
 const mensajes      = ref([])
 const destinatarios = ref([])
@@ -165,27 +167,149 @@ function toggleMencion(id) {
   else        mencionados.value.push(id)
 }
 
+// ── A quién se le puede preguntar, por grupos ───────────────────────────────
+// La venta es de quien la subió y de con quien se compartió (pedido del
+// usuario, 2026-11-25): primero los dueños de la venta, después cada tienda
+// (la de la orden y la compartida) con un botón para arrobarla entera, y al
+// final supervisores y Producción.
+const deLaVenta = computed(() => destinatarios.value.filter(d => d.es_de_la_orden))
+const otros     = computed(() => destinatarios.value.filter(d => !d.es_de_la_orden && !d.grupo))
+const tiendasMencion = computed(() => {
+  const grupos = []
+  for (const clave of ['compartida', 'tienda']) {
+    const gente = destinatarios.value.filter(d => d.grupo === clave)
+    if (!gente.length) continue
+    grupos.push({
+      clave,
+      titulo: clave === 'compartida'
+        ? `Tienda con la que se compartió${gente[0].tienda ? ' · ' + gente[0].tienda : ''}`
+        : `Tienda de la orden${gente[0].tienda ? ' · ' + gente[0].tienda : ''}`,
+      gente,
+    })
+  }
+  return grupos
+})
+
+function todaLaTiendaMarcada(g) {
+  return g.gente.every(d => mencionados.value.includes(d.id))
+}
+function toggleTienda(g) {
+  if (todaLaTiendaMarcada(g)) {
+    mencionados.value = mencionados.value.filter(id => !g.gente.some(d => d.id === id))
+  } else {
+    for (const d of g.gente) if (!mencionados.value.includes(d.id)) mencionados.value.push(d.id)
+  }
+}
+
+function claseChip(d) {
+  if (mencionados.value.includes(d.id)) return 'bg-amber-500 text-white border-amber-500'
+  return d.es_de_la_orden
+    ? 'bg-white text-blue-700 border-blue-300 hover:border-amber-400 font-medium'
+    : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400'
+}
+
+/** ¿El hilo está abajo del todo (o casi)? Si la persona subió a leer algo, no se la baja sola. */
+function estaAbajo() {
+  const h = hilo.value
+  return !h || h.scrollHeight - h.scrollTop - h.clientHeight < 60
+}
+
 async function alFinal() {
   await nextTick()
   if (hilo.value) hilo.value.scrollTop = hilo.value.scrollHeight
 }
 
-async function cargar() {
-  cargando.value = true
+/**
+ * Trae el hilo del servidor.
+ *
+ * `silencioso`: es el respaldo del tiempo real (al volver a la app y cada
+ * minuto), sin rueda de carga ni bajar el hilo si la persona está leyendo
+ * arriba. Antes el chat solo se pedía al abrir la orden: si el WebSocket se
+ * caía —en el celular pasa apenas la app queda en segundo plano— los mensajes
+ * nuevos no salían hasta recargar la página.
+ */
+async function cargar({ silencioso = false } = {}) {
+  if (!silencioso) cargando.value = true
   try {
-    const { data } = await api.get(`/ordenes/${props.ordenId}/mensajes`)
-    mensajes.value      = data.mensajes ?? []
+    const { data } = await api.get(`/ordenes/${props.ordenId}/mensajes`, silencioso ? { silencioso: true } : undefined)
+    const nuevos  = data.mensajes ?? []
+    const habiaAbajo = estaAbajo()
+    // Cambió si hay mensajes nuevos o si alguno se corrigió o se borró.
+    const firma = (lista) => lista.map(m => `${m.id}:${m.editado_at ?? ''}:${m.eliminado_at ?? ''}`).join(',')
+    const cambio  = firma(nuevos) !== firma(mensajes.value)
+    const crecio  = nuevos.length > mensajes.value.length
+    // Mientras corrige uno propio, el respaldo no le pisa lo que escribe
+    // (la caja de edición usa su propia copia del texto).
+    if (!silencioso || cambio) mensajes.value = nuevos
     destinatarios.value = data.destinatarios ?? []
     abierto.value       = !!data.abierto
-    await alFinal()
+    if (!silencioso || (crecio && habiaAbajo)) await alFinal()
   } catch (e) {
     // Quién participa lo decide el servidor (OrdenMensajeController): si dice
     // que no, el chat no se pinta. Si es la señal, se queda con lo que había.
     if (e.response?.status === 403) permitido.value = false
     else if (!mensajes.value.length) mensajes.value = []
   } finally {
-    cargando.value = false
+    if (!silencioso) cargando.value = false
   }
+}
+
+// ── Respaldo del tiempo real ────────────────────────────────────────────────
+// Cada minuto con la app a la vista, y al volver a ella. Es una consulta
+// liviana (solo el hilo de esta orden).
+const CADA_RESPALDO = 60_000
+let relojRespaldo = null
+let ultimoRespaldo = 0
+function respaldo() {
+  if (document.hidden || !permitido.value || cargando.value) return
+  ultimoRespaldo = Date.now()
+  cargar({ silencioso: true })
+}
+
+// ── Llegar desde el aviso ───────────────────────────────────────────────────
+// El aviso del chat abre la orden con ?chat=<mensaje>: se baja hasta el chat,
+// que está al final de una página larga. Antes había que buscarlo.
+async function enfocarSiLoPiden() {
+  if (!route.query.chat) return
+  await alFinal()
+  // El resto del detalle termina de pintarse un momento después (fotos,
+  // pagos…) y empuja el chat hacia abajo: se espera a que se asiente y se
+  // vuelve a mirar una vez más por si se movió.
+  for (const espera of [250, 700]) {
+    await new Promise(r => setTimeout(r, espera))
+    if (!caja.value) return
+    caja.value.scrollIntoView({ block: 'start' })
+  }
+}
+
+// ── Escribir ────────────────────────────────────────────────────────────────
+// En el celular, Enter baja de línea (no hay Shift+Enter) y se envía con el
+// botón. En el computador, Enter envía y Shift+Enter baja de línea. Antes
+// Enter enviaba siempre: en el celular no se podía escribir en varias líneas.
+const cajaTexto = ref(null)
+const esTactil = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
+function alEnter(e) {
+  if (esTactil || e.shiftKey || e.isComposing) return   // nueva línea
+  e.preventDefault()
+  enviar()
+}
+
+/** La caja crece con lo escrito (hasta unas 6 líneas; después hace scroll). */
+function crecer() {
+  const el = cajaTexto.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 128)}px`
+}
+
+// Clave de este envío: si la señal se corta justo después de que el servidor
+// lo guardó, el reintento (o volver a tocar Enviar) manda la misma clave y el
+// servidor devuelve el mismo mensaje en vez de guardarlo dos veces. Se cambia
+// solo cuando el envío salió bien.
+let claveEnvio = null
+function nuevaClave() {
+  return (crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`)
 }
 
 async function enviar() {
@@ -194,23 +318,75 @@ async function enviar() {
   if (conError.value) { toast.error('Una foto no subió: reintenta o quítala antes de enviar.'); return }
   if ((!t && !fotosListas.value.length) || enviando.value) return
   enviando.value = true
+  claveEnvio ??= nuevaClave()
   try {
-    const { data } = await api.post(`/ordenes/${props.ordenId}/mensajes`, {
+    const { data } = await conReintento(() => api.post(`/ordenes/${props.ordenId}/mensajes`, {
       mensaje: t || undefined,
       imagenes: fotosListas.value.length ? fotosListas.value : undefined,
       mencionados: mencionados.value.length ? mencionados.value : undefined,
-    })
+      clave: claveEnvio,
+    }, { silencioso: true }))
+    claveEnvio = null
     // Se agrega de una: el eco del WebSocket puede tardar y se siente lento
     if (!mensajes.value.some(m => m.id === data.id)) mensajes.value.push(data)
     texto.value = ''
+    await nextTick(); crecer()
     quitarTodas()
     mencionados.value = []
     mostrarMenciones.value = false
     await alFinal()
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo enviar el mensaje.')
+    toast.error(e.response?.data?.message ?? 'No se pudo enviar el mensaje. Revisa la señal e inténtalo otra vez.')
   } finally {
     enviando.value = false
+  }
+}
+
+// ── Corregir o borrar lo propio ─────────────────────────────────────────────
+// Se toca el mensaje propio y salen "Editar" y "Eliminar". Queda marcado con la
+// fecha y la hora (usuario, 2026-11-25: "que se sepa que lo editó"); el
+// servidor guarda lo que decía antes.
+const menuDe = ref(null)
+const editando = ref(null)        // { id, texto }
+const guardandoEdicion = ref(false)
+
+function sePuedeCambiar(m) {
+  return abierto.value && esMio(m) && !m.es_sistema && !m.eliminado_at
+}
+function tocarMensaje(m) {
+  if (!sePuedeCambiar(m)) return
+  menuDe.value = menuDe.value === m.id ? null : m.id
+}
+function empezarEdicion(m) {
+  editando.value = { id: m.id, texto: m.mensaje ?? '' }
+  menuDe.value = null
+}
+function reemplazar(m) {
+  const i = mensajes.value.findIndex(x => x.id === m.id)
+  if (i >= 0) mensajes.value.splice(i, 1, m)
+}
+async function guardarEdicion() {
+  if (!editando.value || guardandoEdicion.value) return
+  guardandoEdicion.value = true
+  try {
+    const { data } = await api.patch(`/ordenes/${props.ordenId}/mensajes/${editando.value.id}`,
+      { mensaje: editando.value.texto }, { silencioso: true })
+    reemplazar(data)
+    editando.value = null
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar el cambio.')
+  } finally {
+    guardandoEdicion.value = false
+  }
+}
+async function eliminarMensaje(m) {
+  menuDe.value = null
+  if (!confirm('¿Eliminar este mensaje? Queda la marca "Mensaje eliminado" con la fecha y la hora.')) return
+  try {
+    const { data } = await api.delete(`/ordenes/${props.ordenId}/mensajes/${m.id}`, { silencioso: true })
+    reemplazar(data)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo eliminar el mensaje.')
   }
 }
 
@@ -221,12 +397,16 @@ function conectar() {
   canal = `orden.${props.ordenId}`
   window.Echo.private(canal)
     .stopListening('.orden.mensaje')
+    .stopListening('.orden.mensaje.editado')
     .listen('.orden.mensaje', (m) => {
       // El propio ya se agregó al enviar; sin esto saldría dos veces
       if (mensajes.value.some(x => x.id === m.id)) return
+      const habiaAbajo = estaAbajo()
       mensajes.value.push(m)
-      alFinal()
+      if (habiaAbajo || esMio(m)) alFinal()
     })
+    // Alguien corrigió o borró su mensaje
+    .listen('.orden.mensaje.editado', (m) => reemplazar(m))
 }
 function desconectar() {
   if (window.Echo && canal) window.Echo.leave(canal)
@@ -268,19 +448,35 @@ function observar() {
 // Lo que llega por la campana mientras el chat se ve, también queda visto.
 watch(() => notif.items.length, () => marcarVisto())
 watch(() => mensajes.value.length, () => marcarVisto())
-function alVolver() { if (!document.hidden) marcarVisto() }
+function alVolver() {
+  if (document.hidden) return
+  marcarVisto()
+  // Al volver a la app el WebSocket pudo haberse caído mientras tanto: se
+  // pregunta de una (salvo que se haya preguntado hace un momento).
+  if (Date.now() - ultimoRespaldo > 5_000) respaldo()
+}
 
-onMounted(() => {
-  cargar(); conectar()
+onMounted(async () => {
+  conectar()
   nextTick(observar)
   document.addEventListener('visibilitychange', alVolver)
+  relojRespaldo = setInterval(respaldo, CADA_RESPALDO)
+  await cargar()
+  enfocarSiLoPiden()
 })
 onBeforeUnmount(() => {
   desconectar(); quitarTodas()
   observador?.disconnect()
   document.removeEventListener('visibilitychange', alVolver)
+  clearInterval(relojRespaldo)
 })
-watch(() => props.estado, cargar)
+watch(() => props.estado, () => cargar({ silencioso: true }))
+// Ya estaba en esta orden y tocó otro aviso del mismo chat.
+watch(() => route.query.chat, async (v) => {
+  if (!v) return
+  await cargar({ silencioso: true })
+  enfocarSiLoPiden()
+})
 
 function hora(iso) {
   if (!iso) return ''
@@ -299,7 +495,7 @@ function iniciales(nombre) {
 </script>
 
 <template>
-  <div v-if="permitido" ref="caja" class="bg-white rounded-xl shadow-sm overflow-hidden">
+  <div v-if="permitido" ref="caja" class="bg-white rounded-xl shadow-sm overflow-hidden scroll-mt-20">
     <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
       <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
         <ChatBubbleLeftRightIcon class="w-4 h-4" />
@@ -315,7 +511,7 @@ function iniciales(nombre) {
     </div>
 
     <!-- Hilo -->
-    <div ref="hilo" class="max-h-80 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50/60">
+    <div ref="hilo" class="max-h-80 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
       <div v-if="cargando" class="flex justify-center py-6">
         <IconoS class="w-6 h-6 text-blue-500" />
       </div>
@@ -325,9 +521,26 @@ function iniciales(nombre) {
         Pregúntale a un supervisor sobre esta orden y queda guardado aquí.
       </p>
 
+      <template v-for="m in mensajes" :key="m.id">
+      <!-- Nota automática ("se canceló lo que faltaba", "garantía resuelta"…):
+           al centro y en gris, con quién hizo la acción. Antes salía como si
+           esa persona la hubiera escrito. -->
+      <div v-if="m.es_sistema" class="flex justify-center">
+        <div class="max-w-[90%] rounded-xl border border-dashed border-gray-300 bg-white px-3 py-2 text-center">
+          <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 flex items-center justify-center gap-1">
+            <InformationCircleIcon class="w-3 h-3" />
+            Aviso del sistema<template v-if="m.usuario?.nombre"> · {{ m.usuario.nombre }}</template> · {{ hora(m.created_at) }}
+          </p>
+          <div v-if="fotosDe(m).length" :class="['my-1', fotosDe(m).length > 1 ? 'grid grid-cols-2 gap-1' : 'flex justify-center']">
+            <a v-for="(url, k) in fotosDe(m)" :key="k" :href="url" target="_blank" rel="noopener" class="block">
+              <img :src="cloudinaryOpt(url, 300)" loading="lazy" class="rounded-lg object-cover border border-gray-200 max-h-32 w-auto" />
+            </a>
+          </div>
+          <p v-if="m.mensaje" class="text-xs text-gray-600 leading-snug whitespace-pre-line break-words">{{ m.mensaje }}</p>
+        </div>
+      </div>
       <div
-        v-for="m in mensajes"
-        :key="m.id"
+        v-else
         :class="['flex gap-2', esMio(m) ? 'flex-row-reverse' : '']"
       >
         <!-- Avatar con iniciales -->
@@ -343,8 +556,32 @@ function iniciales(nombre) {
             · {{ hora(m.created_at) }}
           </p>
 
+          <!-- Borrado: queda el rastro, con la fecha y la hora -->
+          <div v-if="m.eliminado_at"
+            class="rounded-2xl px-3 py-2 text-xs italic text-gray-400 border border-dashed border-gray-300 bg-white">
+            Mensaje eliminado · {{ hora(m.eliminado_at) }}
+          </div>
+
+          <!-- Corrigiendo el propio -->
+          <div v-else-if="editando?.id === m.id" class="rounded-2xl border border-blue-300 bg-white p-2 space-y-1.5">
+            <textarea
+              v-model="editando.texto" rows="3" maxlength="2000"
+              class="w-full resize-none rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div class="flex justify-end gap-2">
+              <button type="button" @click="editando = null" class="text-xs font-semibold text-gray-500 px-2 py-1">Cancelar</button>
+              <button type="button" @click="guardarEdicion" :disabled="guardandoEdicion"
+                class="text-xs font-semibold text-white bg-blue-600 rounded-lg px-3 py-1 disabled:opacity-40">
+                {{ guardandoEdicion ? 'Guardando…' : 'Guardar' }}
+              </button>
+            </div>
+          </div>
+
           <div
+            v-else
+            @click="tocarMensaje(m)"
             :class="['rounded-2xl px-3 py-2 text-sm leading-snug break-words',
+              sePuedeCambiar(m) ? 'cursor-pointer' : '',
               esMio(m)          ? 'bg-blue-600 text-white rounded-br-sm'
               // Me arrobaron: importante, en rojo como en la campana (sin relleno claro: modo oscuro)
               : meMencionaron(m) ? 'bg-white border-2 border-red-400 text-gray-800 rounded-bl-sm'
@@ -373,30 +610,73 @@ function iniciales(nombre) {
 
             <p v-if="m.mensaje" class="whitespace-pre-line">{{ m.mensaje }}</p>
           </div>
+
+          <!-- Se corrigió: que se sepa, con la fecha y la hora -->
+          <p v-if="m.editado_at && !m.eliminado_at"
+            :class="['text-[10px] text-gray-400 mt-0.5 italic', esMio(m) ? 'text-right' : '']">
+            Editado · {{ hora(m.editado_at) }}
+          </p>
+
+          <!-- Al tocar un mensaje propio: corregirlo o borrarlo -->
+          <div v-if="menuDe === m.id && editando?.id !== m.id"
+            :class="['flex gap-3 mt-1 text-[11px] font-semibold', esMio(m) ? 'justify-end' : '']">
+            <button type="button" @click.stop="empezarEdicion(m)" class="text-blue-600 flex items-center gap-0.5">
+              <PencilSquareIcon class="w-3.5 h-3.5" /> Editar
+            </button>
+            <button type="button" @click.stop="eliminarMensaje(m)" class="text-red-600 flex items-center gap-0.5">
+              <TrashIcon class="w-3.5 h-3.5" /> Eliminar
+            </button>
+          </div>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Escribir -->
     <div v-if="!cargando" class="border-t border-gray-100 p-3 space-y-2">
       <template v-if="abierto">
         <!-- A quién se le pregunta -->
-        <div v-if="mostrarMenciones && destinatarios.length" class="flex flex-wrap gap-1.5 pb-1">
-          <button
-            v-for="d in destinatarios"
-            :key="d.id"
-            type="button"
-            @click="toggleMencion(d.id)"
-            :class="['text-xs px-2.5 py-1 rounded-full border transition-colors',
-              mencionados.includes(d.id)
-                ? 'bg-amber-500 text-white border-amber-500'
-                : d.es_de_la_orden
-                  ? 'bg-white text-blue-700 border-blue-300 hover:border-amber-400 font-medium'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400']"
-          >
-            {{ d.nombre }}
-            <span v-if="d.es_de_la_orden" class="opacity-70">· hizo la venta</span>
-          </button>
+        <div v-if="mostrarMenciones && destinatarios.length" class="space-y-2 pb-1">
+          <!-- Los dueños de la venta: quien la subió y con quien la compartió -->
+          <div v-if="deLaVenta.length" class="flex flex-wrap gap-1.5">
+            <button
+              v-for="d in deLaVenta" :key="d.id" type="button" @click="toggleMencion(d.id)"
+              :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+            >
+              {{ d.nombre }}
+              <span class="opacity-70">· {{ d.es_covendedor ? 'comparte la venta' : 'hizo la venta' }}</span>
+            </button>
+          </div>
+
+          <!-- Cada tienda (la compartida y la de la orden), con "toda la tienda" -->
+          <div v-for="g in tiendasMencion" :key="g.clave">
+            <p class="text-[11px] font-semibold text-gray-500 mb-1">{{ g.titulo }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                type="button" @click="toggleTienda(g)"
+                :class="['text-xs px-2.5 py-1 rounded-full border font-semibold transition-colors',
+                  todaLaTiendaMarcada(g) ? 'bg-amber-500 text-white border-amber-500'
+                                         : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500']"
+              >
+                Toda la tienda ({{ g.gente.length }})
+              </button>
+              <button
+                v-for="d in g.gente" :key="d.id" type="button" @click="toggleMencion(d.id)"
+                :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+              >{{ d.nombre }}</button>
+            </div>
+          </div>
+
+          <!-- Supervisores y Producción -->
+          <div v-if="otros.length">
+            <p v-if="deLaVenta.length || tiendasMencion.length" class="text-[11px] font-semibold text-gray-500 mb-1">Supervisores y Producción</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="d in otros" :key="d.id" type="button" @click="toggleMencion(d.id)"
+                :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+              >{{ d.nombre }}</button>
+            </div>
+          </div>
         </div>
 
         <p v-if="mencionados.length" class="text-[11px] text-amber-700">
@@ -454,12 +734,14 @@ function iniciales(nombre) {
           </button>
 
           <textarea
+            ref="cajaTexto"
             v-model="texto"
             rows="1"
             placeholder="Escribe tu duda..."
-            @keydown.enter.exact.prevent="enviar"
+            @keydown.enter="alEnter"
+            @input="crecer"
             @paste="onPegar"
-            class="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm leading-snug focus:outline-none focus:ring-2 focus:ring-blue-500 max-h-32 overflow-y-auto"
           />
 
           <button
@@ -475,10 +757,7 @@ function iniciales(nombre) {
       </template>
 
       <p v-else class="text-xs text-gray-400 text-center py-1">
-        {{ estado === 'cancelado'
-          ? 'El chat se cerró porque la orden se canceló.'
-          : (estado === 'entregado' ? 'El chat se cerró porque la orden ya se entregó.' : 'El chat se cerró cuando la orden quedó lista para entrega.') }}
-        La conversación queda de consulta.
+        El chat se cerró porque la orden se canceló. La conversación queda de consulta.
       </p>
     </div>
   </div>

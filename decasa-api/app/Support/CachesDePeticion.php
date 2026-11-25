@@ -26,6 +26,7 @@ class CachesDePeticion
         \App\Http\Controllers\FichaTecnicaController::olvidarEsquema();
         \App\Models\TiendaReemplazo::olvidarCache();
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
+        \App\Http\Controllers\ComisionController::olvidarAyudantes();
         \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
         \App\Http\Controllers\ComisionController::olvidarEsquema();
         \App\Http\Controllers\ComisionController::olvidarRestauracionesCompartidas();
@@ -39,6 +40,7 @@ class CachesDePeticion
         \App\Support\ReglasComision::olvidarCache();
         \App\Services\GarantiaService::olvidarCache();
         \App\Http\Controllers\OrdenMensajeController::olvidarCache();
+        \App\Models\OrdenMensaje::olvidarCache();
         \App\Services\CostoEmpleador::olvidarCache();
         \App\Services\Prestaciones::olvidarCache();
         \App\Services\Finanzas\ConfigFinanzas::olvidarCache();

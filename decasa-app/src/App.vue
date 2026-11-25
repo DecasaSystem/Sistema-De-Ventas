@@ -659,6 +659,13 @@ function destinoNotificacion(tipo, datos) {
   if (tipo === 'factura_electronica' && datos.sin_facturar && auth.puedeFacturarElectronica) {
     return { name: 'facturacion-electronica' }
   }
+  // Chat de la orden: directo al chat, para todos. Antes un conductor que
+  // comparte la venta caía en "Mis entregas" (la regla de abajo) y nunca
+  // veía la pregunta. `chat` cambia con cada mensaje: si ya estaba en esa
+  // orden, el chat se actualiza y baja hasta él.
+  if (tipo === 'orden_mensaje' && datos.orden_id) {
+    return { name: 'orden-detalle', params: { id: datos.orden_id }, query: { chat: String(datos.mensaje_id ?? 1) } }
+  }
   // Conductor: cualquier aviso con orden_id lo lleva a sus entregas.
   if (tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
     return { name: 'mis-entregas' }

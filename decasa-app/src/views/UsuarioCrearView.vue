@@ -21,6 +21,7 @@ const form = ref({
   no_usa_programa: false,
   cedula: '',
   apto_comisiones: false,
+  apto_compartir_ventas: false,
   apto_produccion: false,
   email: '',
   password: '',
@@ -87,6 +88,15 @@ watch(rolSeleccionado, (r) => Object.assign(form.value, modulosDeVentaDeArranque
   acceso_surtir: r?.arquetipo === 'supervisor',
 }))
 const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
+// Vendedores y supervisores ya venden y comparten: las marcas de "apto" son
+// para los demás (conductor, taller…).
+const esDeVentas = computed(() => ['vendedor', 'supervisor'].includes(arquetipo.value))
+// Al volverlo apto para ventas se le abren Nueva orden y Órdenes (se pueden quitar).
+function alPrenderAptoVentas() {
+  if (!form.value.apto_comisiones || form.value.no_usa_programa) return
+  form.value.acceso_nueva_orden = true
+  form.value.acceso_ordenes = true
+}
 
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 // Un independiente no pertenece a ninguna tienda: vende por su cuenta y saca
@@ -151,6 +161,7 @@ async function submit() {
       password: form.value.no_usa_programa ? null : form.value.password,
       password_confirmation: form.value.no_usa_programa ? null : form.value.password_confirmation,
       apto_comisiones: !form.value.no_usa_programa && form.value.apto_comisiones,
+      apto_compartir_ventas: !esDeVentas.value && !!form.value.apto_compartir_ventas,
       apto_produccion: form.value.no_usa_programa || form.value.apto_produccion,
       // Se le entregan herramientas: vale igual para el que no usa el programa.
       lleva_encargos: form.value.lleva_encargos,
@@ -330,17 +341,38 @@ async function submit() {
         </select>
       </div>
 
-      <!-- Apto para bonificaciones. Quien no usa el programa no hace ventas. -->
+      <!-- Apto para ventas. Quien no usa el programa no hace ventas. -->
       <div v-if="!form.no_usa_programa" class="flex items-start gap-3 py-2">
         <input
           id="apto_comisiones"
           type="checkbox"
           v-model="form.apto_comisiones"
+          @change="alPrenderAptoVentas"
           class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
         />
         <div>
-          <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para bonificaciones</label>
-          <p class="text-xs text-gray-500 mt-0.5">Marca que esta persona hace ventas y por lo tanto le corresponde bonificación.</p>
+          <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para ventas</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Marca que esta persona hace ventas y por lo tanto le corresponde bonificación.
+            <template v-if="!esDeVentas">Puede quedar como el vendedor de una orden. Al prenderlo se le abren Nueva orden y Órdenes.</template>
+          </p>
+        </div>
+      </div>
+
+      <!-- Quien no es de ventas pero ayuda a cerrar alguna (un conductor). -->
+      <div v-if="!esDeVentas" class="flex items-start gap-3 py-2">
+        <input
+          id="apto_compartir_ventas"
+          type="checkbox"
+          v-model="form.apto_compartir_ventas"
+          class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+        />
+        <div>
+          <label for="apto_compartir_ventas" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para compartir ventas</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Sale de co-vendedor en Nueva orden y Editar orden. No es de una tienda: cobra su bonificación
+            sobre su mitad y esa mitad no suma a ninguna meta.
+          </p>
         </div>
       </div>
 

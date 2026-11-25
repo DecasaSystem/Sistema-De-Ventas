@@ -666,7 +666,7 @@ class GarantiaService
         ]);
 
         $g->loadMissing('item.producto', 'itemNuevo.producto');
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $g->orden_id,
             'usuario_id' => $quienId,
             'mensaje'    => '✅ Garantía resuelta: se le entregó '
@@ -1021,7 +1021,7 @@ class GarantiaService
 
     private static function anotar(Orden $orden, Usuario $quien, string $mensaje, ?string $foto = null): void
     {
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $orden->id,
             'usuario_id' => $quien->id,
             'mensaje'    => $mensaje,

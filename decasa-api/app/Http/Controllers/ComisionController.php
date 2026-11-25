@@ -547,6 +547,8 @@ class ComisionController extends Controller
                     // Como se pago esta orden: por el pool de la meta, el 5%
                     // de una restauracion, o el 5% de una tienda sin meta.
                     'forma_pago'     => $i['forma_pago'] ?? 'pool',
+                    // No es de ventas (conductor, taller): cobra su 5 % y no sumó a la meta.
+                    'ayuda_en_ventas'=> $i['ayuda_en_ventas'] ?? false,
                     'es_restauracion'=> $i['es_restauracion'] ?? false,
                     'valor_orden'    => (float) $i['valor_orden'],
                     'monto_comision' => (float) $i['monto_comision'],
@@ -3734,6 +3736,11 @@ class ComisionController extends Controller
             $tid = (int) $t['tienda_id'];
             $motivo = ! self::tiendaComparte($tid) ? 'no_reparte'
                 : ((float) (MetaTienda::vigentesEn($mes)[$tid]->meta ?? 0) <= 0 ? 'sin_meta' : 'fuera_del_equipo');
+            // No es de ventas (un conductor que ayudó): no tiene tienda, y eso
+            // es lo que de verdad explica que cobre individual.
+            if ($ordenes->where('forma_pago', 'sin_meta_5')->every(fn ($o) => ! empty($o['ayuda_en_ventas']))) {
+                $motivo = 'ayuda_en_ventas';
+            }
         }
 
         $fuera = $ordenes->where('forma_pago', 'fuera_del_pool')->pluck('orden_id')->filter()->unique()->values();
@@ -4443,27 +4450,100 @@ class ComisionController extends Controller
         if ($esCompartida && $covendedorId) self::crearFilaDelCovendedor($orden);
     }
 
-    /** El renglón de siempre del covendedor de una venta compartida (si tiene tienda). */
+    /**
+     * El renglón de siempre del covendedor de una venta compartida (si tiene
+     * tienda, o si es alguien que ayuda en ventas).
+     *
+     * Quien ayuda en ventas (un conductor, alguien del taller: ver
+     * esAyudanteDeVentas) no tiene tienda, y antes no se le abría renglón: su
+     * mitad no la cobraba nadie. Ahora su renglón va con la tienda a la que
+     * cuenta la venta —solo para que salga en Listas junto a ella—, cobra su
+     * 5 % directo y no le suma a esa meta (enriquecer y sinAyudantes).
+     */
     private static function crearFilaDelCovendedor(Orden $orden): void
     {
         $covendedorId = $orden->covendedor_id;
         if (! $orden->es_compartida || ! $covendedorId) return;
 
         $covendedor = Usuario::find($covendedorId);
-        if (! $covendedor || ! $covendedor->tienda_default_id) return;
+        if (! $covendedor) return;
 
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        $tienda = self::esAyudanteDeVentas((int) $covendedorId, $fechaVenta->toDateString())
+            ? self::tiendaParaComision($orden)
+            : (int) $covendedor->tienda_default_id;
+        if (! $tienda) return;
+
         Comision::firstOrCreate(
             ['orden_id' => $orden->id, 'vendedor_id' => $covendedorId],
             [
-                'tienda_id'        => $covendedor->tienda_default_id,
+                'tienda_id'        => $tienda,
                 'mes_venta'        => $fechaVenta->format('Y-m'),
                 'valor_orden'      => self::valorComisionable($orden, (int) $covendedorId),
                 'fecha_venta'      => $fechaVenta->toDateString(),
-                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $covendedor->tienda_default_id),
+                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $tienda),
                 'estado'           => 'pendiente',
             ]
         );
+    }
+
+    /**
+     * Desde este día (hora de Bogotá) quien ayuda en ventas cobra como alguien
+     * sin tienda (usuario, 2026-11-25: "solo órdenes nuevas"). Lo vendido
+     * antes sigue con la cuenta de antes.
+     */
+    public const CORTE_AYUDANTES = '2026-11-26';
+
+    /**
+     * ¿Esta persona ayuda en ventas sin ser de ventas, en una venta de ese día?
+     *
+     * Es quien no es vendedor, ni supervisor, ni independiente: un conductor o
+     * alguien del taller con quien se compartió la venta, o que la hizo solo
+     * (con "Apto para ventas" en su ficha). Decisión del usuario (2026-11-25):
+     * no tiene tienda, así que cobra su 5 % directo (÷ 1,19, con la mitad
+     * pagada y el día de pago, como un vendedor sin meta) y lo suyo NO suma a
+     * la meta ni al pool de ninguna tienda: si sumara, esa mitad se pagaría
+     * dos veces (en el pool del equipo y a él).
+     *
+     * Se mira el rol de hoy, no la marca de la ficha: apagar "Apto para
+     * compartir ventas" no cambia lo que ya se vendió con él.
+     */
+    public static function esAyudanteDeVentas(int $usuarioId, ?string $fechaVenta): bool
+    {
+        if (! $usuarioId || ! $fechaVenta || substr($fechaVenta, 0, 10) < self::CORTE_AYUDANTES) return false;
+
+        self::$ayudantes ??= Usuario::query()
+            ->whereNotIn('rol', Usuario::ROLES_DE_VENTA)
+            ->where(fn ($q) => $q->where('independiente', false)->orWhereNull('independiente'))
+            ->pluck('id')->map(fn ($v) => (int) $v)->flip()->all();
+
+        return isset(self::$ayudantes[$usuarioId]);
+    }
+
+    /** [usuario_id => true] de quien ayuda en ventas. Ver esAyudanteDeVentas(). */
+    private static ?array $ayudantes = null;
+
+    public static function olvidarAyudantes(): void
+    {
+        self::$ayudantes = null;
+    }
+
+    /**
+     * Saca de una suma de la meta lo que es de quien ayuda en ventas (ver
+     * esAyudanteDeVentas). La consulta tiene que traer `ordenes as o` y
+     * `usuarios as u` (el de la comisión). El corte se mira con la fecha de la
+     * orden en UTC: es el mismo día de Bogotá que `comisiones.fecha_venta`.
+     */
+    private static function sinAyudantes($q): void
+    {
+        $corteUtc = Carbon::parse(self::CORTE_AYUDANTES, StatsController::TZ_NEGOCIO)->utc()->format('Y-m-d H:i:s');
+
+        // Sin rol no se cuenta como ayudante (esAyudanteDeVentas tampoco lo hace).
+        $q->where(fn ($w) => $w->whereIn('u.rol', Usuario::ROLES_DE_VENTA)
+            ->orWhereNull('u.rol')
+            ->orWhere('u.independiente', true)
+            ->orWhereNull('o.created_at')
+            ->orWhere('o.created_at', '<', $corteUtc));
     }
 
     /** Marca de las comisiones que salen del 5% que deja un independiente. */
@@ -5345,6 +5425,8 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
+            // Lo de quien ayuda en ventas no es de la tienda (esAyudanteDeVentas).
+            ->tap(fn ($q) => self::sinAyudantes($q))
             ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->tap(fn ($q) => self::sinRestauraciones($q))
@@ -5429,6 +5511,8 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
+            // Lo de quien ayuda en ventas no es de la tienda (esAyudanteDeVentas).
+            ->tap(fn ($q) => self::sinAyudantes($q))
             ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->whereIn('c.orden_id', $sub)
@@ -5777,6 +5861,8 @@ class ComisionController extends Controller
             ->where('c.tienda_id', $tiendaId)
             ->where('c.mes_venta', $mes)
             ->where('u.independiente', false)
+            // Lo de quien ayuda en ventas no es de la tienda (esAyudanteDeVentas).
+            ->tap(fn ($q) => self::sinAyudantes($q))
             ->select('c.id', 'c.vendedor_id', 'c.orden_id', 'c.origen', 'c.estado',
                      'c.valor_orden', 'c.monto_comision',
                      'o.estado as orden_estado', 'o.valor_total as orden_valor')
@@ -6219,6 +6305,7 @@ class ComisionController extends Controller
         $this->totalesQueCuentan = null;
         $this->idsReemplazoVentas = null;
         self::olvidarPeriodicidades();
+        self::olvidarAyudantes();
         TiendaReemplazo::olvidarCache();
         TiendaAsesor::olvidarCache();
 
@@ -6251,6 +6338,8 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
+            // Lo de quien ayuda en ventas no es de la tienda (esAyudanteDeVentas).
+            ->tap(fn ($q) => self::sinAyudantes($q))
             // El 5% que deja un independiente no es una venta de la tienda:
             // paga a su gente pero no le empuja la meta ni le arma pool.
             ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
@@ -6389,6 +6478,13 @@ class ComisionController extends Controller
         if ($esRestCompartida) $esRestauracion = true;
         $tieneMeta      = $meta > 0
             && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta, (int) $c->tienda_id);
+
+        // Quien ayuda en ventas (un conductor con quien se compartió) no tiene
+        // tienda: cobra su 5 % directo y su parte no sumó a la meta (ver
+        // esAyudanteDeVentas). Nunca por el pool, aunque la tienda tenga meta.
+        $esAyudante = $c->origen !== self::ORIGEN_PARTE_POOL
+            && self::esAyudanteDeVentas((int) $c->vendedor_id, $c->fecha_venta ? (string) $c->fecha_venta : null);
+        if ($esAyudante) $tieneMeta = false;
 
         // Vendió en esta tienda pero no le toca parte del reparto: no está en
         // el equipo del mes ni fue a cubrir. Cobra su 5% como cualquiera de
@@ -6581,7 +6677,7 @@ class ComisionController extends Controller
             // Por libro, la parte del equipo también espera a la meta: sin
             // pool no hay nada que soltarle a nadie.
             if ($req50 && $reqVencio && $metaCumplida) $estadoCalculado = 'lista';
-        } elseif ($esRestauracion && ! $esRestCompartida && $meta > 0 && ! $metaCumplida
+        } elseif ($esRestauracion && ! $esRestCompartida && ! $esAyudante && $meta > 0 && ! $metaCumplida
             && (ReglasComision::si('restauracion_espera_meta', $mesC, $tiendaC)
                 // Con "ayudan a llegar": si ni con ellas se llegó, no se paga nada.
                 || (ReglasComision::si('restauracion_ayuda_meta', $mesC, $tiendaC) && ! $esTrimestral))) {
@@ -6631,6 +6727,8 @@ class ComisionController extends Controller
                                   : ($esReemplazoVentas ? 'reemplazo_ventas'
                                   : (! $tieneMeta ? 'sin_meta_5' : 'pool')))))))),
             'fuera_del_pool'   => $fueraDelPool,
+            // Ayuda en ventas sin ser de ventas: cobra su 5 % y no suma a la meta (Listas lo explica).
+            'ayuda_en_ventas'  => $esAyudante,
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
             'avance_trimestre' => $esTrimestral

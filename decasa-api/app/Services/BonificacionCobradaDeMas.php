@@ -315,7 +315,7 @@ class BonificacionCobradaDeMas
         $pesos   = fn ($m) => '$' . number_format($m, 0, ',', '.');
         $lista   = collect($anotado)->map(fn ($m, $vid) => ($nombres[$vid] ?? "#{$vid}") . ' ' . $pesos($m))->implode(', ');
 
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id' => $orden->id, 'usuario_id' => $usuario?->id,
             'mensaje'  => '💸 La bonificación de esta venta ya se había pagado'
                         . ($semovio ? ' y la venta se pasó a otro mes' : ($cancelada ? '' : ' y la orden bajó de valor'))

@@ -871,7 +871,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         return $orden->fresh();
     }
 
-    /** La regla de la migración 2026_11_26_000001: ninguna FV2 resta el IVA. */
+    /** La regla de la migración 2026_11_26_000002: ninguna FV2 resta el IVA. */
     private function ningunaFv2RestaIva(): void
     {
         if (! Schema::hasTable('comision_reglas')) {
@@ -938,7 +938,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->ningunaFv2RestaIva();
         DB::table('comision_reglas')->delete();
 
-        $m = require base_path('database/migrations/2026_11_26_000001_fv2_sin_quitar_el_iva.php');
+        $m = require base_path('database/migrations/2026_11_26_000002_fv2_sin_quitar_el_iva.php');
         ob_start(); $m->up(); $m->up(); ob_end_clean();
 
         $this->assertSame(1, DB::table('comision_reglas')->where('clave', 'iva_en_fv2')->count(), 'dos veces no la repite');

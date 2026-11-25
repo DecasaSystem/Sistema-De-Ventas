@@ -177,7 +177,7 @@ de independientes vendido antes de esa fecha.
   restauración que sube alguien de tienda y comparte con Henry no cambió (la tienda cobra sobre
   la mitad). Detalle en `docs/PROYECTO.md` §6.10. Tests al final de `ComoSeCalculaCadaComisionTest`.
 
-### A ninguna FV2 se le quita el IVA (usuario, 2026-11-25, **sin subir**, trae **migración** `2026_11_26_000001_fv2_sin_quitar_el_iva`, solo inserta una regla)
+### A ninguna FV2 se le quita el IVA (usuario, 2026-11-25, **subido a `main`** ese día, trae **migración** `2026_11_26_000002_fv2_sin_quitar_el_iva`, solo inserta una regla)
 - "Todos, desde siempre, los FV2 no se les quita el IVA, a ningún FV2, ni de vendedores ni de nadie."
   Antes solo iban enteras las marcadas a mano (`ordenes.sin_descontar_iva`, las de Henry y Flabio) y
   solo en el 5 % de quien vendió; las de Norte y El Edén se dividían por 1,19 en el pool.
@@ -199,6 +199,19 @@ de independientes vendido antes de esa fecha.
   (`crearPartesDePool` / portadores); sale en Listas como mes atrasado y se paga en el siguiente pago.
   También si sin ella no se había llegado a la meta. Trimestrales: el pool queda quieto al primer pago.
   Test `AuditoriaComisionesTest::test_si_el_pool_crece_despues_de_pagar_se_abre_otro_renglon_por_la_diferencia`.
+### Trabajadores que no son de ventas ayudan a vender (usuario, 2026-11-25, **subido a `main`** ese día, trae **migración** `2026_11_26_000001_apto_para_compartir_ventas`, solo agrega columna)
+- "A veces los mismos trabajadores que no son vendedores ayudan a cerrar ventas o incluso las
+  hacen." En la ficha: **Apto para ventas** (era "Apto para bonificaciones", `apto_comisiones`, que
+  no hacía nada; ojo: la migración de ago-2026 la prendió a todo el que tenía comisiones, así que al
+  subir pueden salir en las listas personas que no se esperaban) y **Apto para compartir ventas**.
+- Decisiones del usuario: lo suyo **no suma a la meta** de ninguna tienda y cobra su **5 % directo**
+  (÷ 1,19) sobre su parte, igual si vende solo; al prender "Apto para ventas" se le abren Nueva orden
+  y Órdenes; **solo órdenes nuevas** (desde `ComisionController::CORTE_AYUDANTES` = 2026-11-26; si se
+  sube más tarde, lo de esos días ya cae con la regla nueva).
+- Por defecto mío (**falta confirmar**): "Apto para ventas" incluye compartir; "compartir" se puede
+  marcar a quien no usa el programa; el independiente (Henry, ebanista) sigue con su cuenta de
+  siempre y ahora sale en las listas; la mitad del vendedor de tienda es la misma regla 50/50 de
+  siempre. Detalle en `docs/PROYECTO.md` §6.10.
 
 ### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
@@ -1500,6 +1513,35 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
+- **Chat de la orden: venta compartida, respaldo y aviso directo** (2026-11-25, **subido a `main`** ese día, commit f8817356, sin
+  migración, rama `claude/elated-pike-5bbb9b`). Pedido del usuario: "la venta no es solo de una
+  persona sino de la que la subió y de la que está compartida": en la @ salen el vendedor, el
+  covendedor, los vendedores de la tienda de la orden y los de la tienda compartida
+  (`tienda_abonada_id`), con un botón "Toda la tienda"; tope de menciones 5 → 15. La lista y los
+  avisos se filtran con `puedeParticipar`: a quien ya no puede abrir el chat (se cambió de tienda)
+  no le llega el texto, y la API ya no deja arrobar a cualquiera. El chat se vuelve a pedir cada
+  minuto y al volver a la app (el WebSocket se cae en el celular) y el aviso lleva directo al chat
+  (`?chat=<mensaje>`; antes el conductor covendedor caía en Mis entregas). Por defecto mío (**falta
+  confirmar**): a la tienda compartida no le llega cada mensaje; solo si la arroban o si ya escribió.
+  Informe completo con los demás problemas (mensajes del sistema a nombre de la persona, chat cerrado
+  después de entregar, Enter en el celular, duplicados, sin "no leídos" por orden) en la carpeta de
+  notas de esa sesión; pendientes de decidir con el usuario.
+  **Mismo día, notas automáticas del chat** (**subido a `main`** ese día, trae **migración**
+  `2026_11_26_000002_mensajes_del_sistema_en_chat_de_orden`, solo agrega `orden_mensajes.es_sistema`):
+  cancelaciones, garantías, devoluciones, firma, etc. se escriben con `OrdenMensaje::delSistema`
+  (única puerta; nunca `OrdenMensaje::create` para una nota automática): van marcadas, salen en vivo
+  (al terminar la transacción) y no cuentan como "ya escribió" para los avisos. La pantalla las pinta
+  al centro, en gris, "Aviso del sistema · quién". Las viejas quedan como mensajes normales.
+  **Mismo día, tercera vuelta** (**subido a `main`** ese día, trae **migración**
+  `2026_11_26_000003_editar_y_no_repetir_mensajes_del_chat`, solo agrega columnas). Decisiones del
+  usuario: el chat **ya no se cierra al entregar** (solo al cancelar); el autor **edita y elimina**
+  su mensaje y queda marcado "Editado / Mensaje eliminado" con fecha y hora (lo de antes queda en
+  `orden_mensajes.ediciones`; eliminar no lo quita del hilo); en el celular Enter baja de línea;
+  clave por envío (`clave_envio`) para no repetir mensajes al reintentar; marca de mensajes sin leer
+  por orden en la lista de Órdenes (`GET /mensajes-de-ordenes/sin-leer`, sale de los avisos sin leer
+  de la persona). Por defecto mío (**falta confirmar**): editar/eliminar sin límite de tiempo
+  mientras el chat esté abierto; solo el texto se edita (las fotos no); los avisos que ya salieron
+  no cambian al editar ni borrar; nadie ve lo que decía antes en pantalla (solo queda en la base).
 - **Análisis de Nómina + 2 arreglos** (2026-11-18, **subido a `main`** ese día, sin migración, rama
   `claude/dazzling-shaw-39a885`). Informe en `docs/analisis-nomina.md` (problemas A1–E, preguntas
   para el dueño/contador). Arreglados A1 y A2 (pedido del usuario): (1) **cambiar la frecuencia de

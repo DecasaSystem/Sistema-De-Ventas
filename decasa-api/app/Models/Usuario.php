@@ -91,6 +91,9 @@ class Usuario extends Authenticatable
         'cedula',
         'no_usa_programa',
         'apto_comisiones',
+        // Se puede compartir una venta con él aunque no sea vendedor (un
+        // conductor que ayudó a cerrarla). Ver puedeCompartirVentas().
+        'apto_compartir_ventas',
         'apto_produccion',
         'nomina_sueldo_id',
         'nomina_desde',
@@ -167,6 +170,7 @@ class Usuario extends Authenticatable
             'puede_fv2_sin_iva'   => 'boolean',
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
+            'apto_compartir_ventas' => 'boolean',
             'apto_produccion'     => 'boolean',
             'nomina_auxilio'      => 'boolean',
             'nomina_seguridad_social' => 'boolean',
@@ -425,6 +429,41 @@ class Usuario extends Authenticatable
     public static function puedeSerIndependiente(?string $arquetipo): bool
     {
         return in_array($arquetipo, ['vendedor', 'supervisor'], true);
+    }
+
+    /** Los roles que venden por oficio: con ellos siempre se puede vender y compartir. */
+    public const ROLES_DE_VENTA = ['vendedor', 'supervisor'];
+
+    /**
+     * ¿Puede quedar como el vendedor de una orden?
+     *
+     * Vendedores y supervisores siempre; cualquier otro (un conductor, alguien
+     * del taller) solo si en su ficha está "Apto para ventas"
+     * (`apto_comisiones`, usuario 2026-11-25: "los mismos trabajadores que no
+     * son vendedores ayudan a cerrar ventas o incluso las hacen"). Los
+     * independientes también, sean del rol que sean (Henry es ebanista).
+     */
+    public function puedeVender(): bool
+    {
+        return in_array($this->rol, self::ROLES_DE_VENTA, true)
+            || (bool) $this->independiente
+            || (bool) $this->apto_comisiones;
+    }
+
+    /** ¿Se puede compartir una venta con él? Quien puede vender, y quien tiene "Apto para compartir ventas". */
+    public function puedeCompartirVentas(): bool
+    {
+        return $this->puedeVender() || (bool) ($this->apto_compartir_ventas ?? false);
+    }
+
+    /**
+     * ¿Ayuda a vender sin ser de ventas? (no es vendedor, ni supervisor, ni
+     * independiente). Para bonificaciones no tiene tienda: cobra su 5 % directo
+     * y lo suyo no suma a la meta de nadie (ComisionController::esAyudanteDeVentas).
+     */
+    public function ayudaEnVentas(): bool
+    {
+        return ! in_array($this->rol, self::ROLES_DE_VENTA, true) && ! $this->independiente;
     }
 
     /**

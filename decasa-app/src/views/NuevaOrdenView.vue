@@ -1961,6 +1961,10 @@ watch(tiendasAbonables, (lista) => {
 })
 const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
+// El co-vendedor escogido no es de ventas (conductor, taller): no tiene tienda
+// y su mitad no suma a ninguna meta (cobra su 5 % aparte).
+const covendedorAyuda      = computed(() =>
+  vendedoresLista.value.find(v => v.id === covendedorId.value && v.ayuda_en_ventas) ?? null)
 const submitting           = ref(false)
 
 // Una clave por formulario, la misma en cada reintento. Si el internet se
@@ -2768,8 +2772,10 @@ watch(esCompartida, async (val) => {
   if (val && !vendedoresLista.value.length) {
     cargandoVendedores.value = true
     try {
-      const { data } = await api.get('/asesores')
-      vendedoresLista.value = data
+      // También los que no son de ventas pero ayudan a cerrarlas (un
+      // conductor con "Apto para compartir ventas" en su ficha).
+      const { data } = await api.get('/asesores', { params: { con_ayudantes: 1 } })
+      vendedoresLista.value = data.filter(v => v.puede_compartir !== false)
     } catch { vendedoresLista.value = [] }
     finally { cargandoVendedores.value = false }
   }
@@ -6442,7 +6448,11 @@ onBeforeUnmount(() => {
         </p>
 
         <template v-if="esCompartida">
-          <p class="text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+          <p v-if="covendedorAyuda" class="text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+            Tu mitad, <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong>, suma a tu meta.
+            {{ covendedorAyuda.nombre }} no es de una tienda: cobra su bonificación sobre su mitad y esa mitad no suma a ninguna meta.
+          </p>
+          <p v-else class="text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
             Cada vendedor suma <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> a su meta mensual.
           </p>
 
@@ -6462,7 +6472,7 @@ onBeforeUnmount(() => {
                     : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300']"
               >
                 <span>{{ v.nombre }}</span>
-                <span class="text-xs text-gray-400">{{ v.tienda }}</span>
+                <span class="text-xs text-gray-400">{{ v.ayuda_en_ventas ? 'Ayuda en ventas' : v.tienda }}</span>
               </button>
               <p v-if="!vendedoresLista.length" class="text-xs text-gray-400 text-center py-2">No hay otros asesores activos.</p>
             </div>

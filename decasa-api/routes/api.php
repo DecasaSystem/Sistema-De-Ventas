@@ -541,6 +541,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/mensajes', [OrdenMensajeController::class, 'store'])->whereNumber('id');
     // Tiene el chat a la vista: sus avisos de este chat quedan leídos.
     Route::post('/ordenes/{id}/mensajes/visto', [OrdenMensajeController::class, 'visto'])->whereNumber('id');
+    // El autor corrige o borra su mensaje (queda marcado con fecha y hora).
+    Route::patch('/ordenes/{id}/mensajes/{mensajeId}',  [OrdenMensajeController::class, 'update'])->whereNumber(['id', 'mensajeId']);
+    Route::delete('/ordenes/{id}/mensajes/{mensajeId}', [OrdenMensajeController::class, 'destroy'])->whereNumber(['id', 'mensajeId']);
+    // Cuántos mensajes sin leer tiene cada orden (lista de Órdenes).
+    Route::get('/mensajes-de-ordenes/sin-leer', [OrdenMensajeController::class, 'sinLeer']);
 
     // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión
     // Módulo Cotizaciones (ModulosDeVenta).

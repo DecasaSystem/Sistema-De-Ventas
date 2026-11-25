@@ -52,13 +52,24 @@ const editForm = ref({
   asigna_fechas: false, edita_catalogo: false,
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, puede_fv2_sin_iva: false, tienda_default_id: '',
-  apto_comisiones: false, apto_produccion: false,
+  apto_comisiones: false, apto_compartir_ventas: false, apto_produccion: false,
   no_usa_programa: false, password: '', password_confirmation: '',
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 
 // Arquetipo del rol elegido en el formulario de edición.
 const editArquetipo = computed(() => roles.value.find(r => r.id === editForm.value.rol_id)?.arquetipo ?? '')
+// Vendedores y supervisores ya venden y comparten: las dos marcas de "apto"
+// son para los demás (conductor, taller…).
+const esDeVentas = computed(() => ['vendedor', 'supervisor'].includes(editArquetipo.value))
+// Al volverlo apto para ventas se le abren Nueva orden y Órdenes (usuario,
+// 2026-11-25); se pueden quitar a mano. Va en el clic, no en un watch: al
+// abrir la ficha no debe tocar los módulos de nadie.
+function alPrenderAptoVentas() {
+  if (!editForm.value.apto_comisiones || editForm.value.no_usa_programa) return
+  editForm.value.acceso_nueva_orden = true
+  editForm.value.acceso_ordenes = true
+}
 
 // Módulos de venta: lo que trae el rol escogido y si a esta persona se le
 // agregó o quitó algo encima (el servidor guarda solo la diferencia).
@@ -185,6 +196,7 @@ function openEditModal() {
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     puede_fv2_sin_iva: usuario.value.puede_fv2_sin_iva ?? false,
     apto_comisiones: usuario.value.apto_comisiones ?? false,
+    apto_compartir_ventas: usuario.value.apto_compartir_ventas ?? false,
     apto_produccion: usuario.value.apto_produccion ?? false,
     no_usa_programa: usuario.value.no_usa_programa ?? false,
     es_super_admin: usuario.value.es_super_admin ?? false,
@@ -216,6 +228,7 @@ async function submitEdit() {
       acceso_redes: !editForm.value.no_usa_programa && editForm.value.acceso_redes,
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
       apto_comisiones: editForm.value.apto_comisiones,
+      apto_compartir_ventas: !esDeVentas.value && editForm.value.apto_compartir_ventas,
       apto_produccion: editForm.value.apto_produccion,
       no_usa_programa: editForm.value.no_usa_programa,
       // Solo viaja si se escribió: en blanco significa "déjala como está".
@@ -797,11 +810,34 @@ onMounted(async () => {
                 id="edit-apto-comisiones"
                 type="checkbox"
                 v-model="editForm.apto_comisiones"
+                @change="alPrenderAptoVentas"
                 class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
               <div>
-                <label for="edit-apto-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para bonificaciones</label>
-                <p class="text-xs text-gray-500 mt-0.5">Hace ventas, así que le corresponde bonificación.</p>
+                <label for="edit-apto-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para ventas</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Hace ventas, así que le corresponde bonificación.
+                  <template v-if="!esDeVentas">
+                    Puede quedar como el vendedor de una orden. Al prenderlo se le abren Nueva orden y Órdenes.
+                  </template>
+                </p>
+              </div>
+            </div>
+            <!-- Quien no es de ventas pero ayuda a cerrar alguna (un conductor):
+                 sale en la lista de co-vendedor. Vendedores y supervisores ya salen. -->
+            <div v-if="!esDeVentas" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-apto-compartir"
+                type="checkbox"
+                v-model="editForm.apto_compartir_ventas"
+                class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <label for="edit-apto-compartir" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para compartir ventas</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Sale de co-vendedor en Nueva orden y Editar orden. No es de una tienda: cobra su bonificación
+                  sobre su mitad y esa mitad no suma a ninguna meta.
+                </p>
               </div>
             </div>
             <div class="flex items-start gap-3 py-1">

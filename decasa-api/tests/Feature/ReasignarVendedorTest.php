@@ -405,4 +405,87 @@ class ReasignarVendedorTest extends TestCase
         // Tienda sin meta (Norte aquí): la mitad aparte.
         $this->assertEquals(0.5, $cc::fraccionAparteDelAlmacen(self::NORTE, '2026-11-12', false, false));
     }
+
+    // ─────────── Quien ayuda en ventas sin ser de ventas (2026-11-25) ───────────
+
+    private const CARLOS = 60;   // conductor, apto para compartir
+    private const PEDRO = 61;    // tapicero, apto para ventas
+    private const JORGE = 62;    // conductor sin marcas
+
+    private function conAyudantes(): void
+    {
+        Schema::table('usuarios', function (Blueprint $t) {
+            $t->boolean('apto_comisiones')->default(false);
+            $t->boolean('apto_compartir_ventas')->default(false);
+        });
+        Esquema::olvidar();
+        foreach ([[self::CARLOS, 'Carlos', 'conductor', ['apto_compartir_ventas' => true]],
+                  [self::PEDRO, 'Pedro', 'tapicero', ['apto_comisiones' => true]],
+                  [self::JORGE, 'Jorge', 'conductor', []]] as [$id, $nombre, $rol, $extra]) {
+            DB::table('usuarios')->insert(['id' => $id, 'nombre' => $nombre, 'email' => "u{$id}@d.com", 'password' => 'x',
+                'rol' => $rol, 'created_at' => now()] + $extra);
+        }
+        ComisionController::olvidarAyudantes();
+    }
+
+    /** La venta de siempre, pero de diciembre (después del corte de los ayudantes). */
+    private function ordenDeDiciembre(int $vendedor, array $extra = []): Orden
+    {
+        $orden = $this->orden($vendedor, $extra);
+        DB::table('ordenes')->where('id', $orden->id)->update(['created_at' => '2026-12-10 15:00:00']);
+        Comision::where('orden_id', $orden->id)->delete();
+        ComisionController::crearParaOrden($orden->fresh());
+
+        return $orden->fresh();
+    }
+
+    public function test_compartir_con_un_conductor_apto_le_abre_su_renglon(): void
+    {
+        $this->conAyudantes();
+        $orden = $this->ordenDeDiciembre(self::PAOLA);
+
+        $this->reasignar($orden, ['es_compartida' => true, 'covendedor_id' => self::CARLOS])->assertOk();
+
+        // Carlos no tiene tienda: su renglón va con la tienda de la venta (Norte).
+        $this->assertSame([self::PAOLA => [self::NORTE, 'venta'], self::CARLOS => [self::NORTE, 'venta']],
+            $this->comisiones($orden));
+        $this->assertEquals(670000, (float) Comision::where('orden_id', $orden->id)->where('vendedor_id', self::CARLOS)->value('valor_orden'));
+    }
+
+    public function test_no_se_comparte_con_quien_no_esta_marcado(): void
+    {
+        $this->conAyudantes();
+        $orden = $this->ordenDeDiciembre(self::PAOLA);
+
+        $this->reasignar($orden, ['es_compartida' => true, 'covendedor_id' => self::JORGE])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Con Jorge no se pueden compartir ventas: en Trabajadores → su ficha, prende "Apto para compartir ventas".']);
+
+        $this->assertNull($orden->fresh()->covendedor_id);
+    }
+
+    public function test_de_vendedor_solo_a_quien_es_apto_para_ventas(): void
+    {
+        $this->conAyudantes();
+        $orden = $this->ordenDeDiciembre(self::PAOLA);
+
+        // Carlos solo puede compartir: no queda de vendedor.
+        $this->reasignar($orden, ['vendedor_id' => self::CARLOS])->assertStatus(422);
+        $this->assertSame(self::PAOLA, (int) $orden->fresh()->vendedor_id);
+
+        // Pedro sí: la orden se queda en Norte (él no tiene tienda) y su renglón también.
+        $this->reasignar($orden, ['vendedor_id' => self::PEDRO])->assertOk();
+        $this->assertSame([self::PEDRO => [self::NORTE, 'venta']], $this->comisiones($orden));
+    }
+
+    public function test_una_orden_que_ya_tenia_a_alguien_no_marcado_se_puede_seguir_editando(): void
+    {
+        // De antes de la regla: compartida con Jorge, que nunca fue marcado.
+        $this->conAyudantes();
+        $orden = $this->ordenDeDiciembre(self::PAOLA, ['es_compartida' => true, 'covendedor_id' => self::JORGE]);
+
+        // Cambiar otra cosa (el vendedor) no se frena por el co-vendedor que ya estaba.
+        $this->reasignar($orden, ['vendedor_id' => self::MARTHA, 'covendedor_id' => self::JORGE])->assertOk();
+        $this->assertSame(self::MARTHA, (int) $orden->fresh()->vendedor_id);
+    }
 }

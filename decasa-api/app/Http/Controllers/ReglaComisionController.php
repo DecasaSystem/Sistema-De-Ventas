@@ -70,7 +70,16 @@ class ReglaComisionController extends Controller
             'se_ven_al_recalcular' => ReglasComision::SE_VEN_AL_RECALCULAR,
             // Para escoger a quién va una excepción.
             'tiendas'  => Tienda::where('activa', true)->orderBy('nombre')->get(['id', 'nombre']),
-            'personas' => Usuario::where('activo', true)->whereIn('rol', ['vendedor', 'supervisor'])
+            // También quien ayuda en ventas sin ser de ventas (conductor, taller
+            // con "Apto para ventas" o "Apto para compartir ventas"): cobra su
+            // 5 % directo y se le puede poner otro porcentaje.
+            'personas' => Usuario::where('activo', true)
+                ->where(function ($q) {
+                    $q->whereIn('rol', Usuario::ROLES_DE_VENTA)->orWhere('apto_comisiones', true);
+                    if (\App\Support\Esquema::columna('usuarios', 'apto_compartir_ventas')) {
+                        $q->orWhere('apto_compartir_ventas', true);
+                    }
+                })
                 ->orderBy('nombre')->get(['id', 'nombre', 'tienda_default_id'])
                 ->map(fn ($u) => ['id' => $u->id, 'nombre' => $u->nombre, 'tienda' => $tiendas[$u->tienda_default_id] ?? null]),
             'catalogo'     => collect(ReglasComision::CATALOGO)->map(fn ($r, $clave) => [

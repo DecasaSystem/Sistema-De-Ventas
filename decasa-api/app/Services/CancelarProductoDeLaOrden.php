@@ -237,7 +237,7 @@ class CancelarProductoDeLaOrden
     /** Queda en el chat de la orden, como las decisiones de devolución. */
     private static function anotar(Orden $orden, Usuario $usuario, string $texto): void
     {
-        OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+        OrdenMensaje::delSistema(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
     }
 
     /** Al vendedor de la orden (si no la tiene nadie, no se reparte a todos). */

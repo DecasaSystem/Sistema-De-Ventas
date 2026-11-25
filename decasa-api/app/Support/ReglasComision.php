@@ -75,7 +75,7 @@ class ReglasComision
         // Una FV2 es venta sin IVA: no hay IVA que quitarle (usuario,
         // 2026-11-25: "a ningún FV2, ni de vendedores ni de nadie"). El
         // defecto es lo de antes (se le quitaba, salvo la marcada a mano); la
-        // migración 2026_11_26_000001 lo apaga desde el primer mes sin pagar.
+        // migración 2026_11_26_000002 lo apaga desde el primer mes sin pagar.
         'iva_en_fv2' => [
             'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Quitar el IVA a las FV2',

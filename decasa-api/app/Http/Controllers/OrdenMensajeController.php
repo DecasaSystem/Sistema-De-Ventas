@@ -17,11 +17,14 @@ use Illuminate\Http\Request;
 class OrdenMensajeController extends Controller
 {
     /**
-     * El chat se cierra cuando la orden ya no tiene nada que resolver: cuando
-     * el mueble está listo para entregar, ya se entregó, o se canceló. Después
-     * de eso la conversación queda de consulta, pero no se escribe más.
+     * El chat solo se cierra cuando la orden se cancela; ahí queda de consulta.
+     *
+     * Antes también se cerraba al quedar lista para entregar y al entregarse,
+     * pero después de entregar sigue habiendo qué hablar: una garantía, un
+     * cambio de producto, un saldo a favor, coordinar la entrega (usuario,
+     * 2026-11-25: "no cerrarlo después de entregar").
      */
-    private const ESTADOS_CERRADOS = ['listo_entrega', 'entregado', 'cancelado'];
+    private const ESTADOS_CERRADOS = ['cancelado'];
 
     /**
      * Quién puede leer y escribir: quien puede editar la orden (el vendedor, su
@@ -57,22 +60,58 @@ class OrdenMensajeController extends Controller
      */
     private function destinatarios(Usuario $usuario, Orden $orden)
     {
-        $idsOrden = array_filter([$orden->vendedor_id, $orden->covendedor_id]);
+        $idsOrden = array_map('intval', array_filter([$orden->vendedor_id, $orden->covendedor_id]));
+
+        // La venta no es solo de quien la subió: también de la tienda con la
+        // que se compartió (pedido del usuario, 2026-11-25). Un independiente
+        // la comparte con El Edén: el supervisor arroba al independiente y a
+        // los de El Edén; los de la tienda de la orden también salen.
+        $tiendaOrden    = (int) $orden->tienda_id;
+        $tiendaAbonada  = (int) $orden->tienda_abonada_id;
+        $tiendas        = array_values(array_filter(array_unique([$tiendaOrden, $tiendaAbonada])));
+
+        $nombresTienda = $tiendas
+            ? \App\Models\Tienda::whereIn('id', $tiendas)->pluck('nombre', 'id')->all()
+            : [];
 
         return Usuario::where('activo', true)
             ->where('id', '!=', $usuario->id)
             // Y quien gestiona Producción: es a quien se le pregunta por el taller.
-            ->where(fn ($q) => $q->where('rol', 'supervisor')->orWhere('gestiona_produccion', true)
-                ->orWhereIn('id', $idsOrden ?: [0]))
+            ->where(function ($q) use ($idsOrden, $tiendas) {
+                $q->where('rol', 'supervisor')->orWhere('gestiona_produccion', true)
+                    ->orWhereIn('id', $idsOrden ?: [0]);
+                if ($tiendas) {
+                    $q->orWhere(fn ($v) => $v->where('rol', 'vendedor')->whereIn('tienda_default_id', $tiendas));
+                }
+            })
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'rol'])
-            ->map(fn ($u) => [
-                'id'     => $u->id,
-                'nombre' => $u->nombre,
-                // Para que el supervisor distinga de un vistazo a quién le
-                // está preguntando entre siete nombres iguales
-                'es_de_la_orden' => in_array((int) $u->id, array_map('intval', $idsOrden), true),
-            ]);
+            ->get()
+            // Solo a quien de verdad puede abrir el chat hoy: si no, le llega
+            // el aviso con el texto y al tocarlo no puede entrar.
+            ->filter(fn ($u) => self::puedeParticipar($u, $orden))
+            ->map(function ($u) use ($orden, $idsOrden, $tiendaOrden, $tiendaAbonada, $nombresTienda) {
+                $esDeLaOrden = in_array((int) $u->id, $idsOrden, true);
+                $tienda = (int) $u->tienda_default_id;
+                // De qué tienda sale en la lista (los de la orden y los
+                // supervisores, de ninguna: van aparte).
+                $grupo = null;
+                if (! $esDeLaOrden && $u->rol === 'vendedor') {
+                    if ($tiendaAbonada && $tienda === $tiendaAbonada && $tiendaAbonada !== $tiendaOrden) $grupo = 'compartida';
+                    elseif ($tiendaOrden && $tienda === $tiendaOrden) $grupo = 'tienda';
+                }
+
+                return [
+                    'id'     => $u->id,
+                    'nombre' => $u->nombre,
+                    // Para que el supervisor distinga de un vistazo a quién le
+                    // está preguntando entre siete nombres iguales
+                    'es_de_la_orden' => $esDeLaOrden,
+                    'es_covendedor'  => (int) $u->id === (int) $orden->covendedor_id,
+                    'grupo'          => $grupo,
+                    'tienda'         => $grupo ? ($nombresTienda[$tienda] ?? null) : null,
+                ];
+            })
+            ->values();
     }
 
     /** GET /api/ordenes/{id}/mensajes */
@@ -103,7 +142,7 @@ class OrdenMensajeController extends Controller
     public function store(Request $request, int $id)
     {
         $usuario = $request->user();
-        $orden   = Orden::with('cliente:id,nombre')->findOrFail($id);
+        $orden   = Orden::findOrFail($id);
 
         if (! $this->puedeParticipar($usuario, $orden)) {
             return response()->json(['message' => 'No autorizado.'], 403);
@@ -123,17 +162,36 @@ class OrdenMensajeController extends Controller
             'imagen_url'      => ['nullable', 'string', 'max:500', 'regex:#^https://#'],
             'imagenes'        => 'nullable|array|max:6',
             'imagenes.*'      => ['string', 'max:500', 'regex:#^https://#'],
-            'mencionados'     => 'nullable|array|max:5',
-            'mencionados.*'   => 'integer|exists:usuarios,id',
+            // Hasta 15: con "toda la tienda" + el independiente + un supervisor
+            // se pasaba de los 5 de antes.
+            'mencionados'     => 'nullable|array|max:15',
+            'mencionados.*'   => 'integer',
+            'clave'           => 'nullable|string|max:64',
         ]);
+
+        // El mismo envío otra vez (la señal se cortó después de guardarlo y la
+        // pantalla reintentó): se devuelve el que ya está, sin avisar de nuevo.
+        $clave = $data['clave'] ?? null;
+        if ($clave && OrdenMensaje::hayColumnasEdicion()) {
+            $ya = OrdenMensaje::with('usuario:id,nombre,rol')
+                ->where('orden_id', $id)->where('usuario_id', $usuario->id)
+                ->where('clave_envio', $clave)->first();
+            if ($ya) return response()->json($this->formato($ya), 200);
+        }
 
         // Uno mismo no cuenta como mencionado aunque venga en la lista
         // En enteros: si llegan como texto ("5"), el aviso decía "Mensaje nuevo"
         // en vez de "Te preguntaron" (la comparación de abajo es estricta).
+        // Y solo los de la lista de la pantalla: antes la API dejaba arrobar a
+        // cualquier usuario del sistema y le llegaba el texto del mensaje.
         $mencionados = collect($data['mencionados'] ?? [])
             ->map(fn ($uid) => (int) $uid)
             ->unique()->reject(fn ($uid) => $uid === (int) $usuario->id)
             ->values()->all();
+        if ($mencionados) {
+            $permitidos  = $this->destinatarios($usuario, $orden)->pluck('id')->map(fn ($x) => (int) $x)->all();
+            $mencionados = array_values(array_intersect($mencionados, $permitidos));
+        }
 
         // La lista completa; la primera también en `imagen_url` (lo de antes).
         $imagenes = array_values(array_unique(array_filter($data['imagenes'] ?? [])));
@@ -145,7 +203,8 @@ class OrdenMensajeController extends Controller
             'mensaje'     => trim($data['mensaje'] ?? ''),
             'imagen_url'  => $imagenes[0] ?? null,
             'mencionados' => $mencionados ?: null,
-        ] + (count($imagenes) > 1 && self::hayColumnaImagenes() ? ['imagenes' => $imagenes] : []));
+        ] + (count($imagenes) > 1 && self::hayColumnaImagenes() ? ['imagenes' => $imagenes] : [])
+          + ($clave && OrdenMensaje::hayColumnasEdicion() ? ['clave_envio' => $clave] : []));
 
         $msg->load('usuario:id,nombre,rol');
         $payload = $this->formato($msg);
@@ -158,6 +217,129 @@ class OrdenMensajeController extends Controller
         $this->notificar($orden, $usuario, $msg, $mencionados);
 
         return response()->json($payload, 201);
+    }
+
+    /**
+     * PATCH /api/ordenes/{id}/mensajes/{mensajeId}
+     *
+     * El autor corrige el texto de su mensaje (usuario, 2026-11-25). Queda
+     * marcado "editado" con la fecha y la hora para que se sepa, y lo que decía
+     * antes se guarda en `ediciones` (el rastro no se pierde). No se vuelve a
+     * avisar a nadie: el aviso que ya salió se queda como estaba.
+     */
+    public function update(Request $request, int $id, int $mensajeId)
+    {
+        [$orden, $msg, $error] = $this->suyoParaCambiar($request, $id, $mensajeId);
+        if ($error) return $error;
+
+        $data  = $request->validate(['mensaje' => 'nullable|string|max:2000']);
+        $nuevo = trim($data['mensaje'] ?? '');
+
+        // Sin texto solo vale si tiene fotos; si no, es borrarlo (otro botón).
+        $tieneFotos = (bool) ($msg->imagenes ?: $msg->imagen_url);
+        if ($nuevo === '' && ! $tieneFotos) {
+            return response()->json(['message' => 'El mensaje no puede quedar vacío. Si quieres quitarlo, elimínalo.'], 422);
+        }
+        if ($nuevo === $msg->mensaje) return response()->json($this->formato($msg));
+
+        $msg->update([
+            'ediciones'  => [...($msg->ediciones ?? []), ['mensaje' => $msg->mensaje, 'hasta' => now()->toIso8601String()]],
+            'mensaje'    => $nuevo,
+            'editado_at' => now(),
+        ]);
+
+        return $this->avisarCambio($msg, $id);
+    }
+
+    /**
+     * DELETE /api/ordenes/{id}/mensajes/{mensajeId}
+     *
+     * El autor borra su mensaje. No desaparece: queda "Mensaje eliminado" con
+     * la fecha y la hora, y lo que decía (texto y fotos) se guarda en
+     * `ediciones`. Los avisos que ya salieron no se borran (los avisos solo
+     * los borra la persona que los recibió).
+     */
+    public function destroy(Request $request, int $id, int $mensajeId)
+    {
+        [$orden, $msg, $error] = $this->suyoParaCambiar($request, $id, $mensajeId);
+        if ($error) return $error;
+
+        $msg->update([
+            'ediciones'    => [...($msg->ediciones ?? []), [
+                'mensaje'  => $msg->mensaje,
+                'imagenes' => $msg->imagenes ?: ($msg->imagen_url ? [$msg->imagen_url] : []),
+                'hasta'    => now()->toIso8601String(),
+                'eliminado' => true,
+            ]],
+            'mensaje'      => '',
+            'imagen_url'   => null,
+            'eliminado_at' => now(),
+        ] + (self::hayColumnaImagenes() ? ['imagenes' => null] : []));
+
+        return $this->avisarCambio($msg, $id);
+    }
+
+    /**
+     * Las reglas para corregir o borrar: solo el autor, solo lo que escribió
+     * una persona (las notas del sistema no), con el chat abierto y si todavía
+     * puede participar. Lo ya borrado no se vuelve a tocar.
+     *
+     * @return array{0: ?Orden, 1: ?OrdenMensaje, 2: ?\Illuminate\Http\JsonResponse}
+     */
+    private function suyoParaCambiar(Request $request, int $id, int $mensajeId): array
+    {
+        $usuario = $request->user();
+        $orden   = Orden::findOrFail($id);
+        $msg     = OrdenMensaje::where('orden_id', $id)->findOrFail($mensajeId);
+        $no      = fn (string $m, int $s = 422) => [null, null, response()->json(['message' => $m], $s)];
+
+        if (! OrdenMensaje::hayColumnasEdicion())            return $no('Todavía no se pueden editar mensajes.');
+        if (! $this->puedeParticipar($usuario, $orden))     return $no('No autorizado.', 403);
+        if ((int) $msg->usuario_id !== (int) $usuario->id)  return $no('Solo quien lo escribió puede cambiarlo.', 403);
+        if ($msg->es_sistema)                                return $no('Los avisos del sistema no se cambian.', 403);
+        if ($msg->eliminado_at)                              return $no('Este mensaje ya se eliminó.');
+        if (in_array($orden->estado, self::ESTADOS_CERRADOS, true)) return $no('El chat de esta orden ya se cerró.');
+
+        return [$orden, $msg, null];
+    }
+
+    private function avisarCambio(OrdenMensaje $msg, int $ordenId)
+    {
+        $msg->load('usuario:id,nombre,rol');
+        $payload = $this->formato($msg);
+        try {
+            event(new OrdenMensajeEnviado($payload, $ordenId, editado: true));
+        } catch (\Throwable) {}
+
+        return response()->json($payload);
+    }
+
+    /**
+     * GET /api/mensajes-de-ordenes/sin-leer
+     *
+     * Cuántos mensajes del chat tiene sin leer cada orden, para marcarlas en la
+     * lista de Órdenes: { "123": { "total": 2, "mencion": true } }. Sale de sus
+     * propios avisos sin leer (los mismos que la campana y que "visto" marca),
+     * así las dos cosas siempre dicen lo mismo. Solo lee.
+     */
+    public function sinLeer(Request $request)
+    {
+        $porOrden = [];
+        Notificacion::where('usuario_id', $request->user()->id)
+            ->where('tipo', 'orden_mensaje')
+            ->where('leida', false)
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get(['datos'])
+            ->each(function ($n) use (&$porOrden) {
+                $oid = (int) ($n->datos['orden_id'] ?? 0);
+                if (! $oid) return;
+                $porOrden[$oid] ??= ['total' => 0, 'mencion' => false];
+                $porOrden[$oid]['total']++;
+                if (! empty($n->datos['mencion'])) $porOrden[$oid]['mencion'] = true;
+            });
+
+        return response()->json(['ordenes' => (object) $porOrden]);
     }
 
     /**
@@ -210,8 +392,11 @@ class OrdenMensajeController extends Controller
      */
     private function notificar(Orden $orden, Usuario $autor, OrdenMensaje $msg, array $mencionados): void
     {
+        // Las notas automáticas no cuentan: quien canceló un producto o resolvió
+        // una garantía no se metió en la conversación por eso.
         $anteriores = OrdenMensaje::where('orden_id', $orden->id)
             ->where('id', '!=', $msg->id)
+            ->when(OrdenMensaje::hayColumnaSistema(), fn ($q) => $q->where('es_sistema', false))
             ->get(['usuario_id', 'mencionados']);
 
         $yaEscribieron     = $anteriores->pluck('usuario_id')->all();
@@ -228,9 +413,13 @@ class OrdenMensajeController extends Controller
             ->reject(fn ($uid) => $uid === (int) $autor->id)
             ->values();
 
-        // Una sola consulta para saber quién sigue activo (cada una son ~200 ms).
+        // Una sola consulta para saber quién sigue activo (cada una son ~200 ms)
+        // y quién todavía puede abrir el chat: el vendedor que se cambió de
+        // tienda, o a quien le quitaron Producción, ya no recibe el texto.
         $activos = $destinos->isEmpty() ? [] : Usuario::whereIn('id', $destinos)
-            ->where('activo', true)->pluck('id')->map(fn ($x) => (int) $x)->all();
+            ->where('activo', true)->get()
+            ->filter(fn ($u) => self::puedeParticipar($u, $orden))
+            ->pluck('id')->map(fn ($x) => (int) $x)->all();
         $destinos = $destinos->filter(fn ($uid) => in_array($uid, $activos, true))->values();
 
         $ref     = $orden->referencia;
@@ -274,19 +463,6 @@ class OrdenMensajeController extends Controller
 
     private function formato(OrdenMensaje $m): array
     {
-        return [
-            'id'          => $m->id,
-            'mensaje'     => $m->mensaje,
-            'imagen_url'  => $m->imagen_url,
-            // Todas las fotos del mensaje; los viejos traen solo `imagen_url`.
-            'imagenes'    => $m->imagenes ?: ($m->imagen_url ? [$m->imagen_url] : []),
-            'mencionados' => $m->mencionados ?? [],
-            'created_at'  => $m->created_at,
-            'usuario'     => [
-                'id'     => $m->usuario?->id,
-                'nombre' => $m->usuario?->nombre,
-                'rol'    => $m->usuario?->rol,
-            ],
-        ];
+        return $m->aPantalla();
     }
 }

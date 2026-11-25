@@ -782,7 +782,7 @@ class AnexoGarantiaController extends Controller
         $cliente = Cliente::find($anexo->cliente_id)?->nombre ?? 'El cliente';
         try {
             if ($anexo->orden_id) {
-                \App\Models\OrdenMensaje::create([
+                \App\Models\OrdenMensaje::delSistema([
                     'orden_id'   => $anexo->orden_id,
                     'usuario_id' => $anexo->vendedor_id,
                     'mensaje'    => "✏️ {$cliente} revisó la orden antes de firmar y pidió un cambio: {$mensaje}",
@@ -932,7 +932,7 @@ class AnexoGarantiaController extends Controller
         if ($orden) {
             try {
                 if (! $orden->firma_url) $orden->update(['firma_url' => $url]);
-                \App\Models\OrdenMensaje::create([
+                \App\Models\OrdenMensaje::delSistema([
                     'orden_id'   => $orden->id,
                     'usuario_id' => $anexo->vendedor_id,
                     'mensaje'    => "✍️ El cliente revisó la orden y la firmó a distancia (" . trim($data['nombre']) . ", doc. " . trim($data['documento']) . ").",

@@ -197,6 +197,222 @@ class ChatOrdenNotificacionTest extends TestCase
         $this->actingAs($conductor)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertForbidden();
     }
 
+    /**
+     * Henry (independiente) vende y comparte con El Edén. La venta es de los
+     * dos: el supervisor arroba a Henry y a los de El Edén (pedido del
+     * usuario, 2026-11-25). Los de otra tienda no salen.
+     */
+    private function ventaCompartidaConElEden(): array
+    {
+        Schema::create('tiendas', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->boolean('es_independientes')->default(false); $t->timestamps();
+        });
+        Schema::table('usuarios', fn (Blueprint $t) => $t->boolean('independiente')->default(false));
+        Schema::table('ordenes', fn (Blueprint $t) => $t->unsignedBigInteger('tienda_id')->nullable());
+        \App\Support\CachesDePeticion::olvidarTodo();
+        Orden::olvidarSedes();
+
+        $sede  = \App\Models\Tienda::forceCreate(['nombre' => 'Independientes', 'es_independientes' => true]);
+        $eden  = \App\Models\Tienda::forceCreate(['nombre' => 'El Edén']);
+        $norte = \App\Models\Tienda::forceCreate(['nombre' => 'Norte']);
+
+        $henry   = Usuario::forceCreate(['nombre' => 'Henry', 'rol' => 'vendedor', 'independiente' => true, 'tienda_default_id' => $sede->id]);
+        $gladys  = Usuario::forceCreate(['nombre' => 'Gladys', 'rol' => 'vendedor', 'tienda_default_id' => $eden->id]);
+        $sebas   = Usuario::forceCreate(['nombre' => 'Sebastián', 'rol' => 'vendedor', 'tienda_default_id' => $eden->id]);
+        $martha  = Usuario::forceCreate(['nombre' => 'Martha', 'rol' => 'vendedor', 'tienda_default_id' => $norte->id]);
+
+        $this->orden->forceFill([
+            'vendedor_id' => $henry->id, 'tienda_id' => $sede->id, 'tienda_abonada_id' => $eden->id,
+        ])->save();
+
+        return compact('henry', 'gladys', 'sebas', 'martha', 'eden');
+    }
+
+    public function test_en_una_venta_compartida_se_puede_arrobar_al_independiente_y_a_la_tienda(): void
+    {
+        ['henry' => $henry, 'gladys' => $gladys, 'sebas' => $sebas, 'martha' => $martha] = $this->ventaCompartidaConElEden();
+
+        $dest = collect($this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()->json('destinatarios'))->keyBy('id');
+
+        $this->assertTrue($dest[$henry->id]['es_de_la_orden']);
+        $this->assertSame('compartida', $dest[$gladys->id]['grupo']);
+        $this->assertSame('El Edén', $dest[$sebas->id]['tienda']);
+        $this->assertArrayNotHasKey($martha->id, $dest->all());   // otra tienda
+        $this->assertArrayHasKey($this->otroSup->id, $dest->all());
+
+        // Y Gladys, de la tienda compartida, también arroba a Henry.
+        $destGladys = collect($this->actingAs($gladys)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()->json('destinatarios'))->pluck('id');
+        $this->assertContains($henry->id, $destGladys);
+        $this->assertContains($sebas->id, $destGladys);
+
+        Queue::fake();
+        $this->escribir($this->admin, [
+            'mensaje' => '¿Quién le confirma la tela?', 'mencionados' => [$henry->id, $gladys->id, $sebas->id],
+        ])->assertCreated();
+
+        foreach ([$henry, $gladys, $sebas] as $u) {
+            $this->assertSame('Te preguntaron en la orden FV2-150',
+                Notificacion::where('usuario_id', $u->id)->sole()->titulo);
+        }
+    }
+
+    public function test_no_se_puede_arrobar_a_quien_no_puede_ver_el_chat(): void
+    {
+        ['martha' => $martha] = $this->ventaCompartidaConElEden();
+        Queue::fake();
+
+        // Por la API, Martha (de otra tienda) no recibe el texto.
+        $this->escribir($this->admin, ['mensaje' => 'Hola', 'mencionados' => [$martha->id]])->assertCreated()
+            ->assertJsonPath('mencionados', []);
+        $this->assertSame(0, Notificacion::where('usuario_id', $martha->id)->count());
+    }
+
+    public function test_quien_ya_no_puede_ver_la_orden_deja_de_recibir_los_mensajes(): void
+    {
+        ['gladys' => $gladys, 'eden' => $eden] = $this->ventaCompartidaConElEden();
+        Queue::fake();
+
+        $this->escribir($gladys, ['mensaje' => 'Yo le confirmo'])->assertCreated();
+
+        // Gladys se pasa a otra tienda: ya no es de la venta compartida.
+        $otra = \App\Models\Tienda::forceCreate(['nombre' => 'Unicentro']);
+        $gladys->forceFill(['tienda_default_id' => $otra->id])->save();
+
+        $this->escribir($this->admin, ['mensaje' => '¿Ya le confirmaron?'])->assertCreated();
+        $this->assertSame(0, Notificacion::where('usuario_id', $gladys->id)->count());
+    }
+
+    public function test_una_nota_automatica_va_marcada_y_no_mete_a_la_persona_en_la_conversacion(): void
+    {
+        Schema::table('orden_mensajes', fn (Blueprint $t) => $t->boolean('es_sistema')->default(false));
+        \App\Support\CachesDePeticion::olvidarTodo();
+        Queue::fake();
+
+        // Carlos (supervisor) cancela un producto: queda la nota a su nombre.
+        \App\Models\OrdenMensaje::delSistema([
+            'orden_id' => $this->orden->id, 'usuario_id' => $this->otroSup->id,
+            'mensaje'  => 'Se canceló la silla.',
+        ]);
+
+        $this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()
+            ->assertJsonPath('mensajes.0.es_sistema', true)
+            ->assertJsonPath('mensajes.0.usuario.nombre', 'Carlos');
+
+        // Después Paola pregunta algo: a Carlos no le llega por haber cancelado.
+        $this->escribir($this->paola, ['mensaje' => '¿Y la mesa?'])->assertCreated()
+            ->assertJsonPath('es_sistema', false);
+        $this->assertSame(0, Notificacion::where('usuario_id', $this->otroSup->id)->count());
+
+        // Lo que escribe una persona sí la mete, como siempre.
+        $this->escribir($this->otroSup, ['mensaje' => 'La mesa sigue'])->assertCreated();
+        $this->escribir($this->paola, ['mensaje' => 'Gracias'])->assertCreated();
+        $this->assertSame(1, Notificacion::where('usuario_id', $this->otroSup->id)->count());
+    }
+
+    private function conEdicion(): void
+    {
+        Schema::table('orden_mensajes', function (Blueprint $t) {
+            $t->string('clave_envio', 64)->nullable(); $t->timestamp('editado_at')->nullable();
+            $t->timestamp('eliminado_at')->nullable(); $t->json('ediciones')->nullable();
+        });
+        \App\Support\CachesDePeticion::olvidarTodo();
+    }
+
+    public function test_despues_de_entregar_el_chat_sigue_abierto_y_al_cancelar_se_cierra(): void
+    {
+        Queue::fake();
+        $this->orden->forceFill(['estado' => 'entregado'])->save();
+        $this->actingAs($this->paola)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertJsonPath('abierto', true);
+        $this->escribir($this->paola, ['mensaje' => 'El cliente dice que la pata cojea'])->assertCreated();
+
+        $this->orden->forceFill(['estado' => 'cancelado'])->save();
+        $this->escribir($this->paola, ['mensaje' => 'Hola'])->assertStatus(422);
+    }
+
+    public function test_el_mismo_envio_dos_veces_no_se_repite(): void
+    {
+        $this->conEdicion();
+        Queue::fake();
+
+        $a = $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id], 'clave' => 'abc-1'])
+            ->assertCreated()->json('id');
+        // La señal se cortó y la pantalla reintenta con la misma clave
+        $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id], 'clave' => 'abc-1'])
+            ->assertOk()->assertJsonPath('id', $a);
+
+        $this->assertSame(1, \App\Models\OrdenMensaje::count());
+        $this->assertSame(1, Notificacion::where('usuario_id', $this->admin->id)->count());
+    }
+
+    public function test_el_autor_corrige_y_borra_su_mensaje_y_queda_marcado(): void
+    {
+        $this->conEdicion();
+        Queue::fake();
+
+        $id = $this->escribir($this->paola, ['mensaje' => 'La mesa es de 1.20'])->json('id');
+
+        // Nadie más lo puede cambiar
+        $this->actingAs($this->admin)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'x'])
+            ->assertForbidden();
+
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'La mesa es de 1.40'])
+            ->assertOk()->assertJsonPath('mensaje', 'La mesa es de 1.40');
+
+        $m = \App\Models\OrdenMensaje::find($id);
+        $this->assertNotNull($m->editado_at);
+        $this->assertSame('La mesa es de 1.20', $m->ediciones[0]['mensaje']);   // el rastro
+
+        // Vacío no: para eso está eliminar
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => ''])
+            ->assertStatus(422);
+
+        $this->actingAs($this->paola)->deleteJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}")
+            ->assertOk()->assertJsonPath('mensaje', '');
+        $m->refresh();
+        $this->assertNotNull($m->eliminado_at);
+        $this->assertSame('La mesa es de 1.40', $m->ediciones[1]['mensaje']);
+        // Sigue en el hilo, como "eliminado"
+        $this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertJsonCount(1, 'mensajes')->assertJsonPath('mensajes.0.eliminado_at', fn ($v) => $v !== null);
+
+        // Ya borrado, no se vuelve a tocar
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'otra'])
+            ->assertStatus(422);
+    }
+
+    public function test_los_avisos_del_sistema_no_se_editan(): void
+    {
+        $this->conEdicion();
+        Schema::table('orden_mensajes', fn (Blueprint $t) => $t->boolean('es_sistema')->default(false));
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $m = \App\Models\OrdenMensaje::delSistema([
+            'orden_id' => $this->orden->id, 'usuario_id' => $this->paola->id, 'mensaje' => 'Se canceló la silla.',
+        ]);
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$m->id}", ['mensaje' => 'x'])
+            ->assertForbidden();
+    }
+
+    public function test_cuantos_mensajes_sin_leer_tiene_cada_orden(): void
+    {
+        Queue::fake();
+        $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id]]);
+        $this->escribir($this->paola, ['mensaje' => '¿?']);
+
+        $this->actingAs($this->admin)->getJson('/api/mensajes-de-ordenes/sin-leer')
+            ->assertOk()
+            ->assertJsonPath("ordenes.{$this->orden->id}.total", 2)
+            ->assertJsonPath("ordenes.{$this->orden->id}.mencion", true);
+
+        // Al ver el chat, se van
+        $this->actingAs($this->admin)->postJson("/api/ordenes/{$this->orden->id}/mensajes/visto")->assertOk();
+        $this->actingAs($this->admin)->getJson('/api/mensajes-de-ordenes/sin-leer')
+            ->assertOk()->assertJsonMissingPath("ordenes.{$this->orden->id}");
+    }
+
     public function test_leer_la_notificacion_no_la_borra(): void
     {
         Queue::fake();

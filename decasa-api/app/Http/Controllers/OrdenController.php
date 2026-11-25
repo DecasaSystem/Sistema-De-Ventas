@@ -515,6 +515,14 @@ class OrdenController extends Controller
             }
         }
 
+        // Con quién se comparte: vendedor, supervisor o alguien marcado "Apto
+        // para compartir ventas". Un borrador que ya lo traía sigue igual.
+        if (! empty($data['es_compartida']) && ! empty($data['covendedor_id'])
+            && (int) $data['covendedor_id'] !== (int) ($borradorId ? Orden::whereKey($borradorId)->value('covendedor_id') : 0)
+            && ($error = self::porQueNoSeComparteCon((int) $data['covendedor_id']))) {
+            return response()->json(['message' => $error], 422);
+        }
+
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
         $esFv2           = $request->boolean('es_fv2', false);
@@ -1660,7 +1668,7 @@ class OrdenController extends Controller
         if ($antes != $ficha) {
             try {
                 $nombre = $item->producto?->nombre ?? $item->nombre_custom ?? 'el producto';
-                \App\Models\OrdenMensaje::create([
+                \App\Models\OrdenMensaje::delSistema([
                     'orden_id'   => $orden->id,
                     'usuario_id' => $request->user()->id,
                     'mensaje'    => "📝 Se " . ($antes ? 'cambió' : 'llenó') . " la ficha de {$nombre} para la declaración de diseños especiales.",
@@ -2194,6 +2202,12 @@ class OrdenController extends Controller
             //    una tienda (supervisor o el propio vendedor) ────────────────
             if ($reasignando || $ajustandoAbono) {
                 if (array_key_exists('vendedor_id', $data) && (int) $data['vendedor_id'] !== (int) $orden->vendedor_id) {
+                    // Solo a quien puede vender (vendedor, supervisor, o "Apto
+                    // para ventas" en su ficha).
+                    $nuevo = $data['vendedor_id'] ? Usuario::find($data['vendedor_id']) : null;
+                    if ($nuevo && ! $nuevo->puedeVender()) {
+                        abort(422, "{$nuevo->nombre} no está marcado como apto para ventas: se le prende en Trabajadores → su ficha.");
+                    }
                     $nombreAntes  = Usuario::find($orden->vendedor_id)?->nombre ?? $orden->vendedor_id;
                     $nombreDespues = Usuario::find($data['vendedor_id'])?->nombre ?? $data['vendedor_id'];
                     $cambios[]    = ['campo' => 'vendedor_id', 'label' => 'Vendedor', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
@@ -2237,6 +2251,9 @@ class OrdenController extends Controller
                     $updateOrden['tienda_id'] = $data['tienda_id'];
                 }
                 if (array_key_exists('covendedor_id', $data) && (int) $data['covendedor_id'] !== (int) $orden->covendedor_id) {
+                    if ($data['covendedor_id'] && ($error = self::porQueNoSeComparteCon((int) $data['covendedor_id']))) {
+                        abort(422, $error);
+                    }
                     $nombreAntes  = $orden->covendedor_id ? (Usuario::find($orden->covendedor_id)?->nombre ?? $orden->covendedor_id) : null;
                     $nombreDespues = $data['covendedor_id'] ? (Usuario::find($data['covendedor_id'])?->nombre ?? $data['covendedor_id']) : null;
                     $cambios[]    = ['campo' => 'covendedor_id', 'label' => 'Co-vendedor', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
@@ -3162,6 +3179,10 @@ class OrdenController extends Controller
             return response()->json([
                 'message' => 'El co-vendedor no puede ser el mismo vendedor de la orden.',
             ], 422);
+        }
+        if ($request->boolean('es_compartida') && (int) $data['covendedor_id'] !== (int) $orden->covendedor_id
+            && ($error = self::porQueNoSeComparteCon((int) $data['covendedor_id']))) {
+            return response()->json(['message' => $error], 422);
         }
 
         // Guardar lo que llegue antes de validar, para que la comprobación mire
@@ -4131,7 +4152,7 @@ class OrdenController extends Controller
         $texto      = 'Se canceló lo que faltaba (' . implode(', ', $quitados) . '). La orden queda entregada con lo que el cliente ya tiene'
                     . ($saldo < -0.5 ? '. Le quedan $' . number_format(-$saldo, 0, ',', '.') . ' a favor' : '') . '.';
 
-        OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+        OrdenMensaje::delSistema(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
 
         if ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $usuario->id) {
             NotificacionService::crear('orden_editada', 'Se canceló lo que faltaba de tu orden',
@@ -4353,6 +4374,23 @@ class OrdenController extends Controller
         // rama de abajo, que reparte números sin reservarlos.
         'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual', 'Independientes'],
     ];
+
+    /**
+     * Por qué no se puede compartir una venta con esta persona (null si sí).
+     *
+     * Antes el servidor aceptaba a cualquiera y solo la pantalla filtraba. Se
+     * comparte con vendedores, supervisores, independientes y con quien tiene
+     * en su ficha "Apto para ventas" o "Apto para compartir ventas" (usuario,
+     * 2026-11-25: un conductor que ayudó a cerrar la venta).
+     */
+    private static function porQueNoSeComparteCon(int $usuarioId): ?string
+    {
+        $u = Usuario::find($usuarioId);
+        if (! $u) return 'No se encontró con quién se comparte la venta.';
+        if ($u->puedeCompartirVentas()) return null;
+
+        return "Con {$u->nombre} no se pueden compartir ventas: en Trabajadores → su ficha, prende \"Apto para compartir ventas\".";
+    }
 
     /**
      * Se lleva a la tienda nueva lo que la orden tenía apartado en la vieja.
