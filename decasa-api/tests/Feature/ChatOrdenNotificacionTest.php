@@ -312,6 +312,107 @@ class ChatOrdenNotificacionTest extends TestCase
         $this->assertSame(1, Notificacion::where('usuario_id', $this->otroSup->id)->count());
     }
 
+    private function conEdicion(): void
+    {
+        Schema::table('orden_mensajes', function (Blueprint $t) {
+            $t->string('clave_envio', 64)->nullable(); $t->timestamp('editado_at')->nullable();
+            $t->timestamp('eliminado_at')->nullable(); $t->json('ediciones')->nullable();
+        });
+        \App\Support\CachesDePeticion::olvidarTodo();
+    }
+
+    public function test_despues_de_entregar_el_chat_sigue_abierto_y_al_cancelar_se_cierra(): void
+    {
+        Queue::fake();
+        $this->orden->forceFill(['estado' => 'entregado'])->save();
+        $this->actingAs($this->paola)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertJsonPath('abierto', true);
+        $this->escribir($this->paola, ['mensaje' => 'El cliente dice que la pata cojea'])->assertCreated();
+
+        $this->orden->forceFill(['estado' => 'cancelado'])->save();
+        $this->escribir($this->paola, ['mensaje' => 'Hola'])->assertStatus(422);
+    }
+
+    public function test_el_mismo_envio_dos_veces_no_se_repite(): void
+    {
+        $this->conEdicion();
+        Queue::fake();
+
+        $a = $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id], 'clave' => 'abc-1'])
+            ->assertCreated()->json('id');
+        // La señal se cortó y la pantalla reintenta con la misma clave
+        $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id], 'clave' => 'abc-1'])
+            ->assertOk()->assertJsonPath('id', $a);
+
+        $this->assertSame(1, \App\Models\OrdenMensaje::count());
+        $this->assertSame(1, Notificacion::where('usuario_id', $this->admin->id)->count());
+    }
+
+    public function test_el_autor_corrige_y_borra_su_mensaje_y_queda_marcado(): void
+    {
+        $this->conEdicion();
+        Queue::fake();
+
+        $id = $this->escribir($this->paola, ['mensaje' => 'La mesa es de 1.20'])->json('id');
+
+        // Nadie más lo puede cambiar
+        $this->actingAs($this->admin)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'x'])
+            ->assertForbidden();
+
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'La mesa es de 1.40'])
+            ->assertOk()->assertJsonPath('mensaje', 'La mesa es de 1.40');
+
+        $m = \App\Models\OrdenMensaje::find($id);
+        $this->assertNotNull($m->editado_at);
+        $this->assertSame('La mesa es de 1.20', $m->ediciones[0]['mensaje']);   // el rastro
+
+        // Vacío no: para eso está eliminar
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => ''])
+            ->assertStatus(422);
+
+        $this->actingAs($this->paola)->deleteJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}")
+            ->assertOk()->assertJsonPath('mensaje', '');
+        $m->refresh();
+        $this->assertNotNull($m->eliminado_at);
+        $this->assertSame('La mesa es de 1.40', $m->ediciones[1]['mensaje']);
+        // Sigue en el hilo, como "eliminado"
+        $this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertJsonCount(1, 'mensajes')->assertJsonPath('mensajes.0.eliminado_at', fn ($v) => $v !== null);
+
+        // Ya borrado, no se vuelve a tocar
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$id}", ['mensaje' => 'otra'])
+            ->assertStatus(422);
+    }
+
+    public function test_los_avisos_del_sistema_no_se_editan(): void
+    {
+        $this->conEdicion();
+        Schema::table('orden_mensajes', fn (Blueprint $t) => $t->boolean('es_sistema')->default(false));
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $m = \App\Models\OrdenMensaje::delSistema([
+            'orden_id' => $this->orden->id, 'usuario_id' => $this->paola->id, 'mensaje' => 'Se canceló la silla.',
+        ]);
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$this->orden->id}/mensajes/{$m->id}", ['mensaje' => 'x'])
+            ->assertForbidden();
+    }
+
+    public function test_cuantos_mensajes_sin_leer_tiene_cada_orden(): void
+    {
+        Queue::fake();
+        $this->escribir($this->paola, ['mensaje' => '¿Hay tela?', 'mencionados' => [$this->admin->id]]);
+        $this->escribir($this->paola, ['mensaje' => '¿?']);
+
+        $this->actingAs($this->admin)->getJson('/api/mensajes-de-ordenes/sin-leer')
+            ->assertOk()
+            ->assertJsonPath("ordenes.{$this->orden->id}.total", 2)
+            ->assertJsonPath("ordenes.{$this->orden->id}.mencion", true);
+
+        // Al ver el chat, se van
+        $this->actingAs($this->admin)->postJson("/api/ordenes/{$this->orden->id}/mensajes/visto")->assertOk();
+        $this->actingAs($this->admin)->getJson('/api/mensajes-de-ordenes/sin-leer')
+            ->assertOk()->assertJsonMissingPath("ordenes.{$this->orden->id}");
+    }
+
     public function test_leer_la_notificacion_no_la_borra(): void
     {
         Queue::fake();

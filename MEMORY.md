@@ -1510,6 +1510,16 @@ Decisiones del dueño del 2026-10-08:
   (única puerta; nunca `OrdenMensaje::create` para una nota automática): van marcadas, salen en vivo
   (al terminar la transacción) y no cuentan como "ya escribió" para los avisos. La pantalla las pinta
   al centro, en gris, "Aviso del sistema · quién". Las viejas quedan como mensajes normales.
+  **Mismo día, tercera vuelta** (**subido a `main`** ese día, trae **migración**
+  `2026_11_26_000003_editar_y_no_repetir_mensajes_del_chat`, solo agrega columnas). Decisiones del
+  usuario: el chat **ya no se cierra al entregar** (solo al cancelar); el autor **edita y elimina**
+  su mensaje y queda marcado "Editado / Mensaje eliminado" con fecha y hora (lo de antes queda en
+  `orden_mensajes.ediciones`; eliminar no lo quita del hilo); en el celular Enter baja de línea;
+  clave por envío (`clave_envio`) para no repetir mensajes al reintentar; marca de mensajes sin leer
+  por orden en la lista de Órdenes (`GET /mensajes-de-ordenes/sin-leer`, sale de los avisos sin leer
+  de la persona). Por defecto mío (**falta confirmar**): editar/eliminar sin límite de tiempo
+  mientras el chat esté abierto; solo el texto se edita (las fotos no); los avisos que ya salieron
+  no cambian al editar ni borrar; nadie ve lo que decía antes en pantalla (solo queda en la base).
 - **Análisis de Nómina + 2 arreglos** (2026-11-18, **subido a `main`** ese día, sin migración, rama
   `claude/dazzling-shaw-39a885`). Informe en `docs/analisis-nomina.md` (problemas A1–E, preguntas
   para el dueño/contador). Arreglados A1 y A2 (pedido del usuario): (1) **cambiar la frecuencia de

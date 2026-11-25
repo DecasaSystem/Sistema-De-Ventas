@@ -239,7 +239,11 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   propio botón porque el navegador solo lo abre justo después de un toque. Sin backend.
 - **Chat de la orden** (`OrdenMensajeController`, `ChatOrden.vue`): dudas entre vendedores,
   supervisores y Producción; varias fotos por mensaje (`orden_mensajes.imagenes`), cada
-  una se sube al elegirla con reintento. Se cierra al quedar lista para entrega.
+  una se sube al elegirla con reintento. Solo se cierra si la orden se cancela (desde
+  2026-11-25; antes también al quedar lista para entrega y al entregarse). El autor edita o
+  elimina su mensaje (`PATCH`/`DELETE /ordenes/{id}/mensajes/{mensajeId}`): queda marcado con
+  fecha y hora y lo de antes en `ediciones`. `clave` por envío evita repetidos al reintentar.
+  La lista de Órdenes marca los mensajes sin leer (`GET /mensajes-de-ordenes/sin-leer`).
   A quién se arroba (`destinatarios`): supervisores, quien gestiona Producción, vendedor y
   covendedor, y los vendedores de la tienda de la orden y de la tienda compartida
   (`tienda_abonada_id`), en grupos con "Toda la tienda"; siempre filtrado con

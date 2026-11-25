@@ -11,14 +11,20 @@ class OrdenMensaje extends Model
 {
     protected $table = 'orden_mensajes';
 
-    protected $fillable = ['orden_id', 'usuario_id', 'mensaje', 'imagen_url', 'imagenes', 'mencionados', 'es_sistema'];
+    protected $fillable = [
+        'orden_id', 'usuario_id', 'mensaje', 'imagen_url', 'imagenes', 'mencionados', 'es_sistema',
+        'clave_envio', 'editado_at', 'eliminado_at', 'ediciones',
+    ];
 
     protected function casts(): array
     {
         return [
-            'mencionados' => 'array',
-            'imagenes'    => 'array',
-            'es_sistema'  => 'boolean',
+            'mencionados'  => 'array',
+            'imagenes'     => 'array',
+            'es_sistema'   => 'boolean',
+            'ediciones'    => 'array',
+            'editado_at'   => 'datetime',
+            'eliminado_at' => 'datetime',
         ];
     }
 
@@ -72,6 +78,9 @@ class OrdenMensaje extends Model
             'mencionados' => $this->mencionados ?? [],
             'es_sistema'  => (bool) $this->es_sistema,
             'created_at'  => $this->created_at,
+            // Se corrigió o se borró: la pantalla lo dice con la fecha y la hora.
+            'editado_at'   => $this->editado_at,
+            'eliminado_at' => $this->eliminado_at,
             'usuario'     => [
                 'id'     => $this->usuario?->id,
                 'nombre' => $this->usuario?->nombre,
@@ -81,6 +90,7 @@ class OrdenMensaje extends Model
     }
 
     private static ?bool $haySistema = null;
+    private static ?bool $hayEdicion = null;
 
     /** Las pruebas montan el esquema a mano y casi ninguna tiene la columna. */
     public static function hayColumnaSistema(): bool
@@ -88,9 +98,16 @@ class OrdenMensaje extends Model
         return self::$haySistema ??= Schema::hasColumn('orden_mensajes', 'es_sistema');
     }
 
+    /** Editar, eliminar y la clave de envío llegaron juntas (misma migración). */
+    public static function hayColumnasEdicion(): bool
+    {
+        return self::$hayEdicion ??= Schema::hasColumn('orden_mensajes', 'editado_at');
+    }
+
     /** Ver CachesDePeticion. */
     public static function olvidarCache(): void
     {
         self::$haySistema = null;
+        self::$hayEdicion = null;
     }
 }

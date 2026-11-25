@@ -1,6 +1,8 @@
 import api from './index'
 
 export const getOrdenes = (params = {}) => api.get('/ordenes', { params })
+// Cuántos mensajes del chat tiene sin leer cada orden (marca en la lista).
+export const getChatsSinLeer = () => api.get('/mensajes-de-ordenes/sin-leer', { silencioso: true })
 // "¿Quisiste decir…?" del buscador: en segundo plano, sin encender la barra.
 export const getSugerenciasOrdenes = (q) => api.get('/ordenes/sugerencias', { params: { q }, silencioso: true })
 export const getOrden = (id) => api.get(`/ordenes/${id}`)

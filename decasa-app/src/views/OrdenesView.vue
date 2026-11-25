@@ -8,7 +8,9 @@ import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter, useRoute } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
-import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes } from '@/api/ordenes'
+import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes, getChatsSinLeer } from '@/api/ordenes'
+import { useNotificacionesStore } from '@/stores/notificaciones'
+import { ChatBubbleLeftRightIcon } from '@heroicons/vue/24/solid'
 import { useRealtime } from '@/composables/useRealtime'
 import { useToast } from '@/composables/useToast'
 import { exportarExcel } from '@/utils/exportarExcel'
@@ -408,7 +410,26 @@ function pasoInfo(paso) {
 
 const { listen } = useRealtime()
 
+// ── Mensajes sin leer del chat de cada orden ────────────────────────────────
+// Sale de los avisos sin leer de la persona (los de la campana): así se ve en
+// la lista qué órdenes tienen algo por leer, sin abrir una por una. Se pone al
+// día cuando cambia la campana (llegó un aviso o se marcó como visto).
+const notif = useNotificacionesStore()
+const chatsSinLeer = ref({})
+let pidiendoChats = false
+async function cargarChatsSinLeer() {
+  if (pidiendoChats) return
+  pidiendoChats = true
+  try {
+    const { data } = await getChatsSinLeer()
+    chatsSinLeer.value = data?.ordenes ?? {}
+  } catch { /* la marca es una ayuda: si falla, la lista sigue igual */ }
+  finally { pidiendoChats = false }
+}
+watch(() => notif.noLeidas, () => cargarChatsSinLeer())
+
 onMounted(async () => {
+  cargarChatsSinLeer()
   cargarTipos()   // nombres y colores de los procesos
   await loadTiendas()
 
@@ -684,6 +705,16 @@ onUnmounted(() => {
                   class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
                 >Descuento</span>
                 <BadgeEstado :estado="o.estado" :entrega="o.entrega" />
+                <!-- Mensajes del chat sin leer: rojo si me arrobaron -->
+                <span
+                  v-if="chatsSinLeer[o.id]"
+                  :class="['text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1',
+                    chatsSinLeer[o.id].mencion ? 'bg-red-600 text-white' : 'bg-blue-600 text-white']"
+                  :title="chatsSinLeer[o.id].mencion ? 'Te preguntaron en el chat' : 'Mensajes sin leer en el chat'"
+                >
+                  <ChatBubbleLeftRightIcon class="w-3 h-3" />
+                  {{ chatsSinLeer[o.id].total }}
+                </span>
                 <span
                   v-if="o.atrasado"
                   class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"

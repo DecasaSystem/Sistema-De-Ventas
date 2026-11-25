@@ -17,11 +17,14 @@ use Illuminate\Http\Request;
 class OrdenMensajeController extends Controller
 {
     /**
-     * El chat se cierra cuando la orden ya no tiene nada que resolver: cuando
-     * el mueble está listo para entregar, ya se entregó, o se canceló. Después
-     * de eso la conversación queda de consulta, pero no se escribe más.
+     * El chat solo se cierra cuando la orden se cancela; ahí queda de consulta.
+     *
+     * Antes también se cerraba al quedar lista para entregar y al entregarse,
+     * pero después de entregar sigue habiendo qué hablar: una garantía, un
+     * cambio de producto, un saldo a favor, coordinar la entrega (usuario,
+     * 2026-11-25: "no cerrarlo después de entregar").
      */
-    private const ESTADOS_CERRADOS = ['listo_entrega', 'entregado', 'cancelado'];
+    private const ESTADOS_CERRADOS = ['cancelado'];
 
     /**
      * Quién puede leer y escribir: quien puede editar la orden (el vendedor, su
@@ -163,7 +166,18 @@ class OrdenMensajeController extends Controller
             // se pasaba de los 5 de antes.
             'mencionados'     => 'nullable|array|max:15',
             'mencionados.*'   => 'integer',
+            'clave'           => 'nullable|string|max:64',
         ]);
+
+        // El mismo envío otra vez (la señal se cortó después de guardarlo y la
+        // pantalla reintentó): se devuelve el que ya está, sin avisar de nuevo.
+        $clave = $data['clave'] ?? null;
+        if ($clave && OrdenMensaje::hayColumnasEdicion()) {
+            $ya = OrdenMensaje::with('usuario:id,nombre,rol')
+                ->where('orden_id', $id)->where('usuario_id', $usuario->id)
+                ->where('clave_envio', $clave)->first();
+            if ($ya) return response()->json($this->formato($ya), 200);
+        }
 
         // Uno mismo no cuenta como mencionado aunque venga en la lista
         // En enteros: si llegan como texto ("5"), el aviso decía "Mensaje nuevo"
@@ -189,7 +203,8 @@ class OrdenMensajeController extends Controller
             'mensaje'     => trim($data['mensaje'] ?? ''),
             'imagen_url'  => $imagenes[0] ?? null,
             'mencionados' => $mencionados ?: null,
-        ] + (count($imagenes) > 1 && self::hayColumnaImagenes() ? ['imagenes' => $imagenes] : []));
+        ] + (count($imagenes) > 1 && self::hayColumnaImagenes() ? ['imagenes' => $imagenes] : [])
+          + ($clave && OrdenMensaje::hayColumnasEdicion() ? ['clave_envio' => $clave] : []));
 
         $msg->load('usuario:id,nombre,rol');
         $payload = $this->formato($msg);
@@ -202,6 +217,129 @@ class OrdenMensajeController extends Controller
         $this->notificar($orden, $usuario, $msg, $mencionados);
 
         return response()->json($payload, 201);
+    }
+
+    /**
+     * PATCH /api/ordenes/{id}/mensajes/{mensajeId}
+     *
+     * El autor corrige el texto de su mensaje (usuario, 2026-11-25). Queda
+     * marcado "editado" con la fecha y la hora para que se sepa, y lo que decía
+     * antes se guarda en `ediciones` (el rastro no se pierde). No se vuelve a
+     * avisar a nadie: el aviso que ya salió se queda como estaba.
+     */
+    public function update(Request $request, int $id, int $mensajeId)
+    {
+        [$orden, $msg, $error] = $this->suyoParaCambiar($request, $id, $mensajeId);
+        if ($error) return $error;
+
+        $data  = $request->validate(['mensaje' => 'nullable|string|max:2000']);
+        $nuevo = trim($data['mensaje'] ?? '');
+
+        // Sin texto solo vale si tiene fotos; si no, es borrarlo (otro botón).
+        $tieneFotos = (bool) ($msg->imagenes ?: $msg->imagen_url);
+        if ($nuevo === '' && ! $tieneFotos) {
+            return response()->json(['message' => 'El mensaje no puede quedar vacío. Si quieres quitarlo, elimínalo.'], 422);
+        }
+        if ($nuevo === $msg->mensaje) return response()->json($this->formato($msg));
+
+        $msg->update([
+            'ediciones'  => [...($msg->ediciones ?? []), ['mensaje' => $msg->mensaje, 'hasta' => now()->toIso8601String()]],
+            'mensaje'    => $nuevo,
+            'editado_at' => now(),
+        ]);
+
+        return $this->avisarCambio($msg, $id);
+    }
+
+    /**
+     * DELETE /api/ordenes/{id}/mensajes/{mensajeId}
+     *
+     * El autor borra su mensaje. No desaparece: queda "Mensaje eliminado" con
+     * la fecha y la hora, y lo que decía (texto y fotos) se guarda en
+     * `ediciones`. Los avisos que ya salieron no se borran (los avisos solo
+     * los borra la persona que los recibió).
+     */
+    public function destroy(Request $request, int $id, int $mensajeId)
+    {
+        [$orden, $msg, $error] = $this->suyoParaCambiar($request, $id, $mensajeId);
+        if ($error) return $error;
+
+        $msg->update([
+            'ediciones'    => [...($msg->ediciones ?? []), [
+                'mensaje'  => $msg->mensaje,
+                'imagenes' => $msg->imagenes ?: ($msg->imagen_url ? [$msg->imagen_url] : []),
+                'hasta'    => now()->toIso8601String(),
+                'eliminado' => true,
+            ]],
+            'mensaje'      => '',
+            'imagen_url'   => null,
+            'eliminado_at' => now(),
+        ] + (self::hayColumnaImagenes() ? ['imagenes' => null] : []));
+
+        return $this->avisarCambio($msg, $id);
+    }
+
+    /**
+     * Las reglas para corregir o borrar: solo el autor, solo lo que escribió
+     * una persona (las notas del sistema no), con el chat abierto y si todavía
+     * puede participar. Lo ya borrado no se vuelve a tocar.
+     *
+     * @return array{0: ?Orden, 1: ?OrdenMensaje, 2: ?\Illuminate\Http\JsonResponse}
+     */
+    private function suyoParaCambiar(Request $request, int $id, int $mensajeId): array
+    {
+        $usuario = $request->user();
+        $orden   = Orden::findOrFail($id);
+        $msg     = OrdenMensaje::where('orden_id', $id)->findOrFail($mensajeId);
+        $no      = fn (string $m, int $s = 422) => [null, null, response()->json(['message' => $m], $s)];
+
+        if (! OrdenMensaje::hayColumnasEdicion())            return $no('Todavía no se pueden editar mensajes.');
+        if (! $this->puedeParticipar($usuario, $orden))     return $no('No autorizado.', 403);
+        if ((int) $msg->usuario_id !== (int) $usuario->id)  return $no('Solo quien lo escribió puede cambiarlo.', 403);
+        if ($msg->es_sistema)                                return $no('Los avisos del sistema no se cambian.', 403);
+        if ($msg->eliminado_at)                              return $no('Este mensaje ya se eliminó.');
+        if (in_array($orden->estado, self::ESTADOS_CERRADOS, true)) return $no('El chat de esta orden ya se cerró.');
+
+        return [$orden, $msg, null];
+    }
+
+    private function avisarCambio(OrdenMensaje $msg, int $ordenId)
+    {
+        $msg->load('usuario:id,nombre,rol');
+        $payload = $this->formato($msg);
+        try {
+            event(new OrdenMensajeEnviado($payload, $ordenId, editado: true));
+        } catch (\Throwable) {}
+
+        return response()->json($payload);
+    }
+
+    /**
+     * GET /api/mensajes-de-ordenes/sin-leer
+     *
+     * Cuántos mensajes del chat tiene sin leer cada orden, para marcarlas en la
+     * lista de Órdenes: { "123": { "total": 2, "mencion": true } }. Sale de sus
+     * propios avisos sin leer (los mismos que la campana y que "visto" marca),
+     * así las dos cosas siempre dicen lo mismo. Solo lee.
+     */
+    public function sinLeer(Request $request)
+    {
+        $porOrden = [];
+        Notificacion::where('usuario_id', $request->user()->id)
+            ->where('tipo', 'orden_mensaje')
+            ->where('leida', false)
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get(['datos'])
+            ->each(function ($n) use (&$porOrden) {
+                $oid = (int) ($n->datos['orden_id'] ?? 0);
+                if (! $oid) return;
+                $porOrden[$oid] ??= ['total' => 0, 'mencion' => false];
+                $porOrden[$oid]['total']++;
+                if (! empty($n->datos['mencion'])) $porOrden[$oid]['mencion'] = true;
+            });
+
+        return response()->json(['ordenes' => (object) $porOrden]);
     }
 
     /**

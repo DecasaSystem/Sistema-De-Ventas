@@ -18,7 +18,15 @@ class OrdenMensajeEnviado implements ShouldBroadcastNow
 {
     use Dispatchable, SerializesModels;
 
-    public function __construct(public readonly array $mensaje, public readonly int $ordenId) {}
+    /**
+     * `$editado`: el autor lo corrigió o lo borró; la pantalla reemplaza el que
+     * tiene con el mismo id en vez de agregarlo.
+     */
+    public function __construct(
+        public readonly array $mensaje,
+        public readonly int $ordenId,
+        public readonly bool $editado = false,
+    ) {}
 
     public function broadcastOn(): array
     {
@@ -27,7 +35,7 @@ class OrdenMensajeEnviado implements ShouldBroadcastNow
 
     public function broadcastAs(): string
     {
-        return 'orden.mensaje';
+        return $this->editado ? 'orden.mensaje.editado' : 'orden.mensaje';
     }
 
     public function broadcastWith(): array
