@@ -1239,6 +1239,7 @@ function abrirExcel() {
   excelMesPersona.value = mesListas.value || mesActual.value
   // Los pagos pendientes se vuelven a pedir al abrir: pudieron pagar algo.
   pendientesParaMandar.value = null
+  excelPendDe.value = ''
   if (excelQueTienda.value === 'pendientes' || excelQuePersona.value === 'pendientes') cargarPendientesParaMandar()
   hojaExcel.value = true
   cargarPersonasExcel()
@@ -1413,6 +1414,15 @@ const excelQueTienda  = ref('mes')   // mes | pendientes
 const excelQuePersona = ref('mes')
 const excelTiendaPend  = ref('')     // "t:5" una tienda, "i:24" un independiente
 const excelPersonaPend = ref('')
+// En la opción "Pagos pendientes" misma (usuario, 2026-11-25): todos, o solo
+// una tienda, un independiente o una persona, para mandárselo. '' = todos;
+// "t:5" tienda, "i:24" independiente, "p:7" persona (de todas sus tiendas).
+const excelPendDe = ref('')
+// Los independientes ya salen en su grupo: no se repiten entre las personas.
+const personasDePendientes = computed(() => {
+  const indep = new Set(opcionesPendientes.value.independientes.map(i => i.id))
+  return opcionesPendientes.value.personas.filter(p => !indep.has(p.id))
+})
 const pendientesParaMandar = ref(null)
 const cargandoPendientes   = ref(false)
 const opcionesPendientes   = ref({ tiendas: [], independientes: [], personas: [] })
@@ -1445,7 +1455,13 @@ function filtroDePendientes() {
     const id = Number(excelPersonaPend.value)
     return { vendedorId: id, para: o.personas.find(p => p.id === id)?.nombre ?? null }
   }
-  const [tipo, idTexto] = String(excelTiendaPend.value).split(':')
+  const valor = excelOpcion.value === 'pendientes' ? excelPendDe.value : excelTiendaPend.value
+  if (!valor) return null
+  if (String(valor).startsWith('p:')) {
+    const id = Number(String(valor).slice(2))
+    return { vendedorId: id, para: o.personas.find(p => p.id === id)?.nombre ?? null }
+  }
+  const [tipo, idTexto] = String(valor).split(':')
   const id = Number(idTexto)
   return tipo === 'i'
     ? { vendedorId: id, para: o.independientes.find(p => p.id === id)?.nombre ?? null }
@@ -1478,7 +1494,7 @@ async function descargarExcel() {
   exportando.value = true
   try {
     const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
-      : excelOpcion.value === 'pendientes' ? await exportarExcelPendientes()
+      : excelOpcion.value === 'pendientes' ? await exportarExcelPendientes(filtroDePendientes())
       : pendTienda || pendPersona ? await exportarExcelPendientes(filtroDePendientes())
       : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
       : excelOpcion.value === 'tienda' ? await exportarExcelTienda()
@@ -3117,10 +3133,30 @@ onMounted(() => {
         <label class="block rounded-xl border p-3 cursor-pointer"
           :class="excelOpcion === 'pendientes' ? 'border-green-500 ring-1 ring-green-500' : 'border-gray-200'">
           <div class="flex items-start gap-2">
-            <input type="radio" value="pendientes" v-model="excelOpcion" class="mt-0.5 accent-green-600" />
+            <input type="radio" value="pendientes" v-model="excelOpcion" @change="cargarPendientesParaMandar" class="mt-0.5 accent-green-600" />
             <div class="min-w-0 flex-1">
               <p class="text-sm font-semibold text-gray-800">Pagos pendientes</p>
-              <p class="text-[11px] text-gray-500 leading-snug">Por persona, mes por mes: cuánto le toca, cuánto ya se le dio en abonos y anticipos, cuánto falta y desde cuándo está atrasado. También lo que todavía no se puede pagar y por qué.</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Por persona, mes por mes: cuánto le toca, cuánto ya se le dio en abonos y anticipos, cuánto falta y desde cuándo está atrasado. También lo que todavía no se puede pagar y por qué. De todos, o solo de una tienda, un independiente o una persona para mandárselo.</p>
+              <div v-if="excelOpcion === 'pendientes'" class="mt-2 space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-[11px] text-gray-600 shrink-0">De quién</p>
+                  <p v-if="cargandoPendientes" class="text-[11px] text-gray-500">Cargando…</p>
+                  <select v-else v-model="excelPendDe" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                    <option value="">Todos</option>
+                    <optgroup v-if="opcionesPendientes.tiendas.length" label="Una tienda">
+                      <option v-for="t in opcionesPendientes.tiendas" :key="'t' + t.id" :value="'t:' + t.id">{{ t.nombre }}</option>
+                    </optgroup>
+                    <optgroup v-if="opcionesPendientes.independientes.length" label="Un independiente">
+                      <option v-for="t in opcionesPendientes.independientes" :key="'i' + t.id" :value="'i:' + t.id">{{ t.nombre }}</option>
+                    </optgroup>
+                    <optgroup v-if="personasDePendientes.length" label="Una persona (todas sus tiendas)">
+                      <option v-for="p in personasDePendientes" :key="'p' + p.id" :value="'p:' + p.id">{{ p.nombre }}</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <p v-if="excelPendDe.startsWith('t:')" class="text-[10px] text-gray-500 leading-snug">Solo lo de esa tienda: cada persona con lo que se le debe allá y lo que se le descuenta de eso.</p>
+                <p v-else-if="excelPendDe.startsWith('p:') || excelPendDe.startsWith('i:')" class="text-[10px] text-gray-500 leading-snug">Solo lo de esa persona: todos sus meses pendientes, sus anticipos y abonos, y lo que todavía no se puede pagar.</p>
+              </div>
             </div>
           </div>
         </label>

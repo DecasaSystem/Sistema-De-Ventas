@@ -366,7 +366,12 @@ export function soloDe(datos, { tiendaId = null, vendedorId = null } = {}) {
     .filter(p => dePersona(p.vendedor_id))
     .map(p => {
       const bloques = (p.bloques ?? []).filter(deLaTienda)
-      return { ...p, bloques, lista: suma(bloques, 'lista'), se_descuenta: suma(bloques, 'se_descuenta'),
+      // En el de una tienda, los anticipos y abonos de los meses que quedaron:
+      // se descuenta lo de esos bloques, así que la lista dice lo mismo.
+      const meses = new Set(bloques.map(b => b.mes))
+      const anticipos = tiendaId == null ? p.anticipos_detalle
+        : (p.anticipos_detalle ?? []).filter(a => meses.has(a.mes))
+      return { ...p, bloques, anticipos_detalle: anticipos, lista: suma(bloques, 'lista'), se_descuenta: suma(bloques, 'se_descuenta'),
         entregar: suma(bloques, 'entregar'), atrasada: bloques.some(b => b.atrasada) }
     })
     .filter(p => p.bloques.length)

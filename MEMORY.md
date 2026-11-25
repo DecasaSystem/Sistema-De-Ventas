@@ -651,7 +651,10 @@ escribiendo precios (Fase 1b).
   sacan **por tienda, por independiente o por persona** para mandárselos, desde las opciones "Una
   tienda o un independiente" y "Una persona" (Bonificación del mes / Pagos pendientes). Por defecto
   mío (**falta confirmar**): en el de una tienda, quien cubrió en otra sale solo con lo de esa tienda,
-  y sus anticipos y abonos salen enteros (son de la persona, no de la tienda).
+  y se le descuenta solo lo de esos meses (la lista de anticipos también, desde el 2026-11-25).
+  Mismo día (usuario): el selector "De quién" (Todos / una tienda / un independiente / una persona)
+  está también dentro de la opción **Pagos pendientes** (`excelPendDe`; las personas no repiten a los
+  independientes). Revisado con servidor falso: los recortes suman lo mismo que el de todos.
 - **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en
