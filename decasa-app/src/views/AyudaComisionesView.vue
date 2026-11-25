@@ -351,6 +351,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           </div>
           <p class="nota">Lo pagado se mide contra la orden entera, no contra la parte de cada uno: el cliente tiene que haber pagado {{ mitadCobro }} de los $10.000.000.</p>
           <p class="nota">La parte de cada uno puede ser otra en algunas tiendas o para algunas personas (Bonificaciones → Reglas).</p>
+          <p><b>Con alguien que no es de ventas</b> (un conductor o alguien del taller que ayudó a cerrarla, marcado en Trabajadores como "Apto para compartir ventas"): esa persona no es de ninguna tienda, así que cobra el {{ pct('pct_individual') }} directo sobre su parte y <b>su parte no suma a la meta de nadie</b>. La parte de quien la registró va a su tienda como siempre. Igual si la vende sola ("Apto para ventas"): cobra el {{ pct('pct_individual') }} de la venta y no suma a la meta de la tienda donde se hizo.</p>
         </template>
 
         <!-- ── Restauraciones ───────────────────────────────────────────── -->

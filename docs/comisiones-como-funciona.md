@@ -29,6 +29,7 @@ Todas las cifras de abajo son **las de hoy** y se pueden cambiar en **Comisiones
 | Independiente | 5 % de sus ventas (÷ 1,19) + el 5 % del bolsón de restauraciones de todos. Sin meta. |
 | Venta de un independiente con un almacén | Al almacén le suma la mitad a la meta y cobra su propio 5 %. |
 | Restauración de un independiente compartida con otra persona (no con una tienda) | Desde agosto de 2026: entra **entera** al bolsón (5 % Henry, 5 % Flabio) y esa persona cobra su propio 5 % de la restauración entera, solo para ella, sin meta y sin repartir con su tienda. Si es otro independiente que ya cobra del bolsón, no se le paga dos veces. Antes se partía por la mitad. Regla "Restauración de un independiente compartida con otra persona" en Reglas. |
+| Alguien que no es de ventas (conductor, taller) | Con "Apto para compartir ventas" (o "Apto para ventas") en su ficha. Desde el 26 nov. 2026: no es de ninguna tienda, así que cobra 5 % (÷ 1,19) de su parte de la venta compartida, o de la venta entera si la hizo solo, con el 50 % pagado y el día de pago. **Su parte no suma a la meta de nadie**; la del vendedor de tienda va a su tienda como siempre. |
 | Quien reemplaza | Entra al pool por los días que cubrió (o, si la tienda lo escoge, un % de lo que vendió). |
 | Orden "fuera del pool" | No suma a la meta, no arma pool y no paga comisión. La marca un supervisor, con motivo. |
 

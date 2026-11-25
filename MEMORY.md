@@ -177,6 +177,20 @@ de independientes vendido antes de esa fecha.
   restauración que sube alguien de tienda y comparte con Henry no cambió (la tienda cobra sobre
   la mitad). Detalle en `docs/PROYECTO.md` §6.10. Tests al final de `ComoSeCalculaCadaComisionTest`.
 
+### Trabajadores que no son de ventas ayudan a vender (usuario, 2026-11-25, **subido a `main`** ese día, trae **migración** `2026_11_26_000001_apto_para_compartir_ventas`, solo agrega columna)
+- "A veces los mismos trabajadores que no son vendedores ayudan a cerrar ventas o incluso las
+  hacen." En la ficha: **Apto para ventas** (era "Apto para bonificaciones", `apto_comisiones`, que
+  no hacía nada; ojo: la migración de ago-2026 la prendió a todo el que tenía comisiones, así que al
+  subir pueden salir en las listas personas que no se esperaban) y **Apto para compartir ventas**.
+- Decisiones del usuario: lo suyo **no suma a la meta** de ninguna tienda y cobra su **5 % directo**
+  (÷ 1,19) sobre su parte, igual si vende solo; al prender "Apto para ventas" se le abren Nueva orden
+  y Órdenes; **solo órdenes nuevas** (desde `ComisionController::CORTE_AYUDANTES` = 2026-11-26; si se
+  sube más tarde, lo de esos días ya cae con la regla nueva).
+- Por defecto mío (**falta confirmar**): "Apto para ventas" incluye compartir; "compartir" se puede
+  marcar a quien no usa el programa; el independiente (Henry, ebanista) sigue con su cuenta de
+  siempre y ahora sale en las listas; la mitad del vendedor de tienda es la misma regla 50/50 de
+  siempre. Detalle en `docs/PROYECTO.md` §6.10.
+
 ### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
   Ajustes, clave `restauracion_trabajos` en `configuracion`, JSON) o uno escrito a mano, cada uno

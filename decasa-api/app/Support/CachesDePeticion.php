@@ -26,6 +26,7 @@ class CachesDePeticion
         \App\Http\Controllers\FichaTecnicaController::olvidarEsquema();
         \App\Models\TiendaReemplazo::olvidarCache();
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
+        \App\Http\Controllers\ComisionController::olvidarAyudantes();
         \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
         \App\Http\Controllers\ComisionController::olvidarEsquema();
         \App\Http\Controllers\ComisionController::olvidarRestauracionesCompartidas();

@@ -144,6 +144,8 @@ function otrosCaminos(b, r, ordenes) {
         no_reparte: `en ${b.tienda_nombre} no se reparte en equipo: cada uno cobra lo suyo`,
         sin_meta: `${b.tienda_nombre} no tiene meta: cada uno cobra lo suyo`,
         fuera_del_equipo: `vendió en ${b.tienda_nombre} sin ser de su equipo ese mes: cobra como cualquiera de fuera, sin entrar al pool`,
+        // Conductor o alguien del taller que ayudó a cerrar la venta (2026-11-25).
+        ayuda_en_ventas: `ayuda en ventas sin ser de una tienda: cobra su parte de cada venta, que no sumó a la meta de ${b.tienda_nombre} ni a ninguna otra`,
       }[b.motivo_individual]
       lineas.push(`Individual: ${pesos(ind)} = ventas ${cuentaVenta(r, 'pct_individual')}${porque ? ` (${porque})` : ' (no va por pool)'}.`)
     }

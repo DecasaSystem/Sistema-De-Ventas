@@ -130,9 +130,18 @@ const puedeTocarIva = computed(() => esSuperAdmin.value && props.orden?.serie ==
 const tiendasLista    = ref([])
 const vendedoresLista = ref([])
 
+// La lista trae también a quien no es de ventas pero ayuda (conductor, taller).
+// Vendedor de la orden solo puede ser quien tiene "Apto para ventas"; con
+// "Apto para compartir ventas" solo sale de co-vendedor. El servidor lo revisa.
 const opcionesVendedor = computed(() => {
-  const list = [...vendedoresLista.value]
+  const list = vendedoresLista.value.filter(v => v.puede_vender !== false)
   const actual = props.orden.vendedor
+  if (actual && !list.some(v => v.id === actual.id)) list.unshift({ id: actual.id, nombre: actual.nombre })
+  return list
+})
+const opcionesCovendedor = computed(() => {
+  const list = vendedoresLista.value.filter(v => v.puede_compartir !== false)
+  const actual = props.orden.covendedor
   if (actual && !list.some(v => v.id === actual.id)) list.unshift({ id: actual.id, nombre: actual.nombre })
   return list
 })
@@ -140,7 +149,7 @@ const opcionesVendedor = computed(() => {
 async function cargarListasSupervisor() {
   if (tiendasLista.value.length) return
   try {
-    const [tiendasRes, asesoresRes] = await Promise.all([getTiendas(), api.get('/asesores')])
+    const [tiendasRes, asesoresRes] = await Promise.all([getTiendas(), api.get('/asesores', { params: { con_ayudantes: 1 } })])
     tiendasLista.value    = tiendasRes.data
     vendedoresLista.value = asesoresRes.data
   } catch {}
@@ -1710,8 +1719,11 @@ function solicitudEnviada() {
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option :value="null">Sin co-vendedor</option>
-                  <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
+                  <option v-for="v in opcionesCovendedor" :key="v.id" :value="v.id">{{ v.nombre }}{{ v.ayuda_en_ventas ? ' · ayuda en ventas' : '' }}</option>
                 </select>
+                <p v-if="opcionesCovendedor.find(v => v.id === covendedorId)?.ayuda_en_ventas" class="text-[11px] text-gray-500 mt-1">
+                  No es de una tienda: cobra su bonificación sobre su mitad y esa mitad no suma a ninguna meta.
+                </p>
               </div>
             </div>
 

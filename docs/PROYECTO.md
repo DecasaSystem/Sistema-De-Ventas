@@ -768,6 +768,25 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   la regla se prende en un mes en que el covendedor ya cobró su mitad, lo que falta sale como
   diferencia. No cambia: la restauración que sube alguien de tienda y comparte con un
   independiente (entra entera al bolsón; la tienda cobra sobre su mitad).
+- **Quien ayuda en ventas sin ser de ventas** (usuario, 2026-11-25; migración
+  `2026_11_26_000001_apto_para_compartir_ventas`, solo agrega `usuarios.apto_compartir_ventas`).
+  En Trabajadores → ficha, a quien no es vendedor ni supervisor (conductor, taller): **Apto para
+  ventas** (la columna vieja `apto_comisiones`, que antes no hacía nada; al prenderla la pantalla le
+  abre Nueva orden y Órdenes) lo deja ser el vendedor de una orden, y **Apto para compartir
+  ventas** lo pone en la lista de co-vendedor. `GET /asesores?con_ayudantes=1` (Nueva orden,
+  Editar orden) los trae con `puede_vender` / `puede_compartir` / `ayuda_en_ventas`; sin el
+  parámetro la lista es la de siempre (equipos de Bonificaciones). El servidor ahora revisa a
+  quién se le pone una venta (`Usuario::puedeVender`) y con quién se comparte
+  (`puedeCompartirVentas`, `OrdenController::porQueNoSeComparteCon`); antes aceptaba a cualquiera.
+  En bonificaciones (`ComisionController::esAyudanteDeVentas`: rol que no es vendedor ni
+  supervisor y no independiente, ventas desde `CORTE_AYUDANTES` = 2026-11-26): **no tiene tienda**.
+  Su renglón se abre siempre (antes, sin tienda, no se le abría y su mitad no la cobraba nadie) con
+  la tienda a la que cuenta la venta, solo para que salga ahí en Listas; cobra `sin_meta_5`
+  (÷ 1,19 × 5 %, `pct_individual`, la mitad pagada y el día de pago); una restauración, su 5 % sin
+  esperar la meta. **Lo suyo no suma a la meta ni al pool** (`sinAyudantes` en los totales, el
+  libro del pool y las restauraciones que ayudan), para no pagar dos veces. Se mira el rol de hoy,
+  no la marca: apagarla no cambia lo vendido. Listas lo explica (`motivo_individual =
+  ayuda_en_ventas`). Tests en `AyudanteDeVentasTest`.
 - **Órdenes fuera del pool** (2026-10-23, dueño, por la conciliación de Norte): un
   supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
   Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool
