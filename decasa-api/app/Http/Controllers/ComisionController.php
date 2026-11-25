@@ -56,7 +56,7 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $query = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre', 'pagadaPor:id,nombre'])
+        $query = Comision::with(['orden.pagos', self::conCliente(), 'vendedor:id,nombre', 'tienda:id,nombre', 'pagadaPor:id,nombre'])
             ->orderBy('fecha_disponible', 'asc');
 
         if ($vendedorId) $query->where('vendedor_id', $vendedorId);
@@ -100,7 +100,7 @@ class ComisionController extends Controller
         // al día cuando alguien pulsa Recalcular, así que al llegar el 20 el
         // selector decía "0 listas" con plata lista para pagar en la lista de
         // al lado. Quien paga se guía por ese contador.
-        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', self::conCliente(), 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->when($mes, fn ($q) => $q->where('mes_venta', $mes))
             ->get();
 
@@ -495,7 +495,7 @@ class ComisionController extends Controller
         // se parte entre todos los integrantes, venda cada uno o no.
         $this->asegurarPartesDePool($mes);
 
-        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', self::conCliente(), 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->where('mes_venta', $mes)
             ->get();
 
@@ -737,7 +737,7 @@ class ComisionController extends Controller
      */
     public function resumenParaAgente(int $vendedorId, string $mes): array
     {
-        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', self::conCliente(), 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->where('vendedor_id', $vendedorId)->where('mes_venta', $mes)->get();
 
         $vendedor = Usuario::find($vendedorId);
@@ -2085,12 +2085,22 @@ class ComisionController extends Controller
      * la orden entera, cuánto pagó el cliente y con qué, y lo que la franquicia
      * de la tarjeta le restó a la base.
      */
+    /**
+     * El cliente de la orden con su cédula, si la base la tiene: la plantilla
+     * de los jefes la trae en cada renglón (Excel, 2026-11-25).
+     */
+    private static function conCliente(): string
+    {
+        return \App\Support\Esquema::columna('clientes', 'cedula') ? 'orden.cliente:id,nombre,cedula' : 'orden.cliente:id,nombre';
+    }
+
     private static function ordenParaElExcel(array $i): array
     {
         $orden = $i['orden'] ?? [];
         $pagos = collect($orden['pagos'] ?? []);
 
         return [
+            'cliente_cedula'    => $i['cliente_cedula'] ?? null,
             'valor_total_orden' => round((float) ($orden['valor_total'] ?? 0)),
             'pagado'            => round((float) $pagos->sum('monto')),
             'pct_pagado'        => $i['pct_pagado'] ?? 0,
@@ -3376,7 +3386,7 @@ class ComisionController extends Controller
                     'ordenes'          => collect($t['ordenes'] ?? [])->where('estado', 'pendiente')
                         ->reject(fn ($o) => ($o['forma_pago'] ?? null) === 'fuera_del_pool')
                         ->map(fn ($o) => collect($o)->only([
-                            'orden_id', 'orden_referencia', 'orden_numero', 'cliente_nombre', 'forma_pago', 'es_restauracion',
+                            'orden_id', 'orden_referencia', 'orden_numero', 'cliente_nombre', 'cliente_cedula', 'forma_pago', 'es_restauracion',
                             'estado', 'valor_orden', 'valor_total_orden', 'pagado', 'req_50_pct', 'monto_comision',
                             'fecha_venta', 'fecha_disponible',
                         ])->all())->values()->all(),
@@ -6765,6 +6775,7 @@ class ComisionController extends Controller
             'fv2_entera_en_pool' => $fv2Entera && $usaLibro,
             // Solo si vino cargado: en pantalla no hace falta, en el Excel sí.
             'cliente_nombre'   => $c->orden?->relationLoaded('cliente') ? $c->orden->cliente?->nombre : null,
+            'cliente_cedula'   => $c->orden?->relationLoaded('cliente') ? ($c->orden->cliente?->cedula ?? null) : null,
             'canal'            => $c->orden?->canal,
             // De qué es la orden, con la misma regla que Estadísticas
             // (Orden::sqlTipo): FV2 por su serie; restauración si toda la

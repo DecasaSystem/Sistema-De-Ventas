@@ -609,6 +609,10 @@ sigue sin dejar agregar productos a una orden que ya salió (para nadie).
 Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones-como-funciona.md) (el
 `explicacion_modulo_comisiones.txt` de la raíz quedó como histórico). Para los usuarios: Comisiones → Ayuda.
 
+**Formato de los jefes en todos los Excel** (2026-11-25): `utils/excelFormatoJefes.js` pone primero una hoja por
+tienda (órdenes + escalera como la plantilla de junio), RESTAURACIONES, FREELANCE y CUADRO; cada libro lo llama antes
+de sus hojas (`hojasDeLosJefes`) con sus tarjetas (persona + tienda + mes). En los Excel no se dice "pool".
+
 **FV2 sin quitar el IVA** (2026-11-25, regla `iva_en_fv2`, migración `2026_11_26_000002` desde 2026-10): `ReglasComision::fv2SinIva`.
 En `enriquecer` la FV2 va entera para todos (`$fv2Entera`); en `libroDelPool` se juntan las FV2 que cuentan
 (`ventas_fv2`) y `poolDe`/`desglosePool` agregan la línea `fv2` (la meta se mide con lo que vale);

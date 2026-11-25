@@ -193,6 +193,23 @@ de independientes vendido antes de esa fecha.
   Nueva/Editar orden ya no cambia la bonificación (con la regla en No todas van enteras).
   Tests al final de la sección FV2 de `ComoSeCalculaCadaComisionTest`.
 
+### Los Excel de Bonificaciones abren con el formato de los jefes (usuario, 2026-11-25, **sin subir**, sin migración)
+- "Los jefes y la gente que ve esto entienden este formato, esta plantilla" (`Downloads/06 DE JUNIO 2026 (1).xlsx`):
+  **todos** los Excel (mes completo, Listas, pagos pendientes, una tienda/independiente/persona, cómo va) abren
+  con hojas como las de ellos y después van las nuestras. Una hoja por tienda (EL EDÉN, NORTE…): órdenes con
+  ALMACÉN, FECHA, ORDEN, NOMBRE, CÉDULA, VALOR REAL VENTA T. CRÉDITO, TOTAL DE LA VENTA, IVA, ABONO, SALDO, FORMA
+  DE PAGO, ASESOR, BONIFICACIÓN, separadas en ventas / RESTAURACIÓN / NO TIENE EL 50% / NO SUMAN, y abajo la
+  escalera (TOTAL VENTAS QUE CUENTAN, MENOS META, IGUAL, MENOS IVA, MÁS IVA DE LAS FV2, POR EL 5 %, REPARTIDO
+  POR DÍAS, A CADA UNO); RESTAURACIONES (bolsón), FREELANCE (independientes) y CUADRO (una fila por persona,
+  una columna por tienda, anticipos y TOTAL). Todo en `utils/excelFormatoJefes.js` (`hojasDeLosJefes` +
+  adaptadores `tarjetasDeRenglones` / `tarjetasDeListas` / `tarjetasDelLibro`); no calcula plata: las cifras
+  son del servidor y las fórmulas solo repiten la escalera (si no dan lo mismo, por tramos/bono/restauraciones
+  que ayudan, va la cifra del servidor sin fórmula). La cédula viaja como `cliente_cedula`.
+- Mismo pedido: **en los Excel no se dice "pool"**, se dice "bonificación de la tienda" (también en
+  `explicarListas.js` y `reglasComision.js`, así que las explicaciones de Listas en pantalla cambiaron igual;
+  el resto de la pantalla sigue diciendo "pool"). Por defecto mío (**falta confirmar**): las hojas nuestras se
+  dejaron todas, después de las de ellos; el orden es el de junio (tiendas, restauraciones, freelance, CUADRO).
+
 ### Venta sin la mitad pagada en un mes ya pagado (revisado 2026-11-25, sin cambios)
 - Se queda en su mes. Cuando el cliente completa la mitad, el libro del pool la cuenta (mira todos los
   pagos, sin fecha de corte), el pool de ese mes crece y a cada uno se le abre la diferencia

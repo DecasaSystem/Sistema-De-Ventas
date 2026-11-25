@@ -18,6 +18,7 @@ import { hoyBogota } from '@/utils/fechas'
 import { AMBAR, VERDE_CLARO, ROJO_CLARO, mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar, paraImprimir } from './excelComisiones'
 import { explicacionDelBloque, partesDelMes, estadoDeOrden } from './explicarListas'
 import { reglasPara, laParte } from './reglasComision'
+import { hojasDeLosJefes, tarjetasDeListas } from './excelFormatoJefes'
 
 let REGLAS = {}
 const R = (mes, tiendaId = null, usuarioId = null) => reglasPara(REGLAS[mes] ?? null, { tiendaId, usuarioId })
@@ -412,6 +413,15 @@ export async function armarLibroPendientes({ datos, reglas = {}, generadoPor, pa
     para,
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
   }
+
+  // Primero lo de los jefes: la plantilla que ellos usan (2026-11-25).
+  const jefes = tarjetasDeListas(datos.por_pagar ?? {})
+  hojasDeLosJefes(wb, {
+    titulo: `PAGOS PENDIENTES AL ${fecha(datos.hoy ?? ahora.toISOString())}${para ? ` · ${String(para).toUpperCase()}` : ''}`,
+    tarjetas: jefes.tarjetas, anticipos: jefes.anticipos, reglas, reglasPorMes: true,
+    columnaMonto: 'LISTO PARA PAGAR', columnaTotal: 'FALTA ENTREGAR',
+    notaCuadro: 'Lo listo y sin pagar de cada mes atrasado, menos los anticipos y abonos ya dados. Lo que todavía no se puede pagar está en la hoja "Todavía no".',
+  })
 
   hojaResumen(wb, ctx)
   hojaPorPersona(wb, ctx)

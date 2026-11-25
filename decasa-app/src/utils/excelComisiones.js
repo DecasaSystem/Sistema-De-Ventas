@@ -18,6 +18,7 @@
  */
 
 import { restauracionYMeta, reglasPara, num, divisor, cuentaVenta, cuentaPool as cuentaDelPool, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
+import { hojasDeLosJefes, tarjetasDeRenglones, bolsonDe, mesTitulo } from './excelFormatoJefes'
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -25,7 +26,7 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
 const ESTADO = { pendiente: 'Pendiente', lista: 'Lista para pagar', pagada: 'Pagada' }
 
 export const FORMA = {
-  pool:                'Pool del equipo',
+  pool:                'Bonificación de la tienda (equipo)',
   parte_pool:          'Parte del equipo',
   sin_meta_5:          'Individual',
   reemplazo_ventas:    'Reemplazo (por lo que vendió)',
@@ -33,7 +34,7 @@ export const FORMA = {
   restauracion_equipo: 'Restauración de la tienda (repartida)',
   abono_almacen:       'Lo que dejó un independiente',
   rest_compartida:     'Restauración compartida con un independiente',
-  fuera_del_pool:      'Fuera del pool',
+  fuera_del_pool:      'Fuera de la bonificación de la tienda',
 }
 
 export const CANAL = {
@@ -243,28 +244,28 @@ function comoSeCalculo(c) {
       if (c.periodicidad !== 'trimestral') {
         // Mensual: el pool se mira en la tienda con lo que ya tiene la mitad pagada.
         if (!c.meta_cumplida) {
-          return `Con ${mitad} la tienda lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}: todavía no hay pool que repartir.`
+          return `Con ${mitad} la tienda lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}: todavía no hay bonificación de la tienda que repartir.`
         }
         if (!c.req_50_pct) {
-          return `Esta venta todavía no cuenta: el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando lo pague entra al pool de toda la tienda.`
+          return `Esta venta todavía no cuenta: el cliente no ha pagado ${laParte(r.req_pagado_pct)}. Cuando lo pague entra a la bonificación de la tienda de toda la tienda.`
         }
-        return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
+        return `Bonificación de la tienda de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
              + `Su parte (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Se le paga en sus ventas que ya cuentan: esta lleva ${pesos(monto)}.`
       }
       if (!c.meta_cumplida) {
-        return `La tienda no llegó a la meta (con ${mitad} lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} este mes): sin excedente no hay pool que repartir.`
+        return `La tienda no llegó a la meta (con ${mitad} lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} este mes): sin excedente no hay bonificación de la tienda que repartir.`
       }
       const propor = n(c.total_vendedor_mes) > 0 ? valor / n(c.total_vendedor_mes) : 1
-      return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
+      return `Bonificación de la tienda de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con ${mitad} − ${pesos(c.meta_tienda)} meta) ${cuentaPool}. `
            + `Su parte (${parte}) = ${pesos(c.comision_asesor)}. `
            + `Esta orden pesa ${(propor * 100).toFixed(1)}% de lo que vendió en la tienda → ${pesos(monto)}.`
     }
     case 'parte_pool':
       return c.meta_cumplida
-        ? `Su parte del pool (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
-        : `La tienda no llegó a la meta con lo que tiene ${mitad}: no hay pool. ${pesos(0)}.`
+        ? `Su parte de la bonificación de la tienda (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
+        : `La tienda no llegó a la meta con lo que tiene ${mitad}: no hay bonificación de la tienda. ${pesos(0)}.`
     case 'fuera_del_pool':
-      return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga bonificación. ${pesos(0)}.`
+      return `Un supervisor sacó esta orden de la bonificación de la tienda: no suma a la meta ni a la bonificación de la tienda y no paga bonificación. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
         return `FV2, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
@@ -272,8 +273,8 @@ function comoSeCalculo(c) {
       return `${pesos(valor)} ${cuentaVenta(r, 'pct_individual')} = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
     case 'reemplazo_ventas':
       return c.sin_descontar_iva
-        ? `Vendida cubriendo a alguien, FV2 sin restar el IVA: ${pesos(valor)} × ${num(r.pct_reemplazo)}% = ${pesos(monto)}. No suma a la meta ni al pool.`
-        : `Vendida cubriendo a alguien: ${pesos(valor)} ${cuentaVenta(r, 'pct_reemplazo')} = ${pesos(monto)}. No suma a la meta ni al pool.`
+        ? `Vendida cubriendo a alguien, FV2 sin restar el IVA: ${pesos(valor)} × ${num(r.pct_reemplazo)}% = ${pesos(monto)}. No suma a la meta ni a la bonificación de la tienda.`
+        : `Vendida cubriendo a alguien: ${pesos(valor)} ${cuentaVenta(r, 'pct_reemplazo')} = ${pesos(monto)}. No suma a la meta ni a la bonificación de la tienda.`
     case 'restauracion_5':
       return `Restauración: ${pesos(valor)}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${pesos(monto)}${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}. Las restauraciones ${restauracionYMeta(r)}.`
     case 'restauracion_equipo':
@@ -382,7 +383,7 @@ function hojaResumen(wb, ctx) {
   seccion(ws, 'Qué hay en cada hoja')
   fichas(ws, [
     ['Por vendedor', 'Una fila por persona y tienda: cuánto cobra, de dónde sale y qué le falta.'],
-    ['Por tienda', 'Cada tienda contra su meta: vendido, excedente, pool y cómo se reparte.'],
+    ['Por tienda', 'Cada tienda contra su meta: vendido, excedente, bonificación de la tienda y cómo se reparte.'],
     ['Detalle', 'Cada orden con su bonificación, su estado y la cuenta escrita.'],
     ['Independientes', 'Los que cobran porcentaje fijo y los almacenes que les ayudaron.'],
     ['Metas y equipos', 'Meta, equipo, reemplazos y reparto por días de cada tienda.'],
@@ -424,7 +425,7 @@ function hojaPorVendedor(wb, ctx) {
     const restau = items.filter(c => c.es_restauracion && c.forma_pago !== 'abono_almacen')
     const porPool = de('pool').length + de('parte_pool').length > 0
     const comoCobra = porPool
-      ? 'Pool del equipo'
+      ? 'Bonificación de la tienda (equipo)'
       : (de('sin_meta_5').length ? 'Individual' : de('reemplazo_ventas').length ? 'Reemplazo (por lo que vendió)' :(restau.length ? 'Restauraciones' : 'Otros'))
 
     return {
@@ -465,10 +466,10 @@ function hojaPorVendedor(wb, ctx) {
     { titulo: 'Meta de la tienda', campo: 'meta', fmt: 'pesos', ancho: 16 },
     { titulo: 'Vendido en la tienda (mes)', campo: 'ventas_tienda', fmt: 'pesos', ancho: 17 },
     { titulo: 'Meta cumplida', campo: 'meta_cumplida', ancho: 10, color: f => f.meta_cumplida === 'No' ? ROJO_CLARO : null },
-    { titulo: 'Pool de la tienda', campo: 'pool', fmt: 'pesos', ancho: 15 },
-    { titulo: 'Su parte del pool', campo: 'parte', ancho: 16 },
-    { titulo: '% del pool', campo: 'pct_pool', fmt: 'pct', ancho: 9 },
-    { titulo: 'Bonificación por pool', campo: 'del_pool', fmt: 'pesos', ancho: 15, total: 'suma' },
+    { titulo: 'Bonificación de la tienda de la tienda', campo: 'pool', fmt: 'pesos', ancho: 15 },
+    { titulo: 'Su parte de la bonificación de la tienda', campo: 'parte', ancho: 16 },
+    { titulo: '% de la bonificación de la tienda', campo: 'pct_pool', fmt: 'pct', ancho: 9 },
+    { titulo: 'De la bonificación de la tienda', campo: 'del_pool', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Parte del equipo (sin vender)', campo: 'parte_equipo', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'Por restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 15, total: 'suma' },
     { titulo: 'De independientes', campo: 'de_indep', fmt: 'pesos', ancho: 15, total: 'suma' },
@@ -495,7 +496,7 @@ function hojaPorVendedor(wb, ctx) {
 function hojaPorTienda(wb, ctx) {
   const ws = wb.addWorksheet('Por tienda')
   titulo(ws, `Por tienda — ${mesEnPalabras(ctx.mes)}`,
-    `Cada tienda contra su meta. El pool es lo que pasa de la meta ${cuentaDelPool(R())}; se parte entre el equipo ${R().reparto_pool === 'iguales' ? 'en partes iguales' : 'por días'}.`)
+    `Cada tienda contra su meta. La bonificación de la tienda es lo que pasa de la meta ${cuentaDelPool(R())}; se parte entre el equipo ${R().reparto_pool === 'iguales' ? 'en partes iguales' : 'por días'}.`)
 
   const indepIds = new Set((ctx.indep?.independientes ?? []).map(i => i.vendedor_id))
   const porTienda = new Map()
@@ -524,7 +525,7 @@ function hojaPorTienda(wb, ctx) {
       return {
         tienda: m.nombre,
         comparte: m.comisiones_compartidas
-          ? `Sí — pool del equipo (${num(R(m).pct_pool)}%, ${R(m).reparto_pool === 'iguales' ? 'partes iguales' : 'por días'})`
+          ? `Sí — bonificación de la tienda del equipo (${num(R(m).pct_pool)}%, ${R(m).reparto_pool === 'iguales' ? 'partes iguales' : 'por días'})`
           : `No — cada uno el ${num(R(m).pct_individual)}% de lo suyo`,
         periodicidad: trimestral ? `Trimestral (${p.trimestre})` : 'Mensual',
         meta: meta || null,
@@ -555,7 +556,7 @@ function hojaPorTienda(wb, ctx) {
     { titulo: '% de la meta', campo: 'avance', fmt: 'pct', ancho: 10 },
     { titulo: 'Meta cumplida', campo: 'cumplida', ancho: 11, color: f => f.cumplida === 'No' ? ROJO_CLARO : (f.cumplida === 'Sí' ? VERDE_CLARO : null) },
     { titulo: 'Excedente sobre la meta', campo: 'excedente', fmt: 'pesos', ancho: 16 },
-    { titulo: 'Pool a repartir', campo: 'pool', fmt: 'pesos', ancho: 15 },
+    { titulo: 'Bonificación de la tienda a repartir', campo: 'pool', fmt: 'pesos', ancho: 15 },
     { titulo: 'Equipo y reparto por días', campo: 'equipo', ancho: 34 },
     { titulo: 'Órdenes', campo: 'ordenes', fmt: 'entero', ancho: 9, total: 'suma' },
     { titulo: 'En restauraciones', campo: 'restauraciones', fmt: 'pesos', ancho: 17, total: 'suma' },
@@ -589,7 +590,7 @@ function hojaDetalle(wb, ctx) {
     { titulo: 'Canal', campo: c => CANAL[c.canal] ?? (c.canal ?? ''), ancho: 11 },
     { titulo: 'Fecha venta', campo: c => fecha(c.fecha_venta), ancho: 11 },
     { titulo: 'Tipo', campo: c => c.forma_pago === 'parte_pool' ? 'Parte del equipo' : (c.es_restauracion ? 'Restauración' : 'Venta'), ancho: 13 },
-    { titulo: 'Cómo se paga', campo: c => FORMA[c.forma_pago] ?? 'Pool del equipo', ancho: 22 },
+    { titulo: 'Cómo se paga', campo: c => FORMA[c.forma_pago] ?? 'Bonificación de la tienda (equipo)', ancho: 22 },
     { titulo: 'Valor (base bonificable)', campo: c => n(c.valor_orden), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Pagado por el cliente %', campo: c => c.forma_pago === 'parte_pool' ? null : n(c.pct_pagado), fmt: 'pct', ancho: 11 },
     { titulo: `Cumple ${num(R().req_pagado_pct)}% pagado`, campo: c => c.forma_pago === 'parte_pool' ? '' : siNo(c.req_50_pct), ancho: 10, color: c => c.forma_pago !== 'parte_pool' && !c.req_50_pct ? AMBAR : null },
@@ -692,7 +693,7 @@ function hojaMetasEquipos(wb, ctx) {
   tabla(ws, [
     { titulo: 'Tienda', campo: 'nombre', ancho: 26 },
     { titulo: 'Meta del mes', campo: m => n(m.meta) || null, fmt: 'pesos', ancho: 16 },
-    { titulo: 'Reparte bonificación', campo: m => m.comisiones_compartidas ? 'Sí — pool del equipo' : 'No — cada uno lo suyo', ancho: 22 },
+    { titulo: 'Reparte bonificación', campo: m => m.comisiones_compartidas ? 'Sí — bonificación de la tienda del equipo' : 'No — cada uno lo suyo', ancho: 22 },
     { titulo: 'Equipo', campo: m => (m.asesores ?? []).map(a => a.nombre).join('\n') || '—', ancho: 30 },
     { titulo: 'Reparto por días (con reemplazos)', campo: m => {
       const r = ctx.reparto[m.tienda_id]
@@ -785,9 +786,9 @@ function hojaReemplazos(wb, ctx) {
   if (!deTiendas.length) return null
 
   const ws = wb.addWorksheet('Reemplazos')
-  titulo(ws, `Reemplazos — ${mesEnPalabras(ctx.mes)}: cómo se reparte el pool`,
-    'El pool de una tienda es de todo el mes y se reparte por DÍAS: cada día se parte en partes iguales entre los que estaban. '
-    + 'Quien cubre a otro se queda con los días de ese otro. Es una regla de 3: pool × días de la persona ÷ días de todos.')
+  titulo(ws, `Reemplazos — ${mesEnPalabras(ctx.mes)}: cómo se reparte la bonificación de la tienda`,
+    'La bonificación de la tienda de una tienda es de todo el mes y se reparte por DÍAS: cada día se parte en partes iguales entre los que estaban. '
+    + 'Quien cubre a otro se queda con los días de ese otro. Es una regla de 3: bonificación de la tienda × días de la persona ÷ días de todos.')
 
   const tiendasConReemplazo = [...new Set(deTiendas.map(r => Number(r.tienda_id)))]
 
@@ -807,7 +808,7 @@ function hojaReemplazos(wb, ctx) {
     seccion(ws, nombre,
       meta?.comisiones_compartidas === false
         ? 'Esta tienda no reparte: cada uno cobra lo suyo. Los reemplazos no mueven plata entre personas.'
-        : (trimestral ? 'Tienda trimestral: el pool es del trimestre y se reparte por los días de los tres meses. Abajo, los días de este mes.' : null))
+        : (trimestral ? 'Tienda trimestral: la bonificación de la tienda es del trimestre y se reparte por los días de los tres meses. Abajo, los días de este mes.' : null))
 
     // 1. Quién estuvo cada día
     const tramos = tramosDelMes(ctx.mes, tiendaId, equipo, ctx.reemplazos ?? [])
@@ -826,28 +827,28 @@ function hojaReemplazos(wb, ctx) {
       return r.reemplaza_a
         ? `• ${r.usuario_nombre} cubrió a ${r.reemplaza_a} del ${diaCorto(aDia(r.desde))} al ${hasta}${dias ? ` (${dias} días)` : ''}: `
           + `esos días la parte de ${r.reemplaza_a} fue de ${r.usuario_nombre}. ${r.reemplaza_a} pierde esos días y ${r.usuario_nombre} los gana; el total no cambia.`
-        : `• ${r.usuario_nombre} llegó a la tienda el ${diaCorto(aDia(r.desde))} (traslado): desde ese día el pool se parte entre uno más.`
+        : `• ${r.usuario_nombre} llegó a la tienda el ${diaCorto(aDia(r.desde))} (traslado): desde ese día la bonificación de la tienda se parte entre uno más.`
     }))
 
     if (!partes.length || meta?.comisiones_compartidas === false) continue
 
     // 2. El pool y cuánto vale un día
-    seccion(ws, '2. El pool del mes y cuánto vale un día')
+    seccion(ws, '2. La bonificación de la tienda del mes y cuánto vale un día')
     if (trimestral) {
-      explicar(ws, ['• El pool se calcula por trimestre (ver la hoja de la tienda en Bonificaciones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
+      explicar(ws, ['• La bonificación de la tienda se calcula por trimestre (ver la hoja de la tienda en Bonificaciones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
     } else if (!filaPool || pool <= 0) {
-      explicar(ws, [`• Este mes la tienda no pasó la meta con lo que tiene ${partePagada(R({ tienda_id: tiendaId }).meta_req_pagado_pct)}: el pool es $0 y no hay nada que repartir.`])
+      explicar(ws, [`• Este mes la tienda no pasó la meta con lo que tiene ${partePagada(R({ tienda_id: tiendaId }).meta_req_pagado_pct)}: la bonificación de la tienda es $0 y no hay nada que repartir.`])
     } else {
       const porDia = pool / diasMes
       explicar(ws, [
-        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ${cuentaDelPool(R({ tienda_id: tiendaId }))} = ${pesos(pool)}.`,
-        `• Un día del pool vale ${pesos(pool)} ÷ ${diasMes} días = ${pesos(porDia)}. Ese valor se parte entre los que estaban ese día.`,
+        `• Bonificación de la tienda del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ${cuentaDelPool(R({ tienda_id: tiendaId }))} = ${pesos(pool)}.`,
+        `• Un día de la bonificación de la tienda vale ${pesos(pool)} ÷ ${diasMes} días = ${pesos(porDia)}. Ese valor se parte entre los que estaban ese día.`,
       ])
     }
 
     // 3. Reparto por persona (regla de 3)
     seccion(ws, '3. Lo que le toca a cada uno (regla de 3)',
-      `Pool × días de la persona ÷ ${diasTodos} días de todos. Los ${diasTodos} días son la suma de los días de cada persona.`)
+      `Bonificación de la tienda × días de la persona ÷ ${diasTodos} días de todos. Los ${diasTodos} días son la suma de los días de cada persona.`)
     // Redondeado como lo paga el sistema: la parte de cada uno por separado.
     // Por eso la suma puede correrse un peso del pool.
     const filas = partes.map(p => ({
@@ -860,7 +861,7 @@ function hojaReemplazos(wb, ctx) {
     tabla(ws, [
       { titulo: 'Persona', campo: 'nombre', ancho: 22 },
       { titulo: 'Días que estuvo', campo: 'dias', ancho: 14, total: 'suma' },
-      { titulo: '% del pool', campo: f => `${f.pct.toFixed(1)}%`, ancho: 11 },
+      { titulo: '% de la bonificación de la tienda', campo: f => `${f.pct.toFixed(1)}%`, ancho: 11 },
       { titulo: 'La cuenta', campo: 'cuenta', ancho: 30 },
       { titulo: 'Le toca', campo: 'monto', fmt: 'pesos', ancho: 16, total: 'suma' },
     ], filas, { totales: !trimestral, zebra: true })
@@ -925,19 +926,19 @@ function hojaComoSeCalcula(wb) {
     '• Una venta DIGITAL (WhatsApp, Instagram, Facebook, página) es de la tienda de la persona que la cerró, aunque estuviera cubriendo en otra.',
     '• Un independiente no tiene tienda: todo lo suyo queda en la tienda de la orden.',
     '',
-    '3. Tienda que reparte (pool del equipo)',
-    `• Pool = (Vendido en la tienda con ${partePagada(r.meta_req_pagado_pct)} − Meta) ${cuentaDelPool(r)}. Si no llega a la meta, el pool es $0.`,
+    '3. Tienda que reparte (bonificación de la tienda del equipo)',
+    `• Bonificación de la tienda = (Vendido en la tienda con ${partePagada(r.meta_req_pagado_pct)} − Meta) ${cuentaDelPool(r)}. Si no llega a la meta, la bonificación de la tienda es $0.`,
     ...(r.formula_pool === 'tramos' ? ['• Por tramos: cada tramo paga su porcentaje solo sobre lo vendido dentro de él (no hay saltos).'] : []),
-    ...(poolEspecial ? [`• En las tiendas trimestrales el pool sigue siendo (lo que pasa de la meta) ${cuentaVenta(r, 'pct_pool')}, sin tramos ni bono.`] : []),
+    ...(poolEspecial ? [`• En las tiendas trimestrales la bonificación de la tienda sigue siendo (lo que pasa de la meta) ${cuentaVenta(r, 'pct_pool')}, sin tramos ni bono.`] : []),
     ...(porDias
       ? [
-          '• El pool se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
-          '• Con un reemplazo es una regla de 3: pool × días de la persona ÷ días de todos. Cada día el pool se parte en partes iguales entre los que estaban. La hoja "Reemplazos" tiene la cuenta completa, día por día.',
+          '• La bonificación de la tienda se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
+          '• Con un reemplazo es una regla de 3: bonificación de la tienda × días de la persona ÷ días de todos. Cada día la bonificación de la tienda se parte en partes iguales entre los que estaban. La hoja "Reemplazos" tiene la cuenta completa, día por día.',
         ]
-      : ['• El pool se parte en PARTES IGUALES entre los del equipo del mes, sin mirar cuántos días estuvo cada uno.']),
+      : ['• La bonificación de la tienda se parte en PARTES IGUALES entre los del equipo del mes, sin mirar cuántos días estuvo cada uno.']),
     '• Lo de cada persona se reparte entre sus órdenes a prorrata del valor: la orden más grande se lleva más.',
     '• Quien es del equipo y no vendió cobra su parte igual (fila "Parte del equipo").',
-    `• Quien vende en la tienda sin ser del equipo ni reemplazo cobra el ${num(r.pct_individual)}% de lo suyo${ivaVenta}, por fuera del pool. Sus ventas sí empujan la meta.`,
+    `• Quien vende en la tienda sin ser del equipo ni reemplazo cobra el ${num(r.pct_individual)}% de lo suyo${ivaVenta}, por fuera de la bonificación de la tienda. Sus ventas sí empujan la meta.`,
     '',
     '4. Tienda que no reparte, o sin meta (Tienda Virtual, Vía Jardines, independientes)',
     `• Cada uno cobra el ${num(r.pct_individual)}% de lo suyo: Valor ${cuentaVenta(r, 'pct_individual')}. Nada se divide.`,
@@ -954,13 +955,13 @@ function hojaComoSeCalcula(wb) {
     '6. Cuándo se puede pagar (estado "Lista")',
     `• El cliente ya pagó al menos el ${num(r.req_pagado_pct)}% de la orden.`,
     `• Ya llegó la fecha: ${cuandoSePaga(r)} a la venta. En las tiendas trimestrales, contando desde el cierre del trimestre.`,
-    `• Si va por pool, la tienda cumplió la meta (en trimestrales se netean los tres meses${r.arrastra_deuda_trimestre ? ' y un déficit se arrastra al trimestre siguiente' : '; cada trimestre arranca de cero'}).`,
+    `• Si va por la bonificación de la tienda, la tienda cumplió la meta (en trimestrales se netean los tres meses${r.arrastra_deuda_trimestre ? ' y un déficit se arrastra al trimestre siguiente' : '; cada trimestre arranca de cero'}).`,
     '• Hasta que se marque pagada el monto se recalcula: si cambian las ventas del mes, cambia. Al pagarla queda congelada.',
     '',
     '7. Columnas que confunden',
     '• "Valor (base bonificable)": el valor de la orden menos el costo del datáfono, y solo la parte de cada uno si es compartida. No es lo que pagó el cliente.',
     `• "Vendido para la meta": suma de las ventas de la tienda que cuentan contra la meta (sin canceladas, sin independientes, más lo que un independiente le abonó). Las restauraciones ${restauracionYMeta(r)}.`,
-    '• "Su parte del pool": días suyos sobre días de todo el equipo. En trimestrales, los días del trimestre entero.',
+    '• "Su parte de la bonificación de la tienda": días suyos sobre días de todo el equipo. En trimestrales, los días del trimestre entero.',
     ...(VIGENTES?.excepciones?.length
       ? ['', '8. Excepciones de este mes',
          '• Algunas tiendas o personas tienen reglas distintas a las de arriba (Bonificaciones → Reglas). La cuenta de cada fila del Detalle ya va con las suyas.']
@@ -1049,6 +1050,20 @@ export async function armarLibro(datos) {
         : null,
     },
   }
+
+  // Primero lo de los jefes: la plantilla que ellos usan (2026-11-25). Con un
+  // vendedor escogido, solo las tiendas donde estuvo (la hoja es del equipo).
+  let tarjetas = tarjetasDeRenglones(ctx.todas, ctx.conIndependientes ? datos.indep : null)
+  if (f.vendedorId) {
+    const suyas = new Set(tarjetas.filter(t => t.vendedor_id === f.vendedorId).map(t => t.tienda_nombre))
+    tarjetas = tarjetas.filter(t => suyas.has(t.tienda_nombre))
+  }
+  hojasDeLosJefes(wb, {
+    titulo: `BONIFICACIONES ${mesTitulo(ctx.mes)}`, tarjetas, reglas: datos.reglas ?? null,
+    restauraciones: ctx.conIndependientes ? bolsonDe(datos.indep) : [],
+    columnaMonto: 'BONIFICACIÓN DEL MES', columnaTotal: 'TOTAL',
+    notaCuadro: 'La bonificación de cada uno en el mes, por tienda: lo pagado, lo listo y lo que todavía espera. El detalle, en las hojas que siguen.',
+  })
 
   hojaResumen(wb, ctx)
   // En el resumen, la agrupación que se estaba mirando va de primera.

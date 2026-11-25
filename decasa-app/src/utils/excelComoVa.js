@@ -20,6 +20,7 @@
 
 import { titulo, seccion, tabla, fichas, paraImprimir, mesEnPalabras, fecha, pesos, n, FORMA, VERDE_CLARO, AMBAR, ROJO_CLARO, GRIS_TEXTO } from './excelComisiones'
 import { restauracionYMeta, reglasPara, laParte, partePagada, cuandoSePaga, cuentaPool, num } from './reglasComision'
+import { hojasDeLosJefes, tarjetasDeRenglones, bolsonDe, mesTitulo } from './excelFormatoJefes'
 
 let VIGENTES = null
 const R = (tiendaId = null, usuarioId = null) => reglasPara(VIGENTES, { tiendaId, usuarioId })
@@ -60,7 +61,7 @@ function armarTiendas(ctx) {
       return {
         tienda: t.nombre,
         periodicidad: trimestral ? `Trimestral (${filaPool?.trimestre ?? ''})` : 'Mensual',
-        como: !meta ? 'Sin meta' : (t.comisiones_compartidas ? 'Pool del equipo' : 'Cada uno lo suyo'),
+        como: !meta ? 'Sin meta' : (t.comisiones_compartidas ? 'Bonificación de la tienda (equipo)' : 'Cada uno lo suyo'),
         meta: meta || null,
         vendido,
         cuenta,
@@ -126,7 +127,7 @@ function armarPersonas(ctx) {
   return [...grupos.values()].map(({ p, items }) => {
     const ventas = items.filter(c => c.orden_id && !NO_SON_VENTA.includes(c.forma_pago))
     const formas = new Set(items.map(c => c.forma_pago))
-    const como = formas.has('pool') || formas.has('parte_pool') ? 'Pool del equipo'
+    const como = formas.has('pool') || formas.has('parte_pool') ? 'Bonificación de la tienda (equipo)'
       : formas.has('reemplazo_ventas') ? 'Reemplazo (por lo que vendió)'
       : formas.has('sin_meta_5') ? 'Individual'
       : [...formas].map(f => FORMA[f] ?? f).join(', ')
@@ -175,7 +176,7 @@ function hojaResumen(wb, ctx, tiendas, porCobrar, personas) {
 
   seccion(ws, 'Qué hay en cada hoja')
   fichas(ws, [
-    ['Tiendas', 'Cada tienda contra su meta: cuánto lleva, cuánto le falta, cuánto hay que vender por día y el pool si cerrara hoy.'],
+    ['Tiendas', 'Cada tienda contra su meta: cuánto lleva, cuánto le falta, cuánto hay que vender por día y la bonificación de la tienda si cerrara hoy.'],
     ['Por cobrar', 'Las órdenes que todavía no cuentan porque el cliente no ha pagado lo necesario, con cuánto le falta a cada una.'],
     ['Personas', 'Lo que lleva cada persona y la bonificación que le daría si el mes cerrara hoy.'],
     ['Cómo leerlo', 'Qué quiere decir cada columna y las reglas del mes.'],
@@ -203,7 +204,7 @@ function hojaTiendas(wb, ctx, tiendas) {
     { titulo: 'Falta para la meta', campo: 'falta', fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Días que quedan', campo: 'dias_quedan', fmt: 'entero', ancho: 9 },
     { titulo: 'Hay que sumar por día', campo: 'por_dia', fmt: 'pesos', ancho: 15 },
-    { titulo: 'Pool si cerrara hoy (ESTIMADO)', campo: 'pool', fmt: 'pesos', ancho: 17, total: 'suma', color: () => AMBAR },
+    { titulo: 'Bonificación de la tienda si cerrara hoy (ESTIMADO)', campo: 'pool', fmt: 'pesos', ancho: 17, total: 'suma', color: () => AMBAR },
     { titulo: 'Trimestre', campo: 'trimestre', ancho: 30 },
   ], tiendas, { totales: true })
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: header.number }]
@@ -246,7 +247,7 @@ function hojaPorCobrar(wb, ctx, porCobrar) {
 function hojaPersonas(wb, ctx, personas) {
   const ws = wb.addWorksheet('Personas')
   titulo(ws, `Personas — ${mesEnPalabras(ctx.mes)}`,
-    'Una fila por persona y tienda. En una tienda con pool todos los del equipo cobran su parte igual; lo estimado es lo que le daría si el mes cerrara hoy.')
+    'Una fila por persona y tienda. En una tienda con meta todos los del equipo cobran su parte igual; lo estimado es lo que le daría si el mes cerrara hoy.')
   avisoEstimado(ws, ctx)
 
   const header = tabla(ws, [
@@ -283,13 +284,13 @@ function hojaComoLeerlo(wb, ctx) {
   fichas(ws, [
     ['ESTIMADO', 'Lo que daría si el mes cerrara hoy. Cambia con cada venta y cada abono. Lo que de verdad se paga sale en Bonificaciones → Listas, el día de pago.'],
     ['Vendido', `Todo lo que se vendió en el mes, haya pagado o no el cliente. No cuenta lo cancelado. Las restauraciones ${restauracionYMeta(r)}.`],
-    ['Ya cuenta para la meta', `Lo vendido cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}. Es lo único que mide la meta y arma el pool.`],
+    ['Ya cuenta para la meta', `Lo vendido cuyo cliente ya pagó ${laParte(r.meta_req_pagado_pct)}. Es lo único que mide la meta y arma la bonificación de la tienda.`],
     ['Falta para la meta', 'Meta menos lo que ya cuenta.'],
     ['Hay que sumar por día', 'Lo que falta para la meta repartido en los días que quedan (contando hoy).'],
     ['Pool', `Lo que pasa de la meta ${cuentaPool(r)}. Se parte entre el equipo ${r.reparto_pool === 'iguales' ? 'en partes iguales' : 'por los días que trabajó cada uno'}.`],
     ['Falta cobrar', `Lo que tiene que abonar el cliente para llegar a ${laParte(r.req_pagado_pct)} de su orden. Con eso la venta cuenta y su bonificación se puede pagar.`],
     ['Las 3 condiciones para cobrar', `El cliente pagó ${laParte(r.req_pagado_pct)}, llegó el día de pago (${cuandoSePaga(r)}) y la tienda llegó a la meta.`],
-    ['Tiendas trimestrales', 'La meta se suma en los tres meses del trimestre y el pool se paga al cerrarlo; la columna "Trimestre" dice cómo va.'],
+    ['Tiendas trimestrales', 'La meta se suma en los tres meses del trimestre y la bonificación de la tienda se paga al cerrarlo; la columna "Trimestre" dice cómo va.'],
     ['Bonificación individual', `En una tienda que no reparte, cada uno cobra el ${num(r.pct_individual)}% de lo suyo.`],
   ])
   return ws
@@ -327,6 +328,15 @@ export async function armarLibroComoVa(datos) {
   const tiendas = armarTiendas(ctx)
   const porCobrar = armarPorCobrar(ctx)
   const personas = armarPersonas(ctx)
+
+  // Primero lo de los jefes: la plantilla que ellos usan (2026-11-25).
+  hojasDeLosJefes(wb, {
+    titulo: `CÓMO VA ${mesTitulo(ctx.mes)} · ESTIMADO AL ${ctx.generadoEl}`,
+    tarjetas: tarjetasDeRenglones(ctx.comisiones, ctx.indep), reglas: datos.reglas ?? null,
+    restauraciones: bolsonDe(ctx.indep),
+    columnaMonto: 'ESTIMADO', columnaTotal: 'ESTIMADO',
+    notaCuadro: 'ESTIMADO: lo que daría si el mes cerrara hoy. Todavía puede cambiar; lo que se paga sale en Listas.',
+  })
 
   hojaResumen(wb, ctx, tiendas, porCobrar, personas)
   hojaTiendas(wb, ctx, tiendas)

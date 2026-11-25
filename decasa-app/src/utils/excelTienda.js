@@ -20,6 +20,7 @@ import {
   mesEnPalabras, fecha, pesos, n, titulo, seccion, tabla, fichas, explicar, paraImprimir,
 } from './excelComisiones'
 import { tipoDe, mediosTexto, porQueTarjeta, baseTexto, ivaTexto, comoSale } from './excelListas'
+import { hojasDeLosJefes, tarjetasDelLibro, mesTitulo } from './excelFormatoJefes'
 import { explicacionDelMes, explicacionDelIndependiente, estadoCorto, estadoDeOrden, partesDelMes } from './explicarListas'
 import { reglasPara, num, divisor, cuentaPool, cuentaVenta, laParte, partePagada, mediosConFranquicia, restauracionYMeta, cuandoSePaga } from './reglasComision'
 
@@ -75,7 +76,7 @@ function hojaTienda(wb, ctx) {
   if (pool && pool.periodicidad === 'trimestral' && pool.trimestre) {
     const q = pool.trimestre
     seccion(ws, `La meta: ${d.tienda_nombre} es trimestral (${q.trimestre})`,
-      'Los tres meses se juntan en un solo pool: se suma (lo que cuenta − meta) de cada mes y se le resta la deuda que traía del trimestre anterior.')
+      'Los tres meses se juntan en una sola bonificación de la tienda: se suma (lo que cuenta − meta) de cada mes y se le resta la deuda que traía del trimestre anterior.')
     tabla(ws, [
       { titulo: 'Mes de las ventas', campo: m => mesEnPalabras(m.mes), ancho: 38 },
       { titulo: 'Meta', campo: 'meta', fmt: 'pesos', ancho: 20 },
@@ -85,8 +86,8 @@ function hojaTienda(wb, ctx) {
       { titulo: 'Saldo acumulado', campo: 'saldo', fmt: 'pesos', ancho: 16 },
     ], q.meses ?? [], { totales: true, filtro: false })
     explicar(ws, [
-      `Deuda del trimestre anterior: ${pesos(q.deuda_en_ventas)} en ventas. Pool del trimestre: ${pesos(q.pool_pagado)}`
-        + (n(q.deficit_final) > 0 ? `; deja una deuda de ${pesos(q.deficit_final)} de pool al siguiente.` : '.')
+      `Deuda del trimestre anterior: ${pesos(q.deuda_en_ventas)} en ventas. Bonificación de la tienda del trimestre: ${pesos(q.pool_pagado)}`
+        + (n(q.deficit_final) > 0 ? `; deja una deuda de ${pesos(q.deficit_final)} de bonificación de la tienda al siguiente.` : '.')
         + (q.en_curso ? ` El trimestre todavía no termina: se liquida el ${fecha(q.se_liquida_el)}.` : ''),
     ])
   } else if (pool) {
@@ -97,22 +98,22 @@ function hojaTienda(wb, ctx) {
       ['Vendido que todavía no cuenta (sin la mitad)', n(pool.sin_mitad), 'pesos'],
       ['   Órdenes sin la mitad', n(pool.ordenes_sin_mitad), 'entero'],
       ['¿Llegó a la meta?', pool.meta_cumplida ? 'Sí' : 'No'],
-      ['Pool de la tienda', n(pool.pool), 'pesos'],
+      ['Bonificación de la tienda de la tienda', n(pool.pool), 'pesos'],
     ])
     explicar(ws, [
       pool.meta_cumplida
-        ? `Pool = (${pesos(pool.ventas_cuentan)} − ${pesos(pool.meta)}) ${cuentaPool(r)} = ${pesos(pool.pool)}.`
-        : `No llegó a la meta: le faltan ${pesos(Math.max(0, n(pool.meta) - n(pool.ventas_cuentan)))} de ventas que cuenten. Sin meta no hay pool.`,
+        ? `Bonificación de la tienda = (${pesos(pool.ventas_cuentan)} − ${pesos(pool.meta)}) ${cuentaPool(r)} = ${pesos(pool.pool)}.`
+        : `No llegó a la meta: le faltan ${pesos(Math.max(0, n(pool.meta) - n(pool.ventas_cuentan)))} de ventas que cuenten. Sin meta no hay bonificación de la tienda.`,
       `"Ventas que cuentan" son las que el cliente ya pagó ${laParte(r.meta_req_pagado_pct)}, sin la franquicia de la tarjeta y con lo que abonaron los independientes. Las restauraciones ${restauracionYMeta(r)}.`,
     ])
     if (pool.reparto?.length) {
-      seccion(ws, `Cómo se reparte el pool de ${mes}`, pool.reparto_modo === 'iguales'
+      seccion(ws, `Cómo se reparte la bonificación de la tienda de ${mes}`, pool.reparto_modo === 'iguales'
         ? 'En partes iguales entre los del equipo.'
-        : `Por días: pool × días de la persona ÷ ${diasTexto(pool.dias_total)} días de todos. Quien cubre a otro se queda con esos días.`)
+        : `Por días: bonificación de la tienda × días de la persona ÷ ${diasTexto(pool.dias_total)} días de todos. Quien cubre a otro se queda con esos días.`)
       tabla(ws, [
         { titulo: 'Persona', campo: 'nombre', ancho: 38 },
         { titulo: 'Días en la tienda', campo: 'dias', ancho: 20, total: 'suma' },
-        { titulo: 'Su parte del pool', campo: 'parte', fmt: 'pesos', ancho: 16, total: 'suma' },
+        { titulo: 'Su parte de la bonificación de la tienda', campo: 'parte', fmt: 'pesos', ancho: 16, total: 'suma' },
       ], pool.reparto, { totales: true, filtro: false })
       if (pool.reemplazos?.length) {
         explicar(ws, pool.reemplazos.map(x => x.reemplaza
@@ -185,7 +186,7 @@ function renglonesDe(d, p, { independiente = false } = {}) {
       fecha: fecha(o.fecha_venta),
       fecha_iso: String(o.fecha_venta ?? ''),
       tipo: tipoDe(o, b),
-      como: FORMA[o.forma_pago] ?? 'Pool del equipo',
+      como: FORMA[o.forma_pago] ?? 'Bonificación de la tienda (equipo)',
       valor: sinOrden ? null : n(o.valor_total_orden),
       pagado: sinOrden ? null : n(o.pagado),
       pct: sinOrden ? null : n(o.pct_pagado),
@@ -200,7 +201,7 @@ function renglonesDe(d, p, { independiente = false } = {}) {
       comision: independiente && o.es_restauracion ? 0 : n(o.monto_comision),
       estado: estadoDeOrden(o, p, d, r),
       estado_clave: o.estado,
-      como_sale: o.forma_pago === 'fuera_del_pool' ? 'Un supervisor la sacó del pool: no suma a la meta ni paga bonificación.' : comoSale(o, b, r),
+      como_sale: o.forma_pago === 'fuera_del_pool' ? 'Un supervisor la sacó de la bonificación de la tienda: no suma a la meta ni paga bonificación.' : comoSale(o, b, r),
     }
   }).sort((a, b) => (a.orden === '(sin orden)') - (b.orden === '(sin orden)') || a.fecha_iso.localeCompare(b.fecha_iso))
 }
@@ -248,9 +249,9 @@ function hojaPersona(wb, ctx, p) {
 
   const filas = renglonesDe(d, p)
   seccion(ws, `Sus órdenes de ${mes}`, filas.some(f => f.orden === '(sin orden)')
-    ? '"(sin orden)" es su parte del pool cuando no tiene ventas propias que cuenten: se le paga entera en ese renglón.'
-    : !p.cuenta?.por_pool ? 'Aquí no hay pool: la bonificación de cada orden es la que se le paga.'
-    : 'En una tienda con pool, la bonificación de cada orden es cómo se reparte su parte del pool sobre sus ventas que ya cuentan; la cuenta real es la del pool' + (ctx.persona ? ' (arriba, en "Por qué").' : ' (hoja "La tienda").'))
+    ? '"(sin orden)" es su parte de la bonificación de la tienda cuando no tiene ventas propias que cuenten: se le paga entera en ese renglón.'
+    : !p.cuenta?.por_pool ? 'Aquí no hay bonificación de la tienda: la bonificación de cada orden es la que se le paga.'
+    : 'En una tienda con meta, la bonificación de cada orden es cómo se reparte su parte de la bonificación de la tienda sobre sus ventas que ya cuentan; la cuenta real es la de la bonificación de la tienda' + (ctx.persona ? ' (arriba, en "Por qué").' : ' (hoja "La tienda").'))
   if (filas.length) {
     tabla(ws, columnasOrdenes(), filas, { totales: true, etiquetaTotal: 'TOTAL', filtro: false })
   } else {
@@ -353,11 +354,11 @@ function hojaComoSeCalcula(wb, ctx) {
     `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% de eso y se le resta a la orden. Lo pagado en efectivo o transferencia no se toca.`,
     '',
     '3. El IVA',
-    `• A las ventas se les quita el IVA (÷ ${divisor(r.iva_divisor)}): en una tienda con pool se le quita al pool, no orden por orden.`,
+    `• A las ventas se les quita el IVA (÷ ${divisor(r.iva_divisor)}): en una tienda con meta se le quita a la cuenta de toda la tienda, no orden por orden.`,
     `• A las restauraciones ${r.iva_en_restauracion ? `también (÷ ${divisor(r.iva_divisor)})` : 'no (son mano de obra)'}.`,
     '',
-    '4. El pool',
-    `• Pool = (ventas de la tienda con ${partePagada(r.meta_req_pagado_pct)} − meta) ${cuentaPool(r)}. Sin meta cumplida no hay pool.`,
+    '4. La bonificación de la tienda',
+    `• Bonificación de la tienda = (ventas de la tienda con ${partePagada(r.meta_req_pagado_pct)} − meta) ${cuentaPool(r)}. Sin meta cumplida no hay bonificación de la tienda.`,
     `• Se parte entre el equipo ${r.reparto_pool === 'iguales' ? 'en partes iguales' : 'por días: cada uno se lleva la parte de los días que estuvo; quien cubre a otro se queda con esos días'}.`,
     '',
     '5. Lo demás',
@@ -395,7 +396,7 @@ function hojaResumenPersona(wb, ctx) {
 
   const filas = L.tiendas.map(t => ({ t, p: t.personas[0] }))
   explicar(ws, [filas.length > 1
-    ? `• Este mes estuvo en ${filas.length} tiendas: ${filas.map(x => x.t.tienda_nombre).join(' y ')}. Cada tienda tiene su propia cuenta (meta y pool, o lo de cada uno si no reparte), así que cobra en cada una lo que le toca allá${filas.some(x => x.p.cuenta?.por_pool) ? ' (en el pool, por los días que estuvo ahí)' : ''}. Nada se paga dos veces. Abajo, una hoja por tienda con el porqué.`
+    ? `• Este mes estuvo en ${filas.length} tiendas: ${filas.map(x => x.t.tienda_nombre).join(' y ')}. Cada tienda tiene su propia cuenta (meta y bonificación de la tienda, o lo de cada uno si no reparte), así que cobra en cada una lo que le toca allá${filas.some(x => x.p.cuenta?.por_pool) ? ' (en la bonificación de la tienda, por los días que estuvo ahí)' : ''}. Nada se paga dos veces. Abajo, una hoja por tienda con el porqué.`
     : `• Este mes estuvo en ${filas[0].t.tienda_nombre}. El porqué está en la hoja de la tienda.`])
   tabla(ws, [
     { titulo: 'Tienda', campo: x => x.t.tienda_nombre, ancho: 34 },
@@ -512,7 +513,7 @@ function hojaComoSeCalculaIndependiente(wb, ctx) {
   titulo(ws, 'Cómo se calcula (independientes)', `Las reglas que rigen en ${mesEnPalabras(d.mes)}.`)
   const lineas = [
     '1. Sus ventas',
-    `• Cobra el ${num(r.indep_pct_venta)}% de cada venta suya (${cuentaVenta(r, 'indep_pct_venta')}), sin meta ni pool.`,
+    `• Cobra el ${num(r.indep_pct_venta)}% de cada venta suya (${cuentaVenta(r, 'indep_pct_venta')}), sin meta ni bonificación de la tienda.`,
     `• Lo pagado con ${mediosConFranquicia(r)} no bonifica completo: la franquicia se queda con el ${num(r.franquicia_pct)}% y se le resta a la orden.`,
     '',
     '2. El bolsón de restauraciones',
@@ -576,6 +577,16 @@ export async function armarLibroTienda({ libro, reglas = null, generadoPor }) {
     generadoPor,
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
   }
+
+  // Primero lo de los jefes: la plantilla que ellos usan (2026-11-25).
+  const jefes = tarjetasDelLibro(libro)
+  hojasDeLosJefes(wb, {
+    titulo: `BONIFICACIONES ${mesTitulo(libro.mes)} · ${String(libro.es_independiente || libro.es_persona ? libro.vendedor_nombre : libro.tienda_nombre).toUpperCase()}`,
+    tarjetas: jefes.tarjetas, anticipos: jefes.anticipos, restauraciones: jefes.restauraciones, reglas,
+    columnaMonto: 'BONIFICACIÓN DEL MES', columnaTotal: 'TOTAL',
+    notaCuadro: 'La bonificación del mes de cada uno, menos los anticipos y abonos que se le descuentan si ya está para pagar. El porqué, en las hojas que siguen.',
+    reservadas: [...ctx.hojaDe.values(), ...(libro.tiendas ?? []).map(t => String(t.tienda_nombre).replace(/^Decasa\s+/i, ''))],
+  })
 
   if (libro.es_persona) {
     hojaResumenPersona(wb, ctx)
