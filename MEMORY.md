@@ -165,8 +165,14 @@ de independientes vendido antes de esa fecha.
   el 5 % es solo de esa persona. Antes se partía como venta: el bolsón recibía la mitad y un
   covendedor **sin tienda no cobraba nada** (no se le creaba renglón). Pidió que se pueda cambiar
   en Reglas: `restauracion_compartida_persona` + `pct_restauracion_compartida_persona`.
-- Por defecto mío (**falta confirmar**): desde noviembre de 2026 (lo de antes queda como se
-  calculó; se mueve la fecha en Reglas); con alguien de tienda (Gladys) el 5 % es solo suyo, no
+- **Desde agosto de 2026** (usuario, 2026-11-25: "todo se tiene que recalcular agosto, septiembre y
+  octubre"): migración `2026_11_25_000002_restauracion_compartida_desde_agosto` (**subida a `main`** el 2026-11-25; en producción solo cambia la R-1122 de Henry con Mónica: +$40.000 a Henry, Flabio y Mónica) corre
+  la regla a agosto y pone al día esas órdenes. Lo pagado no se mueve: al compañero se le abre lo que
+  falta (renglón `rest_compartida`) y a Henry/Flabio Listas les muestra la diferencia del bolsón.
+  Trampa: Listas abre un mes atrasado solo si hay algún renglón "lista" (`mesesConAlgoListo`); si
+  Henry la compartió con Flabio en un mes ya pagado, no hay renglón nuevo y la diferencia del bolsón
+  no aparece sola.
+- Por defecto mío (**falta confirmar**): con alguien de tienda (Gladys) el 5 % es solo suyo, no
   del equipo, y no suma a la meta; con Flabio (ya está en el bolsón) no se le paga otro 5 %; la
   restauración que sube alguien de tienda y comparte con Henry no cambió (la tienda cobra sobre
   la mitad). Detalle en `docs/PROYECTO.md` §6.10. Tests al final de `ComoSeCalculaCadaComisionTest`.

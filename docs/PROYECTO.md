@@ -746,7 +746,7 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   ($req50) y `ComisionIndependientes::delMes` ($estaLista, también las de almacenes).
 - **Restauración de un independiente compartida con otra persona** (usuario, 2026-11-24):
   regla `restauracion_compartida_persona` (`mitad` = lo de antes, por defecto; `cinco_cada_uno`
-  desde 2026-11 con la migración `2026_11_25_000001_restauracion_compartida_con_persona`) y
+  desde 2026-08: la migración `2026_11_25_000001_restauracion_compartida_con_persona` la puso desde noviembre y `2026_11_25_000002_restauracion_compartida_desde_agosto` la corrió a agosto y puso al día esas órdenes) y
   `pct_restauracion_compartida_persona` (5 %, por persona). Con `cinco_cada_uno` la orden no se
   parte: el bolsón la recibe entera (`ComisionIndependientes::mitadDelIndependiente`) y el
   covendedor tiene un renglón `origen = rest_compartida` con la restauración entera (sin el

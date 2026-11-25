@@ -1186,10 +1186,40 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertSame('venta', $pagada->origen);
         $this->assertEquals(1_000_000, (float) $pagada->valor_orden);
         $this->assertEquals(50_000, (float) $pagada->monto_comision);
-        // ...y, como cuando una orden sube de valor, lo que falta va en un
-        // renglón aparte con la diferencia: nunca se le cobra lo ya pagado.
-        $this->assertEquals(1_000_000, (float) Comision::where('vendedor_id', self::GLADYS)->where('estado', '!=', 'pagada')->sum('valor_orden'));
-        $this->assertFalse(Comision::where('origen', ComisionController::ORIGEN_RESTAURACION_COMPARTIDA)->exists());
+        // ...y lo que falta para la restauración entera va en un renglón de
+        // restauración compartida (solo suyo, sin meta), no como venta de su tienda.
+        $falta = Comision::where('vendedor_id', self::GLADYS)->where('estado', '!=', 'pagada')->sole();
+        $this->assertSame(ComisionController::ORIGEN_RESTAURACION_COMPARTIDA, $falta->origen);
+        $this->assertEquals(1_000_000, (float) $falta->valor_orden);
+
+        // Volver a sincronizar no abre otra diferencia encima.
+        ComisionController::sincronizarValorOrden($orden->fresh());
+        $this->assertSame(2, Comision::where('vendedor_id', self::GLADYS)->count());
+
+        // Entre lo pagado y lo que falta: su 5% de la restauración entera.
+        $this->assertEquals(100_000, $this->loQueCobraCadaUno()['Gladys']);
+    }
+
+    public function test_la_segunda_migracion_la_lleva_a_agosto_y_pone_al_dia_lo_pagado(): void
+    {
+        $this->conRestauracionCompartida(null);
+        $orden = $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::DANIELA);
+        // Agosto ya se pagó con la regla de antes: Henry su parte del bolsón y Daniela nada (sin tienda).
+        Comision::where('orden_id', $orden->id)->update(['estado' => 'pagada', 'monto_comision' => 0]);
+        $this->assertFalse(Comision::where('vendedor_id', self::DANIELA)->exists());
+
+        foreach (['2026_11_25_000001_restauracion_compartida_con_persona', '2026_11_25_000002_restauracion_compartida_desde_agosto'] as $m) {
+            $mig = require base_path("database/migrations/{$m}.php");
+            ob_start(); $mig->up(); ob_end_clean();
+        }
+
+        $this->assertSame('2026-08', DB::table('comision_reglas')->where('clave', 'restauracion_compartida_persona')->value('desde_mes'));
+        $this->assertSame(1, DB::table('comision_reglas')->where('clave', 'restauracion_compartida_persona')->count());
+        // El bolsón de agosto recibe la entera y Daniela tiene su 5% por cobrar.
+        $this->assertEquals(['Henry' => 100_000, 'Flabio' => 100_000], $this->independientes());
+        $this->assertEquals(100_000, $this->loQueCobraCadaUno()['Daniela']);
+        // Lo pagado de Henry no se movió.
+        $this->assertSame('pagada', Comision::where('vendedor_id', self::HENRY)->value('estado'));
     }
 
     public function test_la_migracion_prende_la_regla_desde_noviembre_una_sola_vez(): void

@@ -310,7 +310,7 @@ class ReglasComision
             'opciones' => [
                 'mitad' => ['nombre' => 'Se parte por la mitad, como una venta',
                     'explica' => 'Al bolsón entra solo la mitad del independiente y el compañero cobra sobre la otra mitad. '
-                        . 'Es como funcionaba antes de noviembre de 2026.'],
+                        . 'Es como funcionaba antes de agosto de 2026.'],
                 'cinco_cada_uno' => ['nombre' => 'Entera al bolsón y el compañero cobra aparte',
                     'explica' => 'La restauración entra entera al bolsón (cada independiente cobra su porcentaje) y el compañero cobra '
                         . 'su propio porcentaje sobre la restauración entera, solo para él. Si el compañero ya cobra del bolsón, '

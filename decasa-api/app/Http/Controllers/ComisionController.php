@@ -4221,6 +4221,9 @@ class ComisionController extends Controller
         // Antes de leer las propias: el renglón aparte del compañero de una
         // restauración compartida lleva su propia base (la restauración entera).
         self::sincronizarRestauracionCompartida($orden);
+        // Lo del compañero ya quedó cuadrado ahí (lo pagado + lo que falta):
+        // si pasara también por aquí, se le abriría otra diferencia encima.
+        $companero = $orden->es_compartida ? self::companeroDeRestauracion($orden) : null;
 
         // Los repartos llevan su propia base (el pedazo de cada uno), asi que
         // no pueden recibir el valor de la orden entera. Se pregunta también
@@ -4229,6 +4232,7 @@ class ComisionController extends Controller
         $propias = Comision::where('orden_id', $orden->id)
             ->where(fn ($q) => $q->whereNull('origen')
                                  ->orWhereNotIn('origen', self::ORIGENES_REPARTIDOS))
+            ->when($companero !== null, fn ($q) => $q->where('vendedor_id', '!=', $companero))
             ->get()
             // Por persona: en una compartida quien vendió y el covendedor
             // pueden tener partes distintas (regla compartida_parte_vendedor).
@@ -4609,9 +4613,23 @@ class ComisionController extends Controller
             return;
         }
 
-        $suyas = Comision::where('orden_id', $orden->id)->where('vendedor_id', $companero)->orderBy('id')->get();
-        // Ya se le pagó (con esta regla o con la de antes): lo pagado se queda como estaba.
-        if ($suyas->contains(fn ($c) => $c->estado === 'pagada')) return;
+        $suyas   = Comision::where('orden_id', $orden->id)->where('vendedor_id', $companero)->orderBy('id')->get();
+        $pagadas = $suyas->where('estado', 'pagada');
+        $abiertas = $suyas->where('estado', '!=', 'pagada')->values();
+
+        // Lo pagado se queda como se pagó. Si ya se le pagó algo (con esta
+        // regla o con la de antes, la mitad), lo que falta para la
+        // restauración entera va en un renglón de este mismo tipo: solo suyo
+        // y sin meta, no como una venta de su tienda. Pasa al llevar la regla
+        // a meses ya pagados (usuario, 2026-11-25: "todo se tiene que
+        // recalcular agosto, septiembre y octubre").
+        $entera = round((float) $orden->valor_total - self::costoDatafono($orden));
+        $falta  = round($entera - (float) $pagadas->sum(fn ($c) => (float) $c->valor_orden));
+
+        if ($falta < 1) {
+            $abiertas->each->delete();
+            return;
+        }
 
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
         // Un vendedor o un supervisor sin tienda queda con la de la orden.
@@ -4622,16 +4640,16 @@ class ComisionController extends Controller
             'origen'           => self::ORIGEN_RESTAURACION_COMPARTIDA,
             'tienda_id'        => $tienda,
             'mes_venta'        => $fechaVenta->format('Y-m'),
-            'valor_orden'      => round((float) $orden->valor_total - self::costoDatafono($orden)),
+            'valor_orden'      => $falta,
             'fecha_venta'      => $fechaVenta->toDateString(),
             'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $tienda),
         ];
 
-        $primera = $suyas->first();
+        $primera = $abiertas->first();
         if ($primera) {
             $primera->update($datos);
-            // Un renglón por persona: lo demás de ella en esta orden sobra.
-            $suyas->slice(1)->each->delete();
+            // Un renglón abierto por persona: lo demás de ella en esta orden sobra.
+            $abiertas->slice(1)->each->delete();
         } else {
             Comision::create($datos + ['orden_id' => $orden->id, 'vendedor_id' => $companero, 'estado' => 'pendiente']);
         }
