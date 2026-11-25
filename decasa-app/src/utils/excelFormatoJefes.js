@@ -63,6 +63,9 @@ export function nombreCorto(tienda) {
 
 function nombreDeHoja(base, usadas) {
   let h = String(base).replace(/[[\]:*?/\\]/g, '').slice(0, 28) || 'HOJA'
+  // La tienda "Independientes" chocaba con la hoja nuestra de ese nombre y
+  // salía "INDEPENDIENTES 2": mejor "TIENDA INDEPENDIENTES".
+  if (usadas.has(h.toLowerCase()) && !usadas.has(`tienda ${h}`.toLowerCase())) h = `TIENDA ${h}`.slice(0, 31)
   let i = 2
   while (usadas.has(h.toLowerCase())) h = `${String(base).slice(0, 25)} ${i++}`
   usadas.add(h.toLowerCase())
@@ -385,7 +388,6 @@ function hojaDeTienda(wb, ctx, tienda, tarjetas) {
   anchos(ws)
   const meses = [...new Set(tarjetas.map(t => t.mes))].sort()
   for (const mes of meses) seccionMes(ws, ctx, tienda, mes, tarjetas.filter(t => t.mes === mes))
-  ws.views = [{ state: 'frozen', ySplit: 0 }]
 }
 
 // ── Restauraciones e independientes ──────────────────────────────────────────
