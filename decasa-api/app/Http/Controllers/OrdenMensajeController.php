@@ -254,8 +254,11 @@ class OrdenMensajeController extends Controller
      */
     private function notificar(Orden $orden, Usuario $autor, OrdenMensaje $msg, array $mencionados): void
     {
+        // Las notas automáticas no cuentan: quien canceló un producto o resolvió
+        // una garantía no se metió en la conversación por eso.
         $anteriores = OrdenMensaje::where('orden_id', $orden->id)
             ->where('id', '!=', $msg->id)
+            ->when(OrdenMensaje::hayColumnaSistema(), fn ($q) => $q->where('es_sistema', false))
             ->get(['usuario_id', 'mencionados']);
 
         $yaEscribieron     = $anteriores->pluck('usuario_id')->all();
@@ -322,19 +325,6 @@ class OrdenMensajeController extends Controller
 
     private function formato(OrdenMensaje $m): array
     {
-        return [
-            'id'          => $m->id,
-            'mensaje'     => $m->mensaje,
-            'imagen_url'  => $m->imagen_url,
-            // Todas las fotos del mensaje; los viejos traen solo `imagen_url`.
-            'imagenes'    => $m->imagenes ?: ($m->imagen_url ? [$m->imagen_url] : []),
-            'mencionados' => $m->mencionados ?? [],
-            'created_at'  => $m->created_at,
-            'usuario'     => [
-                'id'     => $m->usuario?->id,
-                'nombre' => $m->usuario?->nombre,
-                'rol'    => $m->usuario?->rol,
-            ],
-        ];
+        return $m->aPantalla();
     }
 }

@@ -900,7 +900,7 @@ class DevolucionController extends Controller
         $nombre = $devolucion->item?->nombre_custom
             ?: ($devolucion->item?->producto?->nombre ?? 'Un producto');
 
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $orden->id,
             'usuario_id' => $usuario->id,
             'mensaje'    => "🔄 Devuelto el {$devolucion->fecha->format('d/m/Y')}: {$devolucion->cantidad} × {$nombre}. "
@@ -911,7 +911,7 @@ class DevolucionController extends Controller
 
     private function anotarEnLaOrden(Devolucion $devolucion, Usuario $usuario, string $queSeHizo): void
     {
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $devolucion->orden_id,
             'usuario_id' => $usuario->id,
             'mensaje'    => "Sobre la devolución del {$devolucion->fecha->format('d/m/Y')}: {$queSeHizo}."

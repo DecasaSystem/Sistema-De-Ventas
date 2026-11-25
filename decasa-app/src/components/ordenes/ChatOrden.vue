@@ -11,7 +11,7 @@ import { conReintento } from '@/utils/colaPeticiones'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   ChatBubbleLeftRightIcon, PaperAirplaneIcon, AtSymbolIcon, LockClosedIcon,
-  PhotoIcon, XMarkIcon,
+  PhotoIcon, XMarkIcon, InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -425,9 +425,26 @@ function iniciales(nombre) {
         Pregúntale a un supervisor sobre esta orden y queda guardado aquí.
       </p>
 
+      <template v-for="m in mensajes" :key="m.id">
+      <!-- Nota automática ("se canceló lo que faltaba", "garantía resuelta"…):
+           al centro y en gris, con quién hizo la acción. Antes salía como si
+           esa persona la hubiera escrito. -->
+      <div v-if="m.es_sistema" class="flex justify-center">
+        <div class="max-w-[90%] rounded-xl border border-dashed border-gray-300 bg-white px-3 py-2 text-center">
+          <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 flex items-center justify-center gap-1">
+            <InformationCircleIcon class="w-3 h-3" />
+            Aviso del sistema<template v-if="m.usuario?.nombre"> · {{ m.usuario.nombre }}</template> · {{ hora(m.created_at) }}
+          </p>
+          <div v-if="fotosDe(m).length" :class="['my-1', fotosDe(m).length > 1 ? 'grid grid-cols-2 gap-1' : 'flex justify-center']">
+            <a v-for="(url, k) in fotosDe(m)" :key="k" :href="url" target="_blank" rel="noopener" class="block">
+              <img :src="cloudinaryOpt(url, 300)" loading="lazy" class="rounded-lg object-cover border border-gray-200 max-h-32 w-auto" />
+            </a>
+          </div>
+          <p v-if="m.mensaje" class="text-xs text-gray-600 leading-snug whitespace-pre-line break-words">{{ m.mensaje }}</p>
+        </div>
+      </div>
       <div
-        v-for="m in mensajes"
-        :key="m.id"
+        v-else
         :class="['flex gap-2', esMio(m) ? 'flex-row-reverse' : '']"
       >
         <!-- Avatar con iniciales -->
@@ -475,6 +492,7 @@ function iniciales(nombre) {
           </div>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Escribir -->

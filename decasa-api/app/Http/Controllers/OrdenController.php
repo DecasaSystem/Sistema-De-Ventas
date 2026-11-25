@@ -1668,7 +1668,7 @@ class OrdenController extends Controller
         if ($antes != $ficha) {
             try {
                 $nombre = $item->producto?->nombre ?? $item->nombre_custom ?? 'el producto';
-                \App\Models\OrdenMensaje::create([
+                \App\Models\OrdenMensaje::delSistema([
                     'orden_id'   => $orden->id,
                     'usuario_id' => $request->user()->id,
                     'mensaje'    => "📝 Se " . ($antes ? 'cambió' : 'llenó') . " la ficha de {$nombre} para la declaración de diseños especiales.",
@@ -4152,7 +4152,7 @@ class OrdenController extends Controller
         $texto      = 'Se canceló lo que faltaba (' . implode(', ', $quitados) . '). La orden queda entregada con lo que el cliente ya tiene'
                     . ($saldo < -0.5 ? '. Le quedan $' . number_format(-$saldo, 0, ',', '.') . ' a favor' : '') . '.';
 
-        OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+        OrdenMensaje::delSistema(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
 
         if ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $usuario->id) {
             NotificacionService::crear('orden_editada', 'Se canceló lo que faltaba de tu orden',

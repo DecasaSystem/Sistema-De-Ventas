@@ -40,6 +40,7 @@ class CachesDePeticion
         \App\Support\ReglasComision::olvidarCache();
         \App\Services\GarantiaService::olvidarCache();
         \App\Http\Controllers\OrdenMensajeController::olvidarCache();
+        \App\Models\OrdenMensaje::olvidarCache();
         \App\Services\CostoEmpleador::olvidarCache();
         \App\Services\Prestaciones::olvidarCache();
         \App\Services\Finanzas\ConfigFinanzas::olvidarCache();

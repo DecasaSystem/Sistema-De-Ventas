@@ -1491,7 +1491,7 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
-- **Chat de la orden: venta compartida, respaldo y aviso directo** (2026-11-25, **sin subir**, sin
+- **Chat de la orden: venta compartida, respaldo y aviso directo** (2026-11-25, **subido a `main`** ese día, commit f8817356, sin
   migración, rama `claude/elated-pike-5bbb9b`). Pedido del usuario: "la venta no es solo de una
   persona sino de la que la subió y de la que está compartida": en la @ salen el vendedor, el
   covendedor, los vendedores de la tienda de la orden y los de la tienda compartida
@@ -1504,6 +1504,12 @@ Decisiones del dueño del 2026-10-08:
   Informe completo con los demás problemas (mensajes del sistema a nombre de la persona, chat cerrado
   después de entregar, Enter en el celular, duplicados, sin "no leídos" por orden) en la carpeta de
   notas de esa sesión; pendientes de decidir con el usuario.
+  **Mismo día, notas automáticas del chat** (**subido a `main`** ese día, trae **migración**
+  `2026_11_26_000002_mensajes_del_sistema_en_chat_de_orden`, solo agrega `orden_mensajes.es_sistema`):
+  cancelaciones, garantías, devoluciones, firma, etc. se escriben con `OrdenMensaje::delSistema`
+  (única puerta; nunca `OrdenMensaje::create` para una nota automática): van marcadas, salen en vivo
+  (al terminar la transacción) y no cuentan como "ya escribió" para los avisos. La pantalla las pinta
+  al centro, en gris, "Aviso del sistema · quién". Las viejas quedan como mensajes normales.
 - **Análisis de Nómina + 2 arreglos** (2026-11-18, **subido a `main`** ese día, sin migración, rama
   `claude/dazzling-shaw-39a885`). Informe en `docs/analisis-nomina.md` (problemas A1–E, preguntas
   para el dueño/contador). Arreglados A1 y A2 (pedido del usuario): (1) **cambiar la frecuencia de

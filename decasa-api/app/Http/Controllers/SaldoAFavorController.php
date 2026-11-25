@@ -110,7 +110,7 @@ class SaldoAFavorController extends Controller
                 'notas'       => "Devolución del saldo a favor: {$data['motivo']} — lo registró {$usuario->nombre}",
             ]);
 
-            OrdenMensaje::create([
+            OrdenMensaje::delSistema([
                 'orden_id'   => $orden->id,
                 'usuario_id' => $usuario->id,
                 'mensaje'    => '💸 Se le devolvieron $' . number_format((float) $data['monto'], 0, ',', '.')

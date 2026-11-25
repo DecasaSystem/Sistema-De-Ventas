@@ -346,7 +346,7 @@ class CambioDeProducto
                 'recibido_por_id'   => $quien->id,
             ]);
 
-            OrdenMensaje::create([
+            OrdenMensaje::delSistema([
                 'orden_id'   => $orden->id,
                 'usuario_id' => $quien->id,
                 'mensaje'    => "📦 Llegó lo devuelto: {$d->cantidad} × " . self::nombre($item) . '. '
@@ -377,7 +377,7 @@ class CambioDeProducto
         $d->update(['recoger_el' => $fecha, 'recoger_con_entrega' => $recogida === 'con_entrega']);
 
         $item = OrdenItem::find($d->orden_item_id);
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $d->orden_id,
             'usuario_id' => $quien->id,
             'mensaje'    => '🗓️ Recogida de ' . ($item ? self::nombre($item) : 'lo devuelto') . ': '
@@ -637,7 +637,7 @@ class CambioDeProducto
                         : 'El valor de la venta baja $' . number_format(-$diferencia, 0, ',', '.') . '.'));
         }
 
-        OrdenMensaje::create([
+        OrdenMensaje::delSistema([
             'orden_id'   => $orden->id,
             'usuario_id' => $quien->id,
             'mensaje'    => $msg,

@@ -284,6 +284,34 @@ class ChatOrdenNotificacionTest extends TestCase
         $this->assertSame(0, Notificacion::where('usuario_id', $gladys->id)->count());
     }
 
+    public function test_una_nota_automatica_va_marcada_y_no_mete_a_la_persona_en_la_conversacion(): void
+    {
+        Schema::table('orden_mensajes', fn (Blueprint $t) => $t->boolean('es_sistema')->default(false));
+        \App\Support\CachesDePeticion::olvidarTodo();
+        Queue::fake();
+
+        // Carlos (supervisor) cancela un producto: queda la nota a su nombre.
+        \App\Models\OrdenMensaje::delSistema([
+            'orden_id' => $this->orden->id, 'usuario_id' => $this->otroSup->id,
+            'mensaje'  => 'Se canceló la silla.',
+        ]);
+
+        $this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()
+            ->assertJsonPath('mensajes.0.es_sistema', true)
+            ->assertJsonPath('mensajes.0.usuario.nombre', 'Carlos');
+
+        // Después Paola pregunta algo: a Carlos no le llega por haber cancelado.
+        $this->escribir($this->paola, ['mensaje' => '¿Y la mesa?'])->assertCreated()
+            ->assertJsonPath('es_sistema', false);
+        $this->assertSame(0, Notificacion::where('usuario_id', $this->otroSup->id)->count());
+
+        // Lo que escribe una persona sí la mete, como siempre.
+        $this->escribir($this->otroSup, ['mensaje' => 'La mesa sigue'])->assertCreated();
+        $this->escribir($this->paola, ['mensaje' => 'Gracias'])->assertCreated();
+        $this->assertSame(1, Notificacion::where('usuario_id', $this->otroSup->id)->count());
+    }
+
     public function test_leer_la_notificacion_no_la_borra(): void
     {
         Queue::fake();

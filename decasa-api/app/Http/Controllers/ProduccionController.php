@@ -464,7 +464,7 @@ class ProduccionController extends Controller
         // Queda escrito en el hilo de la orden: es donde el vendedor y el
         // cliente van a buscar por qué se corrió la fecha.
         if ($orden) {
-            OrdenMensaje::create([
+            OrdenMensaje::delSistema([
                 'orden_id'   => $orden->id,
                 'usuario_id' => $usuario->id,
                 'mensaje'    => "↩️ \"{$productoNombre}\" volvió de despacho al taller antes de entregarse. "

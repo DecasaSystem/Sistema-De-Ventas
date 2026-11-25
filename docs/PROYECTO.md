@@ -245,7 +245,9 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   (`tienda_abonada_id`), en grupos con "Toda la tienda"; siempre filtrado con
   `puedeParticipar` (también los avisos). La pantalla vuelve a pedir el hilo cada minuto y al
   volver a la app (respaldo del WebSocket); el aviso `orden_mensaje` abre la orden con
-  `?chat=<mensaje>` y baja hasta el chat.
+  `?chat=<mensaje>` y baja hasta el chat. Las notas automáticas (cancelar, garantías,
+  devoluciones, firma…) entran solo por `OrdenMensaje::delSistema` (`es_sistema`): salen en
+  vivo, se pintan aparte y no meten a quien hizo la acción en los avisos del hilo.
 - **Visibilidad:** `Orden::scopeVisiblesPara` / `laPuedeVer` / `laPuedeCobrar` /
   `laPuedeEditar` (ver `MEMORY.md` §2).
 

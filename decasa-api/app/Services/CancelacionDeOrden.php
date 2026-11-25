@@ -117,7 +117,7 @@ class CancelacionDeOrden
         }
         $texto = '⚠️ Orden cancelada. ' . implode(' ', $partes);
 
-        \App\Models\OrdenMensaje::create(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
+        \App\Models\OrdenMensaje::delSistema(['orden_id' => $orden->id, 'usuario_id' => $usuario->id, 'mensaje' => $texto]);
 
         foreach (Usuario::where('rol', 'supervisor')->where('activo', true)->where('id', '!=', $usuario->id)->get() as $sup) {
             NotificacionService::crear(
