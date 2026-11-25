@@ -267,7 +267,7 @@ function comoSeCalculo(c) {
       return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga bonificación. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
-        return `FV2 especial, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
+        return `FV2, sin restar el IVA: ${pesos(valor)} × ${num(r.pct_individual)}% = ${pesos(monto)}.`
       }
       return `${pesos(valor)} ${cuentaVenta(r, 'pct_individual')} = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
     case 'reemplazo_ventas':

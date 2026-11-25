@@ -2431,7 +2431,7 @@ onMounted(() => {
                     >Descuento</span>
                     <span
                       v-if="o.sin_descontar_iva"
-                      title="FV2 especial: la bonificación se sacó sobre el valor completo, sin quitarle el IVA"
+                      title="FV2: la bonificación se sacó sobre el valor completo, sin quitarle el IVA"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
                     >Sin restar IVA</span>
                     <span

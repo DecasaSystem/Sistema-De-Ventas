@@ -58,7 +58,10 @@ export function explicacionDelBloque(p, b, r, tienda = null, { excel = false } =
           lineas.push(`Es poco porque en ${mesEnPalabras(b.mes)} estuvo pocos días en la tienda: el pool se parte por los días que trabajó cada uno.`)
         }
       } else {
-        lineas.push(`Pool de ${b.tienda_nombre}: (${pesos(c.total_tienda_mes)} vendido con ${partePagada(r.meta_req_pagado_pct)} − ${pesos(c.meta_tienda)} de meta) ${cuentaPool(r)} = ${pesos(c.comision_pool)}.`)
+        lineas.push(n(c.ventas_fv2) > 0
+          ? `Pool de ${b.tienda_nombre}: (${pesos(c.total_tienda_mes)} vendido con ${partePagada(r.meta_req_pagado_pct)} − ${pesos(c.meta_tienda)} de meta) ${cuentaPool(r)}, `
+            + `y a las FV2 (${pesos(c.ventas_fv2)} de lo vendido) no se les quita el IVA = ${pesos(c.comision_pool)}.`
+          : `Pool de ${b.tienda_nombre}: (${pesos(c.total_tienda_mes)} vendido con ${partePagada(r.meta_req_pagado_pct)} − ${pesos(c.meta_tienda)} de meta) ${cuentaPool(r)} = ${pesos(c.comision_pool)}.`)
         lineas.push(r.reparto_pool === 'iguales'
           ? `Su parte: partes iguales entre el equipo = ${pesos(c.comision_asesor)}.`
           : `Su parte: ${c.parte_dias} de ${c.partes_dias} días del equipo = ${pesos(c.comision_pool)} × ${c.parte_dias} ÷ ${c.partes_dias} = ${pesos(c.comision_asesor)}.`)

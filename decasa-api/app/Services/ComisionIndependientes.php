@@ -235,11 +235,14 @@ class ComisionIndependientes
                 in_array($o->id, $idsRestauracion, true),
                 true,
             );
-            $venta = (float) $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-                ->sum($parte);
+            // Una FV2 va entera también para el almacén (regla iva_en_fv2).
+            $esFv2 = fn ($o) => ReglasComision::fv2SinIva($o->serie ?? null, $mes, $tiendaId);
+            $ventas = $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true));
+            $venta = (float) $ventas->reject($esFv2)->sum($parte);
+            $fv2   = (float) $ventas->filter($esFv2)->sum($parte);
             $rest  = (float) $grupo->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum($parte);
-            return (ReglasComision::sinIva($venta, false, $mes, $tiendaId) + ReglasComision::sinIva($rest, true, $mes, $tiendaId))
+            return (ReglasComision::sinIva($venta, false, $mes, $tiendaId) + $fv2 + ReglasComision::sinIva($rest, true, $mes, $tiendaId))
                 * ReglasComision::numero('almacen_pct', $mes, $tiendaId);
         };
 
@@ -460,7 +463,8 @@ class ComisionIndependientes
                 // Ya se le pagó y la orden subió: lo que falta (2026-11-19).
                 'diferencia'     => $diferenciaDe($o),
                 // Una FV2 marcada: a su venta no se le quitó el IVA.
-                'sin_descontar_iva' => (bool) $o->sin_descontar_iva,
+                'sin_descontar_iva' => ! in_array($o->id, $idsRestauracion, true) && self::ivaDe($o, $mes) === 1.0
+                                       && ReglasComision::si('iva_en_venta', $mes),
                 // Para explicar la base en el Excel de Listas: la orden entera
                 // y lo pagado con tarjeta (lo que se le resta).
                 'valor_orden_entera' => (float) $o->valor_orden,
@@ -505,7 +509,9 @@ class ComisionIndependientes
      */
     private static function ivaDe(object $o, string $mes): float
     {
-        if (! empty($o->sin_descontar_iva) || ! ReglasComision::si('iva_en_venta', $mes)) return 1.0;
+        // Y toda FV2 desde la regla iva_en_fv2 (usuario, 2026-11-25).
+        if (! empty($o->sin_descontar_iva) || ! ReglasComision::si('iva_en_venta', $mes)
+            || ReglasComision::fv2SinIva($o->serie ?? null, $mes)) return 1.0;
 
         return ReglasComision::numero('iva_divisor', $mes);
     }

@@ -177,6 +177,29 @@ de independientes vendido antes de esa fecha.
   restauración que sube alguien de tienda y comparte con Henry no cambió (la tienda cobra sobre
   la mitad). Detalle en `docs/PROYECTO.md` §6.10. Tests al final de `ComoSeCalculaCadaComisionTest`.
 
+### A ninguna FV2 se le quita el IVA (usuario, 2026-11-25, **sin subir**, trae **migración** `2026_11_26_000001_fv2_sin_quitar_el_iva`, solo inserta una regla)
+- "Todos, desde siempre, los FV2 no se les quita el IVA, a ningún FV2, ni de vendedores ni de nadie."
+  Antes solo iban enteras las marcadas a mano (`ordenes.sin_descontar_iva`, las de Henry y Flabio) y
+  solo en el 5 % de quien vendió; las de Norte y El Edén se dividían por 1,19 en el pool.
+- Regla `iva_en_fv2` (Reglas → IVA, "Quitar el IVA a las FV2"), defecto Sí = lo de antes; la migración
+  la pone en No **desde 2026-10**. Usuario: **lo ya pagado no se mueve** ("solo lo no pagado"): en
+  producción (solo lectura, 2026-11-25) ago y sep de Norte y El Edén están pagados; oct no, salvo el
+  renglón `parte_pool` de NN en Norte (empresa), al que el pool más grande le abre una diferencia chica.
+- Con la regla en No: 5 % directo, covendedor, reemplazo por ventas y almacén van enteros; en el pool
+  la FV2 **suma a la meta con lo que vale** y al sacar el pool no se le quita el IVA (usuario: "al fv2 no
+  se le quita IVA y ya"): `desglosePool` agrega una línea `fv2` = FV2 que cuentan × (1 − 1 ÷ 1,19) × %,
+  o sea (normales + FV2 × 1,19 − meta) ÷ 1,19 × 5 %. Solo mensuales (las trimestrales no tienen FV2).
+  Facturación y Finanzas no cambiaron (siguen con `sin_descontar_iva`). El switch "no restar el IVA" de
+  Nueva/Editar orden ya no cambia la bonificación (con la regla en No todas van enteras).
+  Tests al final de la sección FV2 de `ComoSeCalculaCadaComisionTest`.
+
+### Venta sin la mitad pagada en un mes ya pagado (revisado 2026-11-25, sin cambios)
+- Se queda en su mes. Cuando el cliente completa la mitad, el libro del pool la cuenta (mira todos los
+  pagos, sin fecha de corte), el pool de ese mes crece y a cada uno se le abre la diferencia
+  (`crearPartesDePool` / portadores); sale en Listas como mes atrasado y se paga en el siguiente pago.
+  También si sin ella no se había llegado a la meta. Trimestrales: el pool queda quieto al primer pago.
+  Test `AuditoriaComisionesTest::test_si_el_pool_crece_despues_de_pagar_se_abre_otro_renglon_por_la_diferencia`.
+
 ### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
   Ajustes, clave `restauracion_trabajos` en `configuracion`, JSON) o uno escrito a mano, cada uno

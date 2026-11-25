@@ -860,6 +860,93 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(500_000, $cobra['Manuela']);
     }
 
+    // ─────────── A ninguna FV2 se le quita el IVA (usuario, 2026-11-25) ───────────
+
+    /** Una FV2 de las de siempre, sin la marca a mano. */
+    private function fv2(Orden $orden, int $numero = 30): Orden
+    {
+        DB::table('ordenes')->where('id', $orden->id)->update(['serie' => 'FV2', 'serie_numero' => $numero]);
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        return $orden->fresh();
+    }
+
+    /** La regla de la migración 2026_11_26_000001: ninguna FV2 resta el IVA. */
+    private function ningunaFv2RestaIva(): void
+    {
+        if (! Schema::hasTable('comision_reglas')) {
+            Schema::create('comision_reglas', function (Blueprint $t) {
+                $t->id(); $t->string('clave', 50); $t->string('alcance', 10); $t->unsignedBigInteger('alcance_id')->nullable();
+                $t->json('valor')->nullable(); $t->char('desde_mes', 7); $t->string('nota', 200)->nullable();
+                $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+            });
+        }
+        $this->ponerRegla('iva_en_fv2', false);
+    }
+
+    public function test_en_el_pool_la_fv2_entra_sin_quitarle_el_iva(): void
+    {
+        $this->ningunaFv2RestaIva();
+        $this->orden(self::PAOLA, self::NORTE, 38_000_000);
+        $this->fv2($this->orden(self::PAOLA, self::NORTE, 4_000_000));
+
+        // (38.000.000 + 4.000.000 × 1,19 − 40.000.000) ÷ 1,19 × 5% = $115.966
+        // ÷ 3 = $38.655. Antes: (42.000.000 − 40.000.000) ÷ 1,19 × 5% ÷ 3 = $28.011.
+        $this->assertEqualsWithDelta(38_655, $this->loQueCobraCadaUno()['Paola'], 2);
+    }
+
+    public function test_sin_la_regla_la_fv2_del_pool_sigue_como_antes(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 38_000_000);
+        $this->fv2($this->orden(self::PAOLA, self::NORTE, 4_000_000));
+
+        $this->assertEqualsWithDelta(28_011, $this->loQueCobraCadaUno()['Paola'], 2);
+    }
+
+    public function test_la_meta_se_mide_con_lo_que_vale_la_fv2(): void
+    {
+        // 36.000.000 + 3.500.000 = 39.500.000: no llega a los 40 M. Sin IVA
+        // la FV2 "valdría" 4.165.000 y pasaría, pero la meta es de ventas.
+        $this->ningunaFv2RestaIva();
+        $this->orden(self::PAOLA, self::NORTE, 36_000_000);
+        $this->fv2($this->orden(self::PAOLA, self::NORTE, 3_500_000));
+
+        $this->assertEquals(0, $this->loQueCobraCadaUno()['Paola'] ?? 0);
+    }
+
+    public function test_fv2_sin_marcar_de_alguien_de_tienda_sin_meta_va_entera(): void
+    {
+        $this->ningunaFv2RestaIva();
+        $this->fv2($this->orden(self::MANUELA, self::VIRTUAL, 10_000_000));
+
+        $this->assertEquals(500_000, $this->loQueCobraCadaUno()['Manuela']);
+    }
+
+    public function test_con_la_regla_el_almacen_tampoco_le_quita_el_iva_a_la_fv2(): void
+    {
+        $this->ningunaFv2RestaIva();
+        $this->fv2($this->orden(self::HENRY, null, 10_000_000, abonaA: self::EDEN));
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $this->assertEquals(500_000, collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY)['comision']);
+        $this->assertEqualsWithDelta(500_000, collect($r['almacenes'])->firstWhere('tienda_id', self::EDEN)['comision'], 2);
+        $this->assertTrue($r['ordenes'][0]['sin_descontar_iva']);
+    }
+
+    public function test_la_migracion_apaga_el_iva_de_las_fv2_desde_octubre(): void
+    {
+        $this->ningunaFv2RestaIva();
+        DB::table('comision_reglas')->delete();
+
+        $m = require base_path('database/migrations/2026_11_26_000001_fv2_sin_quitar_el_iva.php');
+        ob_start(); $m->up(); $m->up(); ob_end_clean();
+
+        $this->assertSame(1, DB::table('comision_reglas')->where('clave', 'iva_en_fv2')->count(), 'dos veces no la repite');
+        \App\Support\ReglasComision::olvidarCache();
+        $this->assertTrue(\App\Support\ReglasComision::si('iva_en_fv2', '2026-09'), 'lo pagado no se mueve');
+        $this->assertFalse(\App\Support\ReglasComision::si('iva_en_fv2', '2026-10'));
+    }
+
     // ─────────── Restauración que sube un almacén ───────────
 
     /** Flabio: el otro independiente, para ver que el bolsón es de los dos. */

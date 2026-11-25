@@ -439,12 +439,23 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <!-- ── FV2 ──────────────────────────────────────────────────────── -->
         <template v-else-if="s.id === 'fv2'">
           <p>Las FV2 (órdenes con descuento especial) llevan su propia numeración, pero bonifican con las mismas reglas que cualquier venta.</p>
-          <p>Si una FV2 está marcada <b>"sin restar IVA"</b> y quien la vendió cobra el {{ pct('pct_individual') }} directo, el porcentaje se saca del valor <b>entero</b>:</p>
-          <div class="ejemplo">
-            <p class="ej-titulo">Ejemplo</p>
-            <p>FV2 de $10.000.000 sin restar IVA → {{ pct('pct_individual') }} = <b>{{ cop(ej.fv2) }}</b> (en vez de {{ cop(ej.indiv10M) }}).</p>
-          </div>
-          <p class="nota">La marca solo le sirve a quien vendió la orden y solo en el porcentaje directo. Si la venta va por el pool de una tienda, se mezcla con las demás y no cambia nada. Al covendedor o al almacén que ayudó se les paga con la regla de siempre.</p>
+          <template v-if="!r.iva_en_fv2 && conIva">
+            <p>A <b>ninguna FV2</b> se le quita el IVA: el porcentaje se saca del valor <b>entero</b>, para quien la vendió, para quien la comparte y para el almacén que ayudó.</p>
+            <div class="ejemplo">
+              <p class="ej-titulo">Ejemplo</p>
+              <p>FV2 de $10.000.000 → {{ pct('pct_individual') }} = <b>{{ cop(ej.fv2) }}</b> (en vez de {{ cop(ej.indiv10M) }}).</p>
+            </div>
+            <p>En una tienda con meta, la FV2 suma a la meta con lo que vale, como cualquier venta. En el pool, a las ventas normales se les quita el IVA y a la FV2 no.</p>
+            <p class="nota">Así desde octubre de 2026. Lo que ya se había pagado antes se queda como se pagó.</p>
+          </template>
+          <template v-else>
+            <p>Si una FV2 está marcada <b>"sin restar IVA"</b> y quien la vendió cobra el {{ pct('pct_individual') }} directo, el porcentaje se saca del valor <b>entero</b>:</p>
+            <div class="ejemplo">
+              <p class="ej-titulo">Ejemplo</p>
+              <p>FV2 de $10.000.000 sin restar IVA → {{ pct('pct_individual') }} = <b>{{ cop(ej.fv2) }}</b> (en vez de {{ cop(ej.indiv10M) }}).</p>
+            </div>
+            <p class="nota">La marca solo le sirve a quien vendió la orden y solo en el porcentaje directo. Si la venta va por el pool de una tienda, se mezcla con las demás y no cambia nada. Al covendedor o al almacén que ayudó se les paga con la regla de siempre.</p>
+          </template>
         </template>
 
         <!-- ── Trimestral ───────────────────────────────────────────────── -->

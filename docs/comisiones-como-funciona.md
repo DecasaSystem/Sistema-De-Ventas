@@ -30,6 +30,7 @@ Todas las cifras de abajo son **las de hoy** y se pueden cambiar en **Comisiones
 | Venta de un independiente con un almacén | Al almacén le suma la mitad a la meta y cobra su propio 5 %. |
 | Restauración de un independiente compartida con otra persona (no con una tienda) | Desde agosto de 2026: entra **entera** al bolsón (5 % Henry, 5 % Flabio) y esa persona cobra su propio 5 % de la restauración entera, solo para ella, sin meta y sin repartir con su tienda. Si es otro independiente que ya cobra del bolsón, no se le paga dos veces. Antes se partía por la mitad. Regla "Restauración de un independiente compartida con otra persona" en Reglas. |
 | Quien reemplaza | Entra al pool por los días que cubrió (o, si la tienda lo escoge, un % de lo que vendió). |
+| FV2 | Desde octubre de 2026, a **ninguna** FV2 se le quita el IVA (usuario, 2026-11-25): en el 5 % de quien la vendió, de quien la comparte, del almacén y dentro del pool. En el pool suma a la meta con lo que vale y, al sacar el pool, a las ventas normales se les quita el IVA y a la FV2 no. Lo pagado antes no se movió. Regla "Quitar el IVA a las FV2" en Reglas. |
 | Orden "fuera del pool" | No suma a la meta, no arma pool y no paga comisión. La marca un supervisor, con motivo. |
 
 ## 3. Las tres condiciones para cobrar (no cambian nunca)
@@ -38,7 +39,7 @@ Todas las cifras de abajo son **las de hoy** y se pueden cambiar en **Comisiones
 2. Llegó el **día de pago**: el 20 del mes siguiente (o el 20 después del cierre del trimestre).
 3. La tienda llegó a la **meta**, medida solo con las ventas que ya tienen la mitad pagada.
 
-Lo vendido sin la mitad pagada es venta, pero no suma a la meta hasta que la paguen.
+Lo vendido sin la mitad pagada es venta, pero no suma a la meta hasta que la paguen. Se queda en su mes: el día que el cliente completa la mitad, el pool de ese mes se vuelve a sacar con ella y la diferencia sale en Listas como un mes atrasado, para pagarse en el siguiente pago (también si ese mes ya se había pagado, o si sin ella no se había llegado a la meta). En las trimestrales, en cambio, el pool queda quieto al primer pago.
 
 ## 4. Mensual o trimestral
 

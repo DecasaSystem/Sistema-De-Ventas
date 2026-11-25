@@ -23,6 +23,7 @@ class ReglasComisionTest extends TestCase
             'pct_restauracion'          => 0.05,
             'iva_divisor'               => 1.19,
             'iva_en_venta'              => true,
+            'iva_en_fv2'                => true,
             'iva_en_restauracion'       => false,
             'franquicia_pct'            => 0.055,
             'franquicia_metodos'        => ['tarjeta', 'addi'],

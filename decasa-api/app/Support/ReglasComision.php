@@ -72,6 +72,17 @@ class ReglasComision
             'nombre' => 'Quitar el IVA a las ventas',
             'explica' => 'Antes de sacar el porcentaje de una venta (y del pool) se le quita el IVA.',
         ],
+        // Una FV2 es venta sin IVA: no hay IVA que quitarle (usuario,
+        // 2026-11-25: "a ningún FV2, ni de vendedores ni de nadie"). El
+        // defecto es lo de antes (se le quitaba, salvo la marcada a mano); la
+        // migración 2026_11_26_000001 lo apaga desde el primer mes sin pagar.
+        'iva_en_fv2' => [
+            'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Quitar el IVA a las FV2',
+            'explica' => 'Con "No", la FV2 se bonifica entera: en el 5 % de quien la vendió, de quien la comparte, '
+                . 'del almacén y dentro del pool de la tienda. Con "Sí" se le quita como a cualquier venta '
+                . '(salvo la que se marcó a mano "no se resta el IVA").',
+        ],
         'iva_en_restauracion' => [
             'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Quitar el IVA a las restauraciones',
@@ -333,7 +344,7 @@ class ReglasComision
     /** Cómo se agrupan en la pantalla (Comisiones → Reglas). Cada regla va en uno. */
     public const GRUPOS = [
         'porcentajes'     => ['titulo' => 'Porcentajes',               'claves' => ['pct_pool', 'pct_individual', 'pct_restauracion']],
-        'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
+        'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_fv2', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera', 'periodicidad']],
         'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_espera_meta', 'restauracion_ayuda_meta', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
@@ -568,6 +579,17 @@ class ReglasComision
         $quitar = self::si($esRestauracion ? 'iva_en_restauracion' : 'iva_en_venta', $mes, $tiendaId);
 
         return $quitar ? $valor / self::numero('iva_divisor', $mes, $tiendaId) : $valor;
+    }
+
+    /**
+     * ¿Esta FV2 se bonifica sin quitarle el IVA? Solo dice algo de las FV2
+     * (regla iva_en_fv2); la marca a mano de una orden se mira aparte.
+     */
+    public static function fv2SinIva(?string $serie, string $mes, ?int $tiendaId = null): bool
+    {
+        return $serie === \App\Models\Orden::SERIE_FV2
+            && self::si('iva_en_venta', $mes, $tiendaId)
+            && ! self::si('iva_en_fv2', $mes, $tiendaId);
     }
 
     /**

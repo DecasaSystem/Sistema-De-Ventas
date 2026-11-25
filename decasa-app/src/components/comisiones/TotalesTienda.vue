@@ -53,6 +53,8 @@ const iguales = computed(() => p.value?.reparto_modo === 'iguales')
 const cuentaEspecial = computed(() => p.value?.cuenta ?? null)
 function textoLinea(l) {
   if (l.tipo === 'bono') return 'Bono por llegar a la meta'
+  // A las FV2 no se les quita el IVA: se les devuelve lo que les quitó el ÷ de arriba.
+  if (l.tipo === 'fv2') return `FV2 que cuentan: ${cop(l.base)}, sin quitarles el IVA`
   const tramo = l.tipo === 'tramo'
     ? (l.hasta ? `${num(l.desde)}–${num(l.hasta)} % de la meta` : `más del ${num(l.desde)} % de la meta`)
     : 'Lo que pasó de la meta'

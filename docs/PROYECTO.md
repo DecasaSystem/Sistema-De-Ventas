@@ -597,6 +597,11 @@ sigue sin dejar agregar productos a una orden que ya salió (para nadie).
 Explicación de negocio al día: [`docs/comisiones-como-funciona.md`](comisiones-como-funciona.md) (el
 `explicacion_modulo_comisiones.txt` de la raíz quedó como histórico). Para los usuarios: Comisiones → Ayuda.
 
+**FV2 sin quitar el IVA** (2026-11-25, regla `iva_en_fv2`, migración `2026_11_26_000001` desde 2026-10): `ReglasComision::fv2SinIva`.
+En `enriquecer` la FV2 va entera para todos (`$fv2Entera`); en `libroDelPool` se juntan las FV2 que cuentan
+(`ventas_fv2`) y `poolDe`/`desglosePool` agregan la línea `fv2` (la meta se mide con lo que vale);
+`ComisionIndependientes::ivaDe` y el almacén igual. Listas lo explica con `cuenta.ventas_fv2`.
+
 **Venta cancelada después de pagar** (2026-11-19): `Services/BonificacionCobradaDeMas`, llamado desde
 `CancelacionDeOrden::alCancelar`. Saca la cuenta del mes (`resumenDelMes`) antes y después de cancelar
 y a cada persona le anota lo que cobró de más como un anticipo (clave `demas:` en

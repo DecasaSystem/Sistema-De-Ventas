@@ -2121,6 +2121,8 @@ class ComisionController extends Controller
             'por_pool'         => $filaPool !== null,
             'meta_tienda'      => $filaPool ? round((float) $filaPool['meta_tienda']) : null,
             'total_tienda_mes' => $filaPool ? round((float) $filaPool['total_tienda_mes']) : null,
+            // De eso, FV2 que entran al pool sin quitarles el IVA.
+            'ventas_fv2'       => $filaPool ? round((float) ($filaPool['ventas_fv2_tienda_mes'] ?? 0)) : 0,
             'meta_cumplida'    => $filaPool ? (bool) $filaPool['meta_cumplida'] : null,
             'comision_pool'    => $filaPool ? (float) $filaPool['comision_pool'] : null,
             'comision_asesor'  => $filaPool ? (float) $filaPool['comision_asesor'] : null,
@@ -2413,9 +2415,11 @@ class ComisionController extends Controller
                 // Por tramos o con bono (pieza 8): la cuenta renglón por
                 // renglón y cuánto falta para el siguiente tramo. Con el pool
                 // de siempre no se manda: la pantalla pinta "÷ 1,19 × 5 %".
-                $cuenta = self::desglosePool((float) $filaPool['total_tienda_mes'], (float) $filaPool['meta_tienda'], $tiendaPool, $mesPool);
+                $cuenta = self::desglosePool((float) $filaPool['total_tienda_mes'], (float) $filaPool['meta_tienda'], $tiendaPool, $mesPool,
+                    (float) ($filaPool['ventas_fv2_tienda_mes'] ?? 0));
                 $conBono = in_array('bono', array_column($cuenta['lineas'], 'tipo'), true);
-                if ($cuenta['formula'] !== 'excedente' || $conBono || (float) ReglasComision::valor('bono_meta', $mesPool, $tiendaPool) > 0) {
+                $conFv2  = in_array('fv2', array_column($cuenta['lineas'], 'tipo'), true);
+                if ($cuenta['formula'] !== 'excedente' || $conBono || $conFv2 || (float) ReglasComision::valor('bono_meta', $mesPool, $tiendaPool) > 0) {
                     $pool['cuenta'] = [
                         'formula'   => $cuenta['formula'],
                         'lineas'    => array_map(fn ($l) => array_merge($l, ['base' => round($l['base']), 'monto' => round($l['monto'])]), $cuenta['lineas']),
@@ -5044,10 +5048,10 @@ class ComisionController extends Controller
      * por aquí: su deuda se guarda en pesos de pool y sigue la cuenta de
      * siempre (cargarPoolsTrimestrales).
      */
-    public static function poolDe(float $ventas, float $meta, int $tiendaId, string $mes): float
+    public static function poolDe(float $ventas, float $meta, int $tiendaId, string $mes, float $ventasFv2 = 0.0): float
     {
         // (float): sin meta cumplida tiene que dar 0.0 como antes, no el 0 entero de array_sum.
-        return (float) array_sum(array_column(self::desglosePool($ventas, $meta, $tiendaId, $mes)['lineas'], 'monto'));
+        return (float) array_sum(array_column(self::desglosePool($ventas, $meta, $tiendaId, $mes, $ventasFv2)['lineas'], 'monto'));
     }
 
     /**
@@ -5058,7 +5062,7 @@ class ComisionController extends Controller
      *
      * @return array{formula: string, lineas: list<array{tipo: string, desde: float, hasta: ?float, base: float, pct: float, monto: float}>, siguiente: ?array{desde: float, pct: float, falta: float}}
      */
-    public static function desglosePool(float $ventas, float $meta, int $tiendaId, string $mes): array
+    public static function desglosePool(float $ventas, float $meta, int $tiendaId, string $mes, float $ventasFv2 = 0.0): array
     {
         $formula = ReglasComision::valor('formula_pool', $mes, $tiendaId);
         $out = ['formula' => $formula, 'lineas' => [], 'siguiente' => null];
@@ -5091,6 +5095,19 @@ class ComisionController extends Controller
                     $out['siguiente'] = ['desde' => (float) $t['desde'], 'pct' => (float) $t['pct'], 'falta' => $desde - $ventas];
                 }
             }
+        }
+
+        // Las FV2 (regla iva_en_fv2) no traen IVA: el excedente se las dividió
+        // por 1,19 junto con lo demás, así que aquí se les devuelve lo que se
+        // les quitó. Con la fórmula de siempre es exactamente
+        // (ventas normales + FV2 × 1,19 − meta) ÷ 1,19 × 5 %. La meta se mide
+        // igual que siempre, con lo que vale cada venta.
+        if ($cumplida && $ventasFv2 > 0 && $out['lineas']) {
+            $pctFv2 = (float) end($out['lineas'])['pct'];
+            $out['lineas'][] = [
+                'tipo' => 'fv2', 'desde' => 1.0, 'hasta' => null, 'base' => $ventasFv2, 'pct' => $pctFv2,
+                'monto' => ($ventasFv2 - ReglasComision::sinIva($ventasFv2, false, $mes, $tiendaId)) * $pctFv2,
+            ];
         }
 
         $bono = (float) ReglasComision::valor('bono_meta', $mes, $tiendaId);
@@ -5763,6 +5780,7 @@ class ComisionController extends Controller
             ->select('c.id', 'c.vendedor_id', 'c.orden_id', 'c.origen', 'c.estado',
                      'c.valor_orden', 'c.monto_comision',
                      'o.estado as orden_estado', 'o.valor_total as orden_valor')
+            ->addSelect(\App\Support\Esquema::columna('ordenes', 'serie') ? ['o.serie as orden_serie'] : [])
             ->addSelect($this->columnaFormaPagada())
             ->addSelect(\App\Support\Esquema::columna('ordenes', 'fuera_del_pool') ? ['o.fuera_del_pool'] : [])
             ->selectSub(
@@ -5772,8 +5790,9 @@ class ComisionController extends Controller
             ->orderBy('c.id')
             ->get();
 
-        $ventas   = 0.0;
-        $personas = [];
+        $ventas    = 0.0;
+        $ventasFv2 = 0.0;
+        $personas  = [];
 
         foreach ($filas as $f) {
             $esParte     = $f->origen === self::ORIGEN_PARTE_POOL;
@@ -5805,6 +5824,11 @@ class ComisionController extends Controller
             // Contra la orden: el cliente paga la orden, no el pedazo de cada uno.
             $cuenta = $esVentaPool && self::cuentaParaMeta((float) $f->pagado, (float) $f->orden_valor, $tiendaId, $mes);
             if ($cuenta) $ventas += (float) $f->valor_orden;
+            // La FV2 suma a la meta como cualquier venta, pero en el pool no
+            // se le quita el IVA (regla iva_en_fv2): se lleva aparte.
+            if ($cuenta && ReglasComision::fv2SinIva($f->orden_serie ?? null, $mes, $tiendaId)) {
+                $ventasFv2 += (float) $f->valor_orden;
+            }
 
             $personas[$vid] ??= ['pagado' => 0.0, 'portadores' => [], 'parte_id' => null];
 
@@ -5822,9 +5846,9 @@ class ComisionController extends Controller
         $this->abonadoQueCuenta ??= self::abonadoPorTienda(true);
         $ventas += (float) ($this->abonadoQueCuenta[$clave] ?? 0);
 
-        $pool = self::poolDe($ventas, $meta, $tiendaId, $mes);
+        $pool = self::poolDe($ventas, $meta, $tiendaId, $mes, $ventasFv2);
 
-        return $this->libros[$clave] = ['ventas' => $ventas, 'pool' => $pool, 'personas' => $personas];
+        return $this->libros[$clave] = ['ventas' => $ventas, 'ventas_fv2' => $ventasFv2, 'pool' => $pool, 'personas' => $personas];
     }
 
     /**
@@ -6395,8 +6419,12 @@ class ComisionController extends Controller
 
         // La marca es de la orden, pero el beneficio es de quien la vendió:
         // el covendedor y el almacén que ayudó cobran con la regla de siempre.
-        $sinDescontarIva = (bool) $c->orden?->sin_descontar_iva
-            && (int) $c->vendedor_id === (int) $c->orden?->vendedor_id;
+        // Y desde la regla iva_en_fv2 (usuario, 2026-11-25), toda FV2 va
+        // entera para todos: quien la vendió, quien la comparte, el almacén.
+        $fv2Entera = ! $esRestauracion
+            && ReglasComision::fv2SinIva($c->orden?->serie, (string) $c->mes_venta, (int) $c->tienda_id);
+        $sinDescontarIva = $fv2Entera || ((bool) $c->orden?->sin_descontar_iva
+            && (int) $c->vendedor_id === (int) $c->orden?->vendedor_id);
 
         // El pool va por el libro de la tienda (ver libroDelPool): se parte
         // igual y a cada uno se le paga su parte menos lo ya pagado. Esta fila
@@ -6457,7 +6485,8 @@ class ComisionController extends Controller
             $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, true, $mesC, $tiendaC)
                 * ReglasComision::numero('pct_restauracion_compartida_persona', $mesC, null, $quienC));
         } elseif ($esAbono) {
-            $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, $esRestauracion, $mesC, $tiendaC)
+            $montoComision = round(($fv2Entera ? (float) $c->valor_orden
+                    : ReglasComision::sinIva((float) $c->valor_orden, $esRestauracion, $mesC, $tiendaC))
                 * ReglasComision::numero('almacen_pct', $mesC, $tiendaC));
         } elseif ($esRestauracion) {
             $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, true, $mesC, $tiendaC)
@@ -6570,6 +6599,8 @@ class ComisionController extends Controller
         return array_merge($c->toArray(), [
             'monto_comision'   => $montoComision,
             'total_tienda_mes' => $totalTienda,
+            // De eso, las FV2 que entran al pool sin quitarles el IVA.
+            'ventas_fv2_tienda_mes' => ($usaLibro && ! $esTrimestral) ? (float) ($libro['ventas_fv2'] ?? 0) : 0.0,
             'total_vendedor_mes' => $totalVendedor,
             'meta_tienda'      => $meta,
             'divisor_asesores' => $divisor,
@@ -6630,8 +6661,10 @@ class ComisionController extends Controller
             'orden_referencia' => $c->orden?->referencia,
             'es_descuento_especial' => (bool) $c->orden?->es_descuento_especial,
             // Si de verdad se le dejó el IVA: solo pasa en el 5% directo.
-            'sin_descontar_iva' => $sinDescontarIva && ! $esRestauracion && ! $esAbono
+            'sin_descontar_iva' => $sinDescontarIva && ! $esRestauracion && (! $esAbono || $fv2Entera)
                                    && ! $esPartePool && ! $tieneMeta,
+            // Una FV2 que entra entera al pool (la cuenta está en libroDelPool).
+            'fv2_entera_en_pool' => $fv2Entera && $usaLibro,
             // Solo si vino cargado: en pantalla no hace falta, en el Excel sí.
             'cliente_nombre'   => $c->orden?->relationLoaded('cliente') ? $c->orden->cliente?->nombre : null,
             'canal'            => $c->orden?->canal,

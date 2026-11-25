@@ -90,15 +90,18 @@ export function baseTexto(o, b, r) {
 /** Si a esta comisión se le quita el IVA (÷ 1,19) y dónde. */
 export function ivaTexto(o, b, r) {
   const dv = divisor(r.iva_divisor)
+  if (o.forma_pago === 'pool' && o.fv2_entera_en_pool) {
+    return 'No: la FV2 entra al pool sin quitarle el IVA'
+  }
   if (o.forma_pago === 'parte_pool' || o.forma_pago === 'pool') {
-    return `En el pool: (ventas − meta) ÷ ${dv}, no orden por orden`
+    return `En el pool: (ventas − meta) ÷ ${dv}, no orden por orden (a las FV2 no)`
   }
   const esRest = o.es_restauracion || o.forma_pago === 'restauracion_equipo'
   if (esRest) {
     if (b.es_independiente) return 'Va al bolsón de restauraciones, sin quitarle el IVA'
     return r.iva_en_restauracion ? `Sí: ÷ ${dv}` : 'No: a la restauración no se le quita el IVA'
   }
-  if (o.sin_descontar_iva) return 'No: FV2 marcada "no se resta el IVA"'
+  if (o.sin_descontar_iva) return 'No: a la FV2 no se le quita el IVA'
   return r.iva_en_venta ? `Sí: ÷ ${dv}` : 'No (regla del mes)'
 }
 
@@ -499,7 +502,9 @@ function hojaPorTienda(wb, ctx) {
         `• Lo pagado con ${mediosConFranquicia(r)} en la tienda: ${pesos(t.tarjeta)}; la franquicia (${num(r.franquicia_pct)}%) se llevó ${pesos(t.datafono)} y eso no bonifica.`,
       ])
       for (const l of pool.cuenta?.lineas ?? []) {
-        explicar(ws, [`   ${l.tipo === 'bono' ? 'Bono' : 'Tramo'}: ${pesos(l.base)} → ${pesos(l.monto)}`])
+        explicar(ws, [l.tipo === 'fv2'
+          ? `   FV2 que cuentan (${pesos(l.base)}): entran sin quitarles el IVA → ${pesos(l.monto)} más al pool`
+          : `   ${l.tipo === 'bono' ? 'Bono' : l.tipo === 'excedente' ? 'Lo que pasó de la meta' : 'Tramo'}: ${pesos(l.base)} → ${pesos(l.monto)}`])
       }
       repartoDe(ws, pool, `Cómo se reparte el pool de ${parte.mes}`)
     }
