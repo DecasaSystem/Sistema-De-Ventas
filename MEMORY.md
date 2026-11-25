@@ -594,6 +594,11 @@ escribiendo precios (Fase 1b).
   2026-11-24 (usuario, **subido a `main`**): al abrir un mes en Listas sale "Todavía no cuentan" con
   cada orden de `ordenes_pendientes` y su marca (le falta para la mitad y cuánto, espera la meta, no
   bonifica, espera el trimestre). Antes solo había un número en la línea naranja.
+  2026-11-25 (usuario, **subido a `main`** ese día, sin migración, solo front): los pagos pendientes también se
+  sacan **por tienda, por independiente o por persona** para mandárselos, desde las opciones "Una
+  tienda o un independiente" y "Una persona" (Bonificación del mes / Pagos pendientes). Por defecto
+  mío (**falta confirmar**): en el de una tienda, quien cubrió en otra sale solo con lo de esa tienda,
+  y sus anticipos y abonos salen enteros (son de la persona, no de la tienda).
 - **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en

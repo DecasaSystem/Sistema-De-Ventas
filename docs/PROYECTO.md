@@ -680,6 +680,15 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   era un solo botón que bajaba uno u otro según la pestaña. "Cómo va" usa
   `GET /comisiones/metas?avance=1` (vendido y lo que cuenta: `avanceDeMetas`, solo cuando se
   pide) y los campos `pagado_orden` / `valor_orden_entera` de cada renglón; no calcula plata.
+- **Pagos pendientes de una tienda, un independiente o una persona** (2026-11-25, sin migración;
+  usuario: "desde ahí la opción de enviarlo por persona o por tienda"): en las opciones "Una tienda o
+  un independiente" y "Una persona" del botón Excel se escoge Bonificación del mes o Pagos
+  pendientes. Es el mismo libro de abajo recortado en el navegador (`soloDe` en
+  `utils/excelPendientes.js`; los totales y los meses atrasados se vuelven a sumar con lo que
+  queda, nada se recalcula aparte): por tienda, solo sus meses (quien cubrió en otra sale con lo de
+  esa tienda; un independiente nunca sale en una tienda); por persona o independiente, todo lo
+  suyo. La lista de a quién mandárselo sale de los mismos datos (`opcionesDePendientes`); se piden
+  una vez por hoja abierta. El archivo lleva el nombre (`..._decasa_el_eden_2026-11-25.xlsx`).
 - **Excel "Pagos pendientes"** (2026-11-23, sin migración; usuario: "¿y si lo tengo con meses
   atrasados, o con algunos abonos y falta?"): segunda opción del botón Excel
   (`utils/excelPendientes.js`). Un estado de cuenta por persona: cada mes que toca pagar con la

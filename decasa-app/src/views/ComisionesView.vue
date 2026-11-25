@@ -1237,6 +1237,9 @@ function abrirExcel() {
   excelVendedor.value  = vistaTab.value === 'vendedor' && vendedorSel.value ? vendedorSel.value : ''
   excelMesTienda.value = mesListas.value || mesActual.value
   excelMesPersona.value = mesListas.value || mesActual.value
+  // Los pagos pendientes se vuelven a pedir al abrir: pudieron pagar algo.
+  pendientesParaMandar.value = null
+  if (excelQueTienda.value === 'pendientes' || excelQuePersona.value === 'pendientes') cargarPendientesParaMandar()
   hojaExcel.value = true
   cargarPersonasExcel()
   cargarTiendasExcel()
@@ -1384,11 +1387,14 @@ async function exportarExcelComoVa() {
 // Pagos pendientes (usuario, 2026-11-23): un estado de cuenta por persona con
 // meses atrasados y abonos a medias: cuánto le toca, cuánto ya se le dio y
 // cuánto falta, más lo que todavía no se puede pagar (utils/excelPendientes.js).
-async function exportarExcelPendientes() {
-  const { data } = await api.get('/comisiones/pagos-pendientes')
-  const { exportarPendientesExcel, hayPendientes } = await import('@/utils/excelPendientes')
+// filtro: { tiendaId } o { vendedorId } con `para` (el nombre), para mandarle a
+// una tienda, un independiente o una persona solo lo suyo (usuario, 2026-11-25).
+async function exportarExcelPendientes(filtro = null) {
+  const todo = pendientesParaMandar.value ?? (await api.get('/comisiones/pagos-pendientes')).data
+  const { exportarPendientesExcel, hayPendientes, soloDe } = await import('@/utils/excelPendientes')
+  const data = filtro ? soloDe(todo, filtro) : todo
   if (!hayPendientes(data)) {
-    toast.error('No hay bonificaciones pendientes por pagar.')
+    toast.error(filtro?.para ? `${filtro.para} no tiene bonificaciones pendientes por pagar.` : 'No hay bonificaciones pendientes por pagar.')
     return false
   }
   const meses = [...new Set([
@@ -1397,8 +1403,53 @@ async function exportarExcelPendientes() {
     ...(data.todavia_no ?? []).map(t => t.mes),
   ].filter(Boolean))]
   const reglas = Object.fromEntries(await Promise.all(meses.map(async m => [m, await cargarReglasVigentes(m)])))
-  await exportarPendientesExcel({ datos: data, reglas, generadoPor: auth.usuario?.nombre })
+  await exportarPendientesExcel({ datos: data, reglas, generadoPor: auth.usuario?.nombre, para: filtro?.para ?? null })
   return true
+}
+
+// En "Una tienda o un independiente" y en "Una persona" se escoge qué
+// mandar: la bonificación de un mes o sus pagos pendientes (todos los meses).
+const excelQueTienda  = ref('mes')   // mes | pendientes
+const excelQuePersona = ref('mes')
+const excelTiendaPend  = ref('')     // "t:5" una tienda, "i:24" un independiente
+const excelPersonaPend = ref('')
+const pendientesParaMandar = ref(null)
+const cargandoPendientes   = ref(false)
+const opcionesPendientes   = ref({ tiendas: [], independientes: [], personas: [] })
+
+// Se pide una vez por hoja abierta: es la cuenta de varios meses y tarda.
+async function cargarPendientesParaMandar() {
+  if (pendientesParaMandar.value || cargandoPendientes.value) return
+  cargandoPendientes.value = true
+  try {
+    const { data } = await api.get('/comisiones/pagos-pendientes', { silencioso: true })
+    const { opcionesDePendientes } = await import('@/utils/excelPendientes')
+    pendientesParaMandar.value = data
+    opcionesPendientes.value = opcionesDePendientes(data)
+  } catch {
+    toast.error('No se pudieron cargar los pagos pendientes.')
+  } finally {
+    cargandoPendientes.value = false
+  }
+}
+
+function elegirQueMandar(donde, que) {
+  if (donde === 'tienda') excelQueTienda.value = que
+  else excelQuePersona.value = que
+  if (que === 'pendientes') cargarPendientesParaMandar()
+}
+
+function filtroDePendientes() {
+  const o = opcionesPendientes.value
+  if (excelOpcion.value === 'persona') {
+    const id = Number(excelPersonaPend.value)
+    return { vendedorId: id, para: o.personas.find(p => p.id === id)?.nombre ?? null }
+  }
+  const [tipo, idTexto] = String(excelTiendaPend.value).split(':')
+  const id = Number(idTexto)
+  return tipo === 'i'
+    ? { vendedorId: id, para: o.independientes.find(p => p.id === id)?.nombre ?? null }
+    : { tiendaId: id, para: o.tiendas.find(t => t.id === id)?.nombre ?? null }
 }
 
 async function descargarExcel() {
@@ -1406,11 +1457,21 @@ async function descargarExcel() {
     toast.error('Escoge el mes.')
     return
   }
-  if (excelOpcion.value === 'tienda' && (!excelMesTienda.value || !excelTienda.value)) {
+  const pendTienda  = excelOpcion.value === 'tienda' && excelQueTienda.value === 'pendientes'
+  const pendPersona = excelOpcion.value === 'persona' && excelQuePersona.value === 'pendientes'
+  if (pendTienda && !excelTiendaPend.value) {
+    toast.error('Escoge la tienda o el independiente.')
+    return
+  }
+  if (pendPersona && !excelPersonaPend.value) {
+    toast.error('Escoge la persona.')
+    return
+  }
+  if (excelOpcion.value === 'tienda' && !pendTienda && (!excelMesTienda.value || !excelTienda.value)) {
     toast.error('Escoge el mes y la tienda.')
     return
   }
-  if (excelOpcion.value === 'persona' && (!excelMesPersona.value || !excelPersona.value)) {
+  if (excelOpcion.value === 'persona' && !pendPersona && (!excelMesPersona.value || !excelPersona.value)) {
     toast.error('Escoge el mes y la persona.')
     return
   }
@@ -1418,6 +1479,7 @@ async function descargarExcel() {
   try {
     const listo = excelOpcion.value === 'listas' ? await exportarExcelListas(excelMesListas.value)
       : excelOpcion.value === 'pendientes' ? await exportarExcelPendientes()
+      : pendTienda || pendPersona ? await exportarExcelPendientes(filtroDePendientes())
       : excelOpcion.value === 'mes' ? await exportarExcelDelMes(excelMes.value, excelVendedor.value)
       : excelOpcion.value === 'tienda' ? await exportarExcelTienda()
       : excelOpcion.value === 'persona' ? await exportarExcelPersona()
@@ -3096,8 +3158,31 @@ onMounted(() => {
             <input type="radio" value="tienda" v-model="excelOpcion" @change="cargarTiendasExcel" class="mt-0.5 accent-green-600" />
             <div class="min-w-0 flex-1">
               <p class="text-sm font-semibold text-gray-800">Una tienda o un independiente, para mandárselo</p>
-              <p class="text-[11px] text-gray-500 leading-snug">Una tienda en un mes, para mandárselo al equipo: qué se le paga a cada uno, si ya está listo o ya se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la cuenta del pool). Una hoja por persona. Los independientes no son de ninguna tienda: cada uno sale solo, con sus ventas y el bolsón de restauraciones.</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Una tienda en un mes, para mandárselo al equipo: qué se le paga a cada uno, si ya está listo o ya se pagó, y por qué (días, reemplazos, órdenes sin la mitad, tarjeta, la cuenta del pool). Una hoja por persona. Los independientes no son de ninguna tienda: cada uno sale solo, con sus ventas y el bolsón de restauraciones. O, en vez del mes, todos sus pagos pendientes.</p>
               <div v-if="excelOpcion === 'tienda'" class="mt-2 space-y-2">
+                <div class="flex bg-gray-100 rounded-xl p-1">
+                  <button v-for="q in [{ k: 'mes', t: 'Bonificación del mes' }, { k: 'pendientes', t: 'Pagos pendientes' }]" :key="q.k" type="button"
+                    @click.prevent="elegirQueMandar('tienda', q.k)"
+                    class="flex-1 text-[11px] font-semibold py-1 rounded-lg"
+                    :class="excelQueTienda === q.k ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'">{{ q.t }}</button>
+                </div>
+                <template v-if="excelQueTienda === 'pendientes'">
+                  <p class="text-[10px] text-gray-500 leading-snug">Todo lo que se le debe: los meses atrasados, cuánto le toca a cada uno, lo que ya se le dio en anticipos y abonos, lo que falta y lo que todavía no se puede pagar, con el porqué. Solo lo de esa tienda o ese independiente.</p>
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-[11px] text-gray-600 shrink-0">De quién</p>
+                    <p v-if="cargandoPendientes" class="text-[11px] text-gray-500">Cargando…</p>
+                    <select v-else v-model="excelTiendaPend" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                      <option value="">{{ opcionesPendientes.tiendas.length || opcionesPendientes.independientes.length ? 'Escoge' : 'Nadie tiene pagos pendientes' }}</option>
+                      <optgroup v-if="opcionesPendientes.tiendas.length" label="Tiendas">
+                        <option v-for="t in opcionesPendientes.tiendas" :key="'t' + t.id" :value="'t:' + t.id">{{ t.nombre }}</option>
+                      </optgroup>
+                      <optgroup v-if="opcionesPendientes.independientes.length" label="Independientes">
+                        <option v-for="t in opcionesPendientes.independientes" :key="'i' + t.id" :value="'i:' + t.id">{{ t.nombre }}</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                </template>
+                <template v-else>
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-[11px] text-gray-600">Mes</p>
                   <input type="month" v-model="excelMesTienda" @change="cargarTiendasExcel" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
@@ -3115,6 +3200,7 @@ onMounted(() => {
                   </select>
                 </div>
                 <p class="text-[10px] text-gray-500">Trae los anticipos y abonos de cada uno.</p>
+                </template>
               </div>
             </div>
           </div>
@@ -3127,8 +3213,26 @@ onMounted(() => {
             <input type="radio" value="persona" v-model="excelOpcion" @change="cargarPersonasDelMes" class="mt-0.5 accent-green-600" />
             <div class="min-w-0 flex-1">
               <p class="text-sm font-semibold text-gray-800">Una persona, para mandárselo</p>
-              <p class="text-[11px] text-gray-500 leading-snug">Solo lo de una persona en el mes, en un archivo: si estuvo en dos tiendas (cubrió a alguien en otra), un resumen con el total y una hoja por cada tienda. En el Excel de cada tienda sigue saliendo igual.</p>
+              <p class="text-[11px] text-gray-500 leading-snug">Solo lo de una persona en el mes, en un archivo: si estuvo en dos tiendas (cubrió a alguien en otra), un resumen con el total y una hoja por cada tienda. En el Excel de cada tienda sigue saliendo igual. O, en vez del mes, todos sus pagos pendientes.</p>
               <div v-if="excelOpcion === 'persona'" class="mt-2 space-y-2">
+                <div class="flex bg-gray-100 rounded-xl p-1">
+                  <button v-for="q in [{ k: 'mes', t: 'Bonificación del mes' }, { k: 'pendientes', t: 'Pagos pendientes' }]" :key="q.k" type="button"
+                    @click.prevent="elegirQueMandar('persona', q.k)"
+                    class="flex-1 text-[11px] font-semibold py-1 rounded-lg"
+                    :class="excelQuePersona === q.k ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'">{{ q.t }}</button>
+                </div>
+                <template v-if="excelQuePersona === 'pendientes'">
+                  <p class="text-[10px] text-gray-500 leading-snug">Todo lo que se le debe a esa persona, de todas las tiendas donde estuvo: meses atrasados, lo que ya se le dio en anticipos y abonos, lo que falta y lo que todavía no se puede pagar, con el porqué.</p>
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-[11px] text-gray-600 shrink-0">Persona</p>
+                    <p v-if="cargandoPendientes" class="text-[11px] text-gray-500">Cargando…</p>
+                    <select v-else v-model="excelPersonaPend" class="min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                      <option value="">{{ opcionesPendientes.personas.length ? 'Escoge' : 'Nadie tiene pagos pendientes' }}</option>
+                      <option v-for="p in opcionesPendientes.personas" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+                    </select>
+                  </div>
+                </template>
+                <template v-else>
                 <div class="flex items-center justify-between gap-2">
                   <p class="text-[11px] text-gray-600">Mes</p>
                   <input type="month" v-model="excelMesPersona" @change="cargarPersonasDelMes" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
@@ -3140,6 +3244,7 @@ onMounted(() => {
                     <option v-for="p in excelPersonasMes" :key="p.id" :value="p.id">{{ p.nombre }}</option>
                   </select>
                 </div>
+                </template>
               </div>
             </div>
           </div>

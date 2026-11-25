@@ -126,7 +126,8 @@ function hojaResumen(wb, ctx) {
   ws.getColumn(1).width = 40
   ws.getColumn(2).width = 22
 
-  titulo(ws, 'Pagos pendientes de bonificaciones', `Estado de cuenta por persona · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
+  titulo(ws, ctx.para ? `Pagos pendientes de bonificaciones · ${ctx.para}` : 'Pagos pendientes de bonificaciones',
+    `Estado de cuenta por persona · generado el ${ctx.generadoEl}${ctx.generadoPor ? ' por ' + ctx.generadoPor : ''}`)
 
   const espera   = personas.reduce((s, p) => s + p.espera, 0)
   const noSePaga = personas.reduce((s, p) => s + p.noSePaga, 0)
@@ -328,9 +329,75 @@ function hojaAnticipos(wb, ctx) {
   ])
 }
 
+// ── Solo una tienda, un independiente o una persona ──────────────────────────
+//
+// Para mandárselo (usuario, 2026-11-25: "desde ahí la opción de enviarlo por
+// persona o por tienda"). Es el mismo estado de cuenta, recortado: los totales
+// se vuelven a sumar con lo que queda, nunca se recalcula nada aparte.
+//  - tiendaId: solo los meses de esa tienda (quien cubrió en otra sale solo
+//    con lo de aquí; en el Excel de la otra tienda sale lo de allá).
+//  - vendedorId: solo esa persona, con todas sus tiendas (un independiente
+//    también va por aquí: no es de ninguna tienda).
+
+/** Quiénes tienen algo pendiente, para escoger a quién mandárselo. */
+export function opcionesDePendientes(datos) {
+  const tiendas = new Map(), independientes = new Map(), personas = new Map()
+  const bloques = [
+    ...(datos?.por_pagar?.personas ?? []).flatMap(p => (p.bloques ?? []).map(b => ({ ...b, vendedor_id: p.vendedor_id, vendedor_nombre: p.vendedor_nombre }))),
+    ...(datos?.todavia_no ?? []),
+  ]
+  for (const b of bloques) {
+    personas.set(b.vendedor_id, b.vendedor_nombre)
+    if (b.es_independiente) independientes.set(b.vendedor_id, b.vendedor_nombre)
+    else if (b.tienda_id) tiendas.set(b.tienda_id, b.tienda_nombre)
+  }
+  const lista = m => [...m].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)))
+  return { tiendas: lista(tiendas), independientes: lista(independientes), personas: lista(personas) }
+}
+
+export function soloDe(datos, { tiendaId = null, vendedorId = null } = {}) {
+  const deLaTienda = b => tiendaId == null || (!b.es_independiente && Number(b.tienda_id) === Number(tiendaId))
+  const dePersona  = id => vendedorId == null || Number(id) === Number(vendedorId)
+  const suma = (xs, campo) => xs.reduce((s, x) => s + n(x[campo]), 0)
+
+  const pp = datos.por_pagar ?? {}
+  const personas = (pp.personas ?? [])
+    .filter(p => dePersona(p.vendedor_id))
+    .map(p => {
+      const bloques = (p.bloques ?? []).filter(deLaTienda)
+      return { ...p, bloques, lista: suma(bloques, 'lista'), se_descuenta: suma(bloques, 'se_descuenta'),
+        entregar: suma(bloques, 'entregar'), atrasada: bloques.some(b => b.atrasada) }
+    })
+    .filter(p => p.bloques.length)
+
+  // Los meses atrasados, contados otra vez con lo que quedó.
+  const atrasados = new Map()
+  for (const p of personas) {
+    for (const b of p.bloques.filter(x => x.atrasada)) {
+      const a = atrasados.get(b.mes) ?? { mes: b.mes, se_cobra_el: b.se_cobra_el, personas: new Set(), lista: 0 }
+      a.personas.add(p.vendedor_id)
+      a.lista += n(b.lista)
+      atrasados.set(b.mes, a)
+    }
+  }
+
+  return {
+    ...datos,
+    por_pagar: {
+      ...pp,
+      personas,
+      lista: suma(personas, 'lista'),
+      se_descuenta: suma(personas, 'se_descuenta'),
+      entregar: suma(personas, 'entregar'),
+      atrasados: [...atrasados.values()].sort((a, b) => a.mes.localeCompare(b.mes)).map(a => ({ ...a, personas: a.personas.size })),
+    },
+    todavia_no: (datos.todavia_no ?? []).filter(t => deLaTienda(t) && dePersona(t.vendedor_id)),
+  }
+}
+
 // ── El libro ──────────────────────────────────────────────────────────────────
 
-export async function armarLibroPendientes({ datos, reglas = {}, generadoPor }) {
+export async function armarLibroPendientes({ datos, reglas = {}, generadoPor, para = null }) {
   const ExcelJS = (await import('exceljs')).default ?? (await import('exceljs'))
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Decasa'
@@ -342,6 +409,7 @@ export async function armarLibroPendientes({ datos, reglas = {}, generadoPor }) 
     datos,
     personas: personasDe(datos),
     generadoPor,
+    para,
     generadoEl: `${fecha(ahora.toISOString())} ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`,
   }
 
@@ -365,7 +433,11 @@ export async function exportarPendientesExcel(datos) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `bonificaciones_pagos_pendientes_${hoyBogota()}.xlsx`
+  // "Decasa Vía El Edén" → "decasa_via_el_eden"
+  const quien = datos.para
+    ? '_' + String(datos.para).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+    : ''
+  a.download = `bonificaciones_pagos_pendientes${quien}_${hoyBogota()}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
