@@ -159,6 +159,18 @@ de independientes vendido antes de esa fecha.
 - Cambiar el vendedor ya no quita el reparto; solo se quita si la orden pasa a esa misma tienda.
 - Tests al final de `ReasignarVendedorTest`.
 
+### Restauración de un independiente compartida con una PERSONA: 5 % para cada uno (usuario, 2026-11-24, **subido a `main`** el 2026-11-25, trae **migración** `2026_11_25_000001_restauracion_compartida_con_persona`, solo inserta una regla)
+- "Restauración de 2 millones de Henry: 5 % Henry, 5 % Flavio, y si la comparte con un vendedor
+  sin tienda, ese vendedor también se lleva el 5 %" (15 % en total), igual que con una tienda pero
+  el 5 % es solo de esa persona. Antes se partía como venta: el bolsón recibía la mitad y un
+  covendedor **sin tienda no cobraba nada** (no se le creaba renglón). Pidió que se pueda cambiar
+  en Reglas: `restauracion_compartida_persona` + `pct_restauracion_compartida_persona`.
+- Por defecto mío (**falta confirmar**): desde noviembre de 2026 (lo de antes queda como se
+  calculó; se mueve la fecha en Reglas); con alguien de tienda (Gladys) el 5 % es solo suyo, no
+  del equipo, y no suma a la meta; con Flabio (ya está en el bolsón) no se le paga otro 5 %; la
+  restauración que sube alguien de tienda y comparte con Henry no cambió (la tienda cobra sobre
+  la mitad). Detalle en `docs/PROYECTO.md` §6.10. Tests al final de `ComoSeCalculaCadaComisionTest`.
+
 ### Trabajos de restauración separados (dueño, 2026-11-12, **subido a `main`** ese día, commit b90337f, sin migración)
 - En Nueva orden, al agregar un mueble a restaurar se marcan los trabajos (lista de Gestión →
   Ajustes, clave `restauracion_trabajos` en `configuracion`, JSON) o uno escrito a mano, cada uno

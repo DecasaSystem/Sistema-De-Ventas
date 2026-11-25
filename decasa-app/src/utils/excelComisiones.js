@@ -32,6 +32,7 @@ export const FORMA = {
   restauracion_5:     'Restauración',
   restauracion_equipo: 'Restauración de la tienda (repartida)',
   abono_almacen:       'Lo que dejó un independiente',
+  rest_compartida:     'Restauración compartida con un independiente',
   fuera_del_pool:      'Fuera del pool',
 }
 
@@ -279,6 +280,8 @@ function comoSeCalculo(c) {
       return r.reparto_restauracion === 'autor_primero'
         ? `Su pedazo de una restauración de la tienda: ${pesos(valor)} → ${pesos(monto)}. Del ${num(r.pct_restauracion)}%, quien la hizo se lleva el ${num(r.parte_autor_restauracion)}% y el resto se partió entre los demás que estaban ese día.`
         : `Su pedazo de una restauración de la tienda: ${pesos(valor)} → ${pesos(monto)}. El ${num(r.pct_restauracion)}% se partió entre los que estaban ese día.`
+    case 'rest_compartida':
+      return `Restauración que un independiente compartió con esta persona: ${pesos(valor)} × ${num(r.pct_restauracion_compartida_persona)}% = ${pesos(monto)}. Es la restauración entera y es solo suya: no se parte con la tienda ni le suma a la meta.`
     case 'abono_almacen':
       return c.es_restauracion
         ? `Su parte de lo que dejó un independiente (restauración): ${pesos(valor)} × ${num(r.almacen_pct)}% = ${pesos(monto)}.`

@@ -744,6 +744,21 @@ en Reglas. **Lo que sigue es el historial**: cada cambio con su fecha, su porqu�
   reparto del equipo) y en el bolsón de independientes, igual que una venta. Antes se
   cobraban con solo llegar la fecha. Siguen sin IVA, sin meta y sin pool. `enriquecer`
   ($req50) y `ComisionIndependientes::delMes` ($estaLista, también las de almacenes).
+- **Restauración de un independiente compartida con otra persona** (usuario, 2026-11-24):
+  regla `restauracion_compartida_persona` (`mitad` = lo de antes, por defecto; `cinco_cada_uno`
+  desde 2026-11 con la migración `2026_11_25_000001_restauracion_compartida_con_persona`) y
+  `pct_restauracion_compartida_persona` (5 %, por persona). Con `cinco_cada_uno` la orden no se
+  parte: el bolsón la recibe entera (`ComisionIndependientes::mitadDelIndependiente`) y el
+  covendedor tiene un renglón `origen = rest_compartida` con la restauración entera (sin el
+  datáfono), en su tienda o, si no tiene, en la de la orden
+  (`ComisionController::sincronizarRestauracionCompartida`, corre en `crearParaOrden` y al
+  empezar `sincronizarValorOrden`). Ese renglón paga su % sin IVA, espera el 50 % y el día de
+  pago, nunca la meta, y no entra a totales, pool ni repartos (está en `ORIGENES_REPARTIDOS`).
+  Si el covendedor ya cobra del bolsón (otro independiente), no se le abre. Antes un
+  covendedor sin tienda no cobraba nada y el bolsón recibía la mitad. Lo pagado no se toca; si
+  la regla se prende en un mes en que el covendedor ya cobró su mitad, lo que falta sale como
+  diferencia. No cambia: la restauración que sube alguien de tienda y comparte con un
+  independiente (entra entera al bolsón; la tienda cobra sobre su mitad).
 - **Órdenes fuera del pool** (2026-10-23, dueño, por la conciliación de Norte): un
   supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
   Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool

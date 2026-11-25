@@ -129,6 +129,15 @@ function otrosCaminos(b, r, ordenes) {
   {
     const rest = suma(['restauracion_5', 'restauracion_equipo'])
     if (rest > 0) lineas.push(`Restauraciones: ${pesos(rest)} (${num(r.pct_restauracion)}% de su valor${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}${suma(['restauracion_equipo']) > 0 ? '; las de la tienda se parten entre los que estaban ese día' : ''}).`)
+    // Restauración de un independiente compartida con esta persona (no con
+    // una tienda): su propio % sobre la restauración entera (usuario, 2026-11-24).
+    const conInd = ordenes.filter(o => o.forma_pago === 'rest_compartida')
+    if (conInd.length) {
+      lineas.push(`Restauraciones que un independiente compartió con esta persona: ${pesos(suma(['rest_compartida']))} `
+        + `(${num(r.pct_restauracion_compartida_persona)}% de la restauración entera${r.iva_en_restauracion ? '' : ', sin quitarle el IVA'}, `
+        + `solo para ella: no se parte con la tienda ni le suma a la meta; aquí ${conInd.length} ${conInd.length !== 1 ? 'órdenes' : 'orden'}). `
+        + `Los independientes cobran aparte del bolsón, que la recibe entera.`)
+    }
     const ind = suma(['sin_meta_5'])
     if (ind > 0) {
       const porque = {
@@ -190,6 +199,7 @@ export function desgloseDelBloque(b) {
       { nombre: 'Pool', monto: suma(['pool', 'parte_pool']) },
       { nombre: 'Restauraciones', monto: suma(['restauracion_5', 'restauracion_equipo']) },
       { nombre: 'Ventas compartidas con la tienda', monto: suma(['abono_almacen']) },
+      { nombre: 'Restauraciones compartidas con un independiente', monto: suma(['rest_compartida']) },
       { nombre: 'Individual', monto: suma(['sin_meta_5']) },
       { nombre: 'Cubriendo a alguien', monto: suma(['reemplazo_ventas']) },
       { nombre: 'Otros', monto: ordenes.filter(o => !FORMAS_EXPLICADAS.includes(o.forma_pago)).reduce((s, o) => s + n(o.monto_comision), 0) },
@@ -206,6 +216,7 @@ export function desgloseDelBloque(b) {
 export const FORMAS_EXPLICADAS = [
   'pool', 'parte_pool', 'sin_meta_5', 'reemplazo_ventas', 'restauracion_5',
   'restauracion_equipo', 'abono_almacen', 'fuera_del_pool', 'bolson_restauraciones',
+  'rest_compartida',
 ]
 
 /** Las órdenes del mes que todavía no entran, una por una y con lo que les falta. */

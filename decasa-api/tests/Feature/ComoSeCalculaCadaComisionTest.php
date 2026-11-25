@@ -1044,4 +1044,163 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(18_900_000, $conTarjeta['valor_real']);
         $this->assertEquals('venta_tienda', $conTarjeta['por_que']);
     }
+
+    // ─────────── Restauración de un independiente compartida con una persona ───────────
+    //
+    // Usuario, 2026-11-24: "se hace una restauración de 2 millones y la sube
+    // Henry, le toca a Henry 5%, a Flavio 5%, y si la comparte con un vendedor
+    // sin tienda, ese vendedor también se lleva el 5%".
+
+    private const FERIA = 4, FLABIO = 10, DANIELA = 11;
+
+    /** Flabio (independiente), Daniela (supervisora sin tienda), la sede de independientes y, si se pide, la regla. */
+    private function conRestauracionCompartida(?string $regla = 'cinco_cada_uno'): void
+    {
+        DB::table('tiendas')->insert(['id' => self::FERIA, 'nombre' => 'Feria', 'activa' => true, 'comisiones_compartidas' => false]);
+        DB::table('usuarios')->insert([
+            ['id' => self::FLABIO, 'nombre' => 'Flabio', 'rol' => 'vendedor', 'independiente' => true, 'tienda_default_id' => self::FERIA, 'created_at' => now()],
+            ['id' => self::DANIELA, 'nombre' => 'Daniela', 'rol' => 'supervisor', 'independiente' => false, 'tienda_default_id' => null, 'created_at' => now()],
+        ]);
+        DB::table('usuarios')->where('id', self::HENRY)->update(['tienda_default_id' => self::FERIA]);
+        ComisionIndependientes::olvidarCache();
+
+        if (! Schema::hasTable('comision_reglas')) {
+            Schema::create('comision_reglas', function (Blueprint $t) {
+                $t->id(); $t->string('clave', 50); $t->string('alcance', 10); $t->unsignedBigInteger('alcance_id')->nullable();
+                $t->json('valor')->nullable(); $t->char('desde_mes', 7); $t->string('nota', 200)->nullable();
+                $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+            });
+        }
+        if ($regla) $this->ponerRegla('restauracion_compartida_persona', $regla);
+    }
+
+    private function ponerRegla(string $clave, mixed $valor, string $alcance = 'general', ?int $id = null): void
+    {
+        DB::table('comision_reglas')->insert([
+            'clave' => $clave, 'alcance' => $alcance, 'alcance_id' => $id, 'valor' => json_encode($valor),
+            'desde_mes' => self::MES, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        \App\Support\ReglasComision::olvidarCache();
+        ComisionController::olvidarRestauracionesCompartidas();
+    }
+
+    /** [nombre => lo que cobra] de los independientes ese mes. */
+    private function independientes(): array
+    {
+        return collect(ComisionIndependientes::delMes(self::MES)['independientes'])
+            ->mapWithKeys(fn ($i) => [$i['nombre'] => $i['comision']])->all();
+    }
+
+    public function test_restauracion_compartida_con_una_supervisora_sin_tienda_es_5_para_cada_uno(): void
+    {
+        $this->conRestauracionCompartida();
+        $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::DANIELA);
+
+        // El bolsón la recibe entera: 2.000.000 × 5% para Henry y para Flabio.
+        $this->assertEquals(['Henry' => 100_000, 'Flabio' => 100_000], $this->independientes());
+
+        // Y Daniela, que antes no cobraba nada (no tiene tienda), su 5% de la entera.
+        $fila = Comision::where('vendedor_id', self::DANIELA)->sole();
+        $this->assertSame(ComisionController::ORIGEN_RESTAURACION_COMPARTIDA, $fila->origen);
+        $this->assertEquals(2_000_000, (float) $fila->valor_orden);
+        $this->assertEquals(self::FERIA, (int) $fila->tienda_id, 'sin tienda, queda con la de la orden');
+        $this->assertEquals(100_000, $this->loQueCobraCadaUno()['Daniela']);
+    }
+
+    public function test_compartida_con_alguien_de_tienda_el_5_es_solo_suyo_y_no_le_suma_a_la_meta(): void
+    {
+        $this->conRestauracionCompartida();
+        // El Edén vende justo la meta: sin la restauración no hay pool.
+        $this->orden(self::SEBASTIAN, self::EDEN, 20_000_000);
+        $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::GLADYS);
+
+        $this->assertEquals(['Henry' => 100_000, 'Flabio' => 100_000], $this->independientes());
+
+        $cobra = $this->loQueCobraCadaUno();
+        // Gladys: 5% de la restauración entera, para ella sola (no se parte con Sebastián).
+        $this->assertEquals(100_000, $cobra['Gladys']);
+        // Y no empuja la meta de El Edén: sigue sin pool.
+        $this->assertEquals(0, $cobra['Sebastián'] ?? 0);
+    }
+
+    public function test_compartida_con_flabio_no_se_le_paga_dos_veces(): void
+    {
+        $this->conRestauracionCompartida();
+        $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::FLABIO);
+
+        // Flabio ya cobra del bolsón entero: nada aparte.
+        $this->assertEquals(['Henry' => 100_000, 'Flabio' => 100_000], $this->independientes());
+        $this->assertFalse(Comision::where('origen', ComisionController::ORIGEN_RESTAURACION_COMPARTIDA)->exists());
+    }
+
+    public function test_el_porcentaje_del_companero_se_cambia_en_reglas(): void
+    {
+        $this->conRestauracionCompartida();
+        $this->ponerRegla('pct_restauracion_compartida_persona', 0.03, 'usuario', self::DANIELA);
+        $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::DANIELA);
+
+        $this->assertEquals(60_000, $this->loQueCobraCadaUno()['Daniela']);
+    }
+
+    public function test_con_la_regla_de_antes_se_parte_por_la_mitad(): void
+    {
+        $this->conRestauracionCompartida(null);
+        $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::GLADYS);
+
+        // Lo de siempre: al bolsón la mitad y Gladys el 5% de la otra mitad.
+        $this->assertEquals(['Henry' => 50_000, 'Flabio' => 50_000], $this->independientes());
+        $this->assertEquals(50_000, $this->loQueCobraCadaUno()['Gladys']);
+        $this->assertFalse(Comision::where('origen', ComisionController::ORIGEN_RESTAURACION_COMPARTIDA)->exists());
+    }
+
+    public function test_al_prender_y_apagar_la_regla_el_renglon_se_pone_al_dia(): void
+    {
+        $this->conRestauracionCompartida(null);
+        $orden = $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::GLADYS);
+
+        $this->ponerRegla('restauracion_compartida_persona', 'cinco_cada_uno');
+        ComisionController::sincronizarValorOrden($orden->fresh());
+        $fila = Comision::where('vendedor_id', self::GLADYS)->sole();
+        $this->assertSame(ComisionController::ORIGEN_RESTAURACION_COMPARTIDA, $fila->origen);
+        $this->assertEquals(2_000_000, (float) $fila->valor_orden);
+
+        DB::table('comision_reglas')->update(['valor' => json_encode('mitad')]);
+        \App\Support\ReglasComision::olvidarCache();
+        ComisionController::sincronizarValorOrden($orden->fresh());
+        $fila = Comision::where('vendedor_id', self::GLADYS)->sole();
+        $this->assertSame('venta', $fila->origen);
+        $this->assertEquals(1_000_000, (float) $fila->valor_orden);
+    }
+
+    public function test_lo_ya_pagado_no_se_mueve(): void
+    {
+        $this->conRestauracionCompartida(null);
+        $orden = $this->orden(self::HENRY, self::FERIA, 2_000_000, restauracion: true, covendedor: self::GLADYS);
+        Comision::where('vendedor_id', self::GLADYS)->update(['estado' => 'pagada', 'monto_comision' => 50_000]);
+
+        $this->ponerRegla('restauracion_compartida_persona', 'cinco_cada_uno');
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        // Lo pagado se queda como se pagó (la mitad)...
+        $pagada = Comision::where('vendedor_id', self::GLADYS)->where('estado', 'pagada')->sole();
+        $this->assertSame('venta', $pagada->origen);
+        $this->assertEquals(1_000_000, (float) $pagada->valor_orden);
+        $this->assertEquals(50_000, (float) $pagada->monto_comision);
+        // ...y, como cuando una orden sube de valor, lo que falta va en un
+        // renglón aparte con la diferencia: nunca se le cobra lo ya pagado.
+        $this->assertEquals(1_000_000, (float) Comision::where('vendedor_id', self::GLADYS)->where('estado', '!=', 'pagada')->sum('valor_orden'));
+        $this->assertFalse(Comision::where('origen', ComisionController::ORIGEN_RESTAURACION_COMPARTIDA)->exists());
+    }
+
+    public function test_la_migracion_prende_la_regla_desde_noviembre_una_sola_vez(): void
+    {
+        $this->conRestauracionCompartida(null);
+        $m = require base_path('database/migrations/2026_11_25_000001_restauracion_compartida_con_persona.php');
+        ob_start(); $m->up(); $m->up(); $salida = ob_get_clean();
+
+        $this->assertSame(1, DB::table('comision_reglas')->where('clave', 'restauracion_compartida_persona')->count());
+        $this->assertSame('cinco_cada_uno', \App\Support\ReglasComision::valor('restauracion_compartida_persona', '2026-11'));
+        $this->assertSame('mitad', \App\Support\ReglasComision::valor('restauracion_compartida_persona', '2026-10'));
+        $this->assertStringContainsString('Ya había', $salida);
+    }
 }

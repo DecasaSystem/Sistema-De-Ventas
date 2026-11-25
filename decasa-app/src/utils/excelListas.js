@@ -40,6 +40,7 @@ export function tipoDe(o, b) {
   if (o.forma_pago === 'parte_pool') return 'Parte del equipo (sin orden)'
   if (o.forma_pago === 'abono_almacen') return `${o.es_restauracion ? 'Restauración' : 'Venta'} de un independiente con la tienda`
   if (o.forma_pago === 'restauracion_equipo') return 'Restauración repartida en la tienda'
+  if (o.forma_pago === 'rest_compartida') return 'Restauración compartida con un independiente'
   let t = o.es_restauracion ? 'Restauración' : (o.tipo_orden === 'fv2' || o.es_descuento_especial ? 'Venta FV2' : 'Venta')
   if (o.es_compartida) t += ' compartida'
   if (b.es_independiente && o.almacen) t += ` (con ${o.almacen})`
@@ -122,6 +123,8 @@ export function comoSale(o, b, r) {
       return `${v}${r.iva_en_restauracion ? ` ÷ ${divisor(r.iva_divisor)}` : ''} × ${num(r.pct_restauracion)}% = ${m}. Las restauraciones ${restauracionYMeta(r)}.`
     case 'restauracion_equipo':
       return `Su pedazo de una restauración de la tienda (el ${num(r.pct_restauracion)}% se parte entre los que estaban) → ${m}.`
+    case 'rest_compartida':
+      return `Restauración entera que le compartió un independiente: ${v} × ${num(r.pct_restauracion_compartida_persona)}% = ${m}. Solo suya: no se parte con la tienda ni suma a la meta.`
     case 'abono_almacen':
       return o.es_restauracion
         ? `Lo que dejó un independiente (restauración): ${v} × ${num(r.almacen_pct)}% = ${m}.`

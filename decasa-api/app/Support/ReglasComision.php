@@ -296,6 +296,33 @@ class ReglasComision
             'nombre' => 'Porcentaje del almacén que ayudó a un independiente',
             'explica' => 'La gente del almacén se lo reparte.',
         ],
+        // Restauración de un independiente compartida con OTRA PERSONA (no con
+        // una tienda). Usuario, 2026-11-24: "si la comparte con un vendedor sin
+        // tienda, ese vendedor también se lleva el 5%" — 5% Henry, 5% Flabio y
+        // 5% el compañero, como cuando se comparte con una tienda, pero el 5%
+        // es solo de esa persona. Antes se partía como una venta: al bolsón
+        // entraba la mitad y el compañero cobraba sobre la otra mitad.
+        'restauracion_compartida_persona' => [
+            'tipo' => 'opcion', 'defecto' => 'mitad', 'alcances' => ['general'],
+            'nombre' => 'Restauración de un independiente compartida con otra persona',
+            'explica' => 'Cuando un independiente comparte una restauración con un vendedor o un supervisor, no con una tienda.',
+            // La primera es lo que hacía el código antes (el valor por defecto).
+            'opciones' => [
+                'mitad' => ['nombre' => 'Se parte por la mitad, como una venta',
+                    'explica' => 'Al bolsón entra solo la mitad del independiente y el compañero cobra sobre la otra mitad. '
+                        . 'Es como funcionaba antes de noviembre de 2026.'],
+                'cinco_cada_uno' => ['nombre' => 'Entera al bolsón y el compañero cobra aparte',
+                    'explica' => 'La restauración entra entera al bolsón (cada independiente cobra su porcentaje) y el compañero cobra '
+                        . 'su propio porcentaje sobre la restauración entera, solo para él. Si el compañero ya cobra del bolsón, '
+                        . 'no se le paga dos veces.'],
+            ],
+        ],
+        'pct_restauracion_compartida_persona' => [
+            'tipo' => 'fraccion', 'defecto' => ComisionIndependientes::PORCENTAJE, 'alcances' => ['general', 'usuario'],
+            'nombre' => 'Porcentaje del compañero en una restauración compartida',
+            'explica' => 'Con "Entera al bolsón y el compañero cobra aparte": lo que cobra la persona con la que el independiente '
+                . 'compartió la restauración, sobre la restauración entera y sin quitarle el IVA. Por persona: quien cobra.',
+        ],
         'almacen_fraccion_meta' => [
             'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda'],
             'nombre' => 'Parte de la venta que le suma a la meta del almacén',
@@ -311,7 +338,7 @@ class ReglasComision
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera', 'periodicidad']],
         'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'reparto_reemplazo', 'pct_reemplazo', 'restauracion_espera_meta', 'restauracion_ayuda_meta', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
-        'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
+        'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta', 'restauracion_compartida_persona', 'pct_restauracion_compartida_persona']],
     ];
 
     /**
@@ -328,6 +355,8 @@ class ReglasComision
         // Quien reemplaza deja de entrar al reparto de la restauración y del
         // almacén de esos días, y eso también queda escrito por persona.
         'reparto_reemplazo',
+        // Con la restauración entera, el compañero recibe su renglón aparte: queda escrito.
+        'restauracion_compartida_persona',
     ];
 
     /**

@@ -399,6 +399,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           </div>
           <p>Se pagan <b>el mes completo desde su tarjeta</b>, no orden por orden. Las ventas y las restauraciones esperan {{ pagadaCobro }} y el día {{ dia }}. Al bolsón solo entran las restauraciones con {{ pagadaCobro }}.</p>
           <p class="nota">Si comparte la venta con una tienda, desde el 12 de noviembre de 2026 el independiente cobra el {{ pct('indep_pct_venta') }} sobre <b>su mitad</b> y la tienda sobre la otra (siguiente tema). Lo vendido antes de esa fecha sigue como se vendió: el {{ pct('indep_pct_venta') }} sobre la venta entera.</p>
+          <p v-if="r.restauracion_compartida_persona === 'cinco_cada_uno'" class="nota">Si comparte una <b>restauración con otra persona</b> (un vendedor o un supervisor, no una tienda), la restauración entra <b>entera</b> al bolsón y esa persona cobra su propio {{ pct('pct_restauracion_compartida_persona') }} de la restauración entera, solo para ella: no se reparte con su tienda ni le suma a la meta. Ejemplo: restauración de $2.000.000 de Henry compartida con un supervisor → Henry {{ cop(2000000 * r.indep_pct_bolson) }}, Flabio {{ cop(2000000 * r.indep_pct_bolson) }} y el supervisor {{ cop(2000000 * r.pct_restauracion_compartida_persona) }}. Si la comparte con otro independiente que ya cobra del bolsón, no se le paga dos veces.</p>
+          <p v-else class="nota">Si comparte una <b>restauración con otra persona</b> (no con una tienda), se parte por la mitad como una venta: al bolsón entra la mitad y la otra persona cobra sobre la otra mitad.</p>
           <p class="nota">A un independiente se le puede sacar del bolsón, o darle otro porcentaje, en Bonificaciones → Reglas.</p>
         </template>
 

@@ -2464,6 +2464,7 @@ class ComisionController extends Controller
             $porQue = match (true) {
                 $formas->contains(self::ORIGEN_ABONO)               => 'de_independiente',
                 $formas->contains(self::ORIGEN_RESTAURACION_EQUIPO),
+                $formas->contains(self::ORIGEN_RESTAURACION_COMPARTIDA),
                 $formas->contains('restauracion_5')                 => 'restauracion',
                 (int) ($orden['tienda_id'] ?? 0) !== (int) $tiendaId => 'otra_tienda',
                 default                                              => 'venta_tienda',
@@ -4217,6 +4218,10 @@ class ComisionController extends Controller
      */
     public static function sincronizarValorOrden(Orden $orden): int
     {
+        // Antes de leer las propias: el renglón aparte del compañero de una
+        // restauración compartida lleva su propia base (la restauración entera).
+        self::sincronizarRestauracionCompartida($orden);
+
         // Los repartos llevan su propia base (el pedazo de cada uno), asi que
         // no pueden recibir el valor de la orden entera. Se pregunta también
         // por el nulo: una comision vieja puede no tener origen, y un `!=` en
@@ -4419,23 +4424,38 @@ class ComisionController extends Controller
         // parte en vez de abrirle otra.
         self::sincronizarRestauracionEquipo($orden);
 
-        // Registro del co-vendedor si la venta es compartida
-        if ($esCompartida && $covendedorId) {
-            $covendedor = Usuario::find($covendedorId);
-            if ($covendedor && $covendedor->tienda_default_id) {
-                Comision::firstOrCreate(
-                    ['orden_id' => $orden->id, 'vendedor_id' => $covendedorId],
-                    [
-                        'tienda_id'        => $covendedor->tienda_default_id,
-                        'mes_venta'        => $mes,
-                        'valor_orden'      => self::valorComisionable($orden, (int) $covendedorId),
-                        'fecha_venta'      => $fechaVentaStr,
-                        'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $covendedor->tienda_default_id),
-                        'estado'           => 'pendiente',
-                    ]
-                );
-            }
+        // Restauración de un independiente compartida con otra persona: el
+        // compañero lleva su propio renglón sobre la restauración entera.
+        if (self::companeroDeRestauracion($orden) !== null) {
+            self::sincronizarRestauracionCompartida($orden);
+            return;
         }
+
+        // Registro del co-vendedor si la venta es compartida
+        if ($esCompartida && $covendedorId) self::crearFilaDelCovendedor($orden);
+    }
+
+    /** El renglón de siempre del covendedor de una venta compartida (si tiene tienda). */
+    private static function crearFilaDelCovendedor(Orden $orden): void
+    {
+        $covendedorId = $orden->covendedor_id;
+        if (! $orden->es_compartida || ! $covendedorId) return;
+
+        $covendedor = Usuario::find($covendedorId);
+        if (! $covendedor || ! $covendedor->tienda_default_id) return;
+
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        Comision::firstOrCreate(
+            ['orden_id' => $orden->id, 'vendedor_id' => $covendedorId],
+            [
+                'tienda_id'        => $covendedor->tienda_default_id,
+                'mes_venta'        => $fechaVenta->format('Y-m'),
+                'valor_orden'      => self::valorComisionable($orden, (int) $covendedorId),
+                'fecha_venta'      => $fechaVenta->toDateString(),
+                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $covendedor->tienda_default_id),
+                'estado'           => 'pendiente',
+            ]
+        );
     }
 
     /** Marca de las comisiones que salen del 5% que deja un independiente. */
@@ -4502,6 +4522,122 @@ class ComisionController extends Controller
     public const ORIGEN_RESTAURACION_EQUIPO = 'restauracion_equipo';
 
     /**
+     * El porcentaje propio de quien compartió una restauración con un
+     * independiente (regla restauracion_compartida_persona = cinco_cada_uno).
+     * Usuario, 2026-11-24: restauración de $2.000.000 de Henry compartida con
+     * un vendedor sin tienda → 5% Henry, 5% Flabio (el bolsón, entero) y 5%
+     * para ese vendedor, solo suyo: no se reparte con su tienda ni le suma a
+     * la meta. `valor_orden` es la restauración entera (sin el datáfono).
+     */
+    public const ORIGEN_RESTAURACION_COMPARTIDA = 'rest_compartida';
+
+    /** Órdenes que tienen ese renglón (id => true), por petición. Ver CachesDePeticion. */
+    private static ?array $conRestCompartida = null;
+
+    public static function olvidarRestauracionesCompartidas(): void
+    {
+        self::$conRestCompartida = null;
+    }
+
+    /**
+     * Si esta orden es una restauración de un independiente compartida con
+     * otra persona y la regla dice que va entera: no se parte por la mitad ni
+     * para el bolsón ni para el compañero.
+     */
+    public static function restauracionCompartidaVaEntera(Orden $orden): bool
+    {
+        if (! $orden->es_compartida || ! $orden->covendedor_id || ! $orden->vendedor_id) return false;
+        if ((int) $orden->covendedor_id === (int) $orden->vendedor_id) return false;
+        // Lo barato primero: la regla, y después la base.
+        if (ReglasComision::valor('restauracion_compartida_persona', self::mesDeOrden($orden)) !== 'cinco_cada_uno') return false;
+        if (! Usuario::where('id', $orden->vendedor_id)->value('independiente')) return false;
+
+        return self::esRestauracionCompleta($orden);
+    }
+
+    /**
+     * El compañero que cobra su porcentaje aparte en una restauración
+     * compartida (ver restauracionCompartidaVaEntera), o null. Si el compañero
+     * ya cobra del bolsón (Henry la comparte con Flabio), la restauración
+     * entera ya le paga por ahí: no se le abre otro renglón, para no pagarle
+     * dos veces la misma restauración.
+     */
+    public static function companeroDeRestauracion(Orden $orden): ?int
+    {
+        if (! self::restauracionCompartidaVaEntera($orden)) return null;
+
+        $companero = Usuario::find($orden->covendedor_id);
+        if (! $companero) return null;
+        if ($companero->independiente
+            && ReglasComision::si('entra_al_bolson', self::mesDeOrden($orden), null, (int) $companero->id)) return null;
+
+        return (int) $companero->id;
+    }
+
+    /**
+     * Le arma (o le quita) al compañero su renglón propio de la restauración
+     * compartida. Lo pagado no se toca. Si ya no aplica (cambió la regla, el
+     * compañero o la orden), su renglón vuelve a ser el del covendedor de
+     * siempre.
+     */
+    public static function sincronizarRestauracionCompartida(Orden $orden): void
+    {
+        // Corre en cada sincronización de cada orden (el recálculo pasa por
+        // cientos): una orden que no es compartida ni tiene este renglón no
+        // le cuesta ni una consulta.
+        self::$conRestCompartida ??= Comision::where('origen', self::ORIGEN_RESTAURACION_COMPARTIDA)
+            ->distinct()->pluck('orden_id')->map(fn ($id) => (int) $id)->flip()->all();
+        $tiene = isset(self::$conRestCompartida[(int) $orden->id]);
+        if (! $orden->es_compartida && ! $tiene) return;
+
+        $companero = in_array($orden->estado, self::ESTADOS_SIN_VENTA, true) ? null : self::companeroDeRestauracion($orden);
+        if ($companero === null && ! $tiene) return;
+        self::$conRestCompartida[(int) $orden->id] = true;
+
+        $aparte = Comision::where('orden_id', $orden->id)
+            ->where('origen', self::ORIGEN_RESTAURACION_COMPARTIDA)->get();
+        $quitadas = 0;
+        foreach ($aparte as $c) {
+            if ($c->estado === 'pagada' || (int) $c->vendedor_id === $companero) continue;
+            $c->delete();
+            $quitadas++;
+        }
+
+        if ($companero === null) {
+            // El covendedor vuelve a su renglón de siempre (si le toca uno).
+            if ($quitadas > 0) self::crearFilaDelCovendedor($orden);
+            return;
+        }
+
+        $suyas = Comision::where('orden_id', $orden->id)->where('vendedor_id', $companero)->orderBy('id')->get();
+        // Ya se le pagó (con esta regla o con la de antes): lo pagado se queda como estaba.
+        if ($suyas->contains(fn ($c) => $c->estado === 'pagada')) return;
+
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        // Un vendedor o un supervisor sin tienda queda con la de la orden.
+        $tienda = (int) (Usuario::where('id', $companero)->value('tienda_default_id') ?: $orden->tienda_id);
+        if (! $tienda) return;
+
+        $datos = [
+            'origen'           => self::ORIGEN_RESTAURACION_COMPARTIDA,
+            'tienda_id'        => $tienda,
+            'mes_venta'        => $fechaVenta->format('Y-m'),
+            'valor_orden'      => round((float) $orden->valor_total - self::costoDatafono($orden)),
+            'fecha_venta'      => $fechaVenta->toDateString(),
+            'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $tienda),
+        ];
+
+        $primera = $suyas->first();
+        if ($primera) {
+            $primera->update($datos);
+            // Un renglón por persona: lo demás de ella en esta orden sobra.
+            $suyas->slice(1)->each->delete();
+        } else {
+            Comision::create($datos + ['orden_id' => $orden->id, 'vendedor_id' => $companero, 'estado' => 'pendiente']);
+        }
+    }
+
+    /**
      * Todas las formas de pago que puede llevar un renglón (`forma_pago` en
      * enriquecer). Listas y su Excel explican cada una en palabras
      * (decasa-app/src/utils/explicarListas.js, FORMAS_EXPLICADAS); una forma
@@ -4511,10 +4647,11 @@ class ComisionController extends Controller
     public const FORMAS_DE_PAGO = [
         'pool', self::ORIGEN_PARTE_POOL, 'sin_meta_5', 'reemplazo_ventas', 'restauracion_5',
         self::ORIGEN_RESTAURACION_EQUIPO, self::ORIGEN_ABONO, 'fuera_del_pool', 'bolson_restauraciones',
+        self::ORIGEN_RESTAURACION_COMPARTIDA,
     ];
 
     /** Los orígenes en los que `valor_orden` es un pedazo, no la orden entera. */
-    public const ORIGENES_REPARTIDOS = [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_EQUIPO];
+    public const ORIGENES_REPARTIDOS = [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_EQUIPO, self::ORIGEN_RESTAURACION_COMPARTIDA];
 
     /**
      * Le arma (o le pone al día) su fila a cada persona del almacén con el que
@@ -4803,6 +4940,10 @@ class ComisionController extends Controller
         // y al covendedor el resto. Se multiplica por la parte en vez de
         // dividir por 2: da exactamente lo mismo y deja cambiar la parte.
         if ($orden->es_compartida) {
+            // Restauración de un independiente compartida con otra persona,
+            // con la regla "entera": nadie se queda con la mitad.
+            if (self::restauracionCompartidaVaEntera($orden)) return round($base);
+
             // La parte puede ser de la tienda a la que cuenta la venta o de
             // quien la registró (Fase 4). La tienda se averigua solo si hay
             // una regla por tienda: para una venta digital cuesta una consulta.
@@ -5169,7 +5310,7 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
-            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->tap(fn ($q) => self::sinRestauraciones($q))
             ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
@@ -5253,7 +5394,7 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
-            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->whereIn('c.orden_id', $sub)
             ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
@@ -6070,7 +6211,7 @@ class ComisionController extends Controller
             ->where('u.independiente', false)
             // El 5% que deja un independiente no es una venta de la tienda:
             // paga a su gente pero no le empuja la meta ni le arma pool.
-            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             // Solo cuentan las ventas vivas. Una orden cancelada dejaba su
             // comision atras y su valor seguia empujando la meta de la tienda.
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
@@ -6106,7 +6247,7 @@ class ComisionController extends Controller
         $totalesVendedor = DB::table('comisiones as c')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
-            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('c.origen', [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_COMPARTIDA])
             ->tap(fn ($q) => self::sinRestauraciones($q))
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
@@ -6199,6 +6340,11 @@ class ComisionController extends Controller
         // restauracion_suma_meta, Fase 4): ahí van por el pool como una más.
         $esRestauracion = isset($idsRestauracion[(int) $c->orden_id])
             && ! self::restauracionComoVenta((int) $c->tienda_id, (string) $c->mes_venta);
+        // El porcentaje propio del compañero de una restauración compartida con
+        // un independiente: siempre restauración (nunca pool, aunque su tienda
+        // cuente las restauraciones como ventas), solo suyo y sin esperar meta.
+        $esRestCompartida = $c->origen === self::ORIGEN_RESTAURACION_COMPARTIDA;
+        if ($esRestCompartida) $esRestauracion = true;
         $tieneMeta      = $meta > 0
             && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta, (int) $c->tienda_id);
 
@@ -6289,6 +6435,9 @@ class ComisionController extends Controller
             $montoComision = $montoLibro;
         } elseif ($esPartePool) {
             $montoComision = round($comisionAsesor);
+        } elseif ($esRestCompartida) {
+            $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, true, $mesC, $tiendaC)
+                * ReglasComision::numero('pct_restauracion_compartida_persona', $mesC, null, $quienC));
         } elseif ($esAbono) {
             $montoComision = round(ReglasComision::sinIva((float) $c->valor_orden, $esRestauracion, $mesC, $tiendaC)
                 * ReglasComision::numero('almacen_pct', $mesC, $tiendaC));
@@ -6385,7 +6534,7 @@ class ComisionController extends Controller
             // Por libro, la parte del equipo también espera a la meta: sin
             // pool no hay nada que soltarle a nadie.
             if ($req50 && $reqVencio && $metaCumplida) $estadoCalculado = 'lista';
-        } elseif ($esRestauracion && $meta > 0 && ! $metaCumplida
+        } elseif ($esRestauracion && ! $esRestCompartida && $meta > 0 && ! $metaCumplida
             && (ReglasComision::si('restauracion_espera_meta', $mesC, $tiendaC)
                 // Con "ayudan a llegar": si ni con ellas se llegó, no se paga nada.
                 || (ReglasComision::si('restauracion_ayuda_meta', $mesC, $tiendaC) && ! $esTrimestral))) {
@@ -6424,13 +6573,14 @@ class ComisionController extends Controller
                                   : ($c->estado === 'pagada' && $c->forma_pago_pagada ? $c->forma_pago_pagada
                                   : ($fueraDelPool ? 'fuera_del_pool'
                                   : ($esPartePool ? self::ORIGEN_PARTE_POOL
+                                  : ($esRestCompartida ? self::ORIGEN_RESTAURACION_COMPARTIDA
                                   : ($esAbono ? self::ORIGEN_ABONO
                                   : ($esRestauracion
                                         ? ($c->origen === self::ORIGEN_RESTAURACION_EQUIPO
                                             ? self::ORIGEN_RESTAURACION_EQUIPO
                                             : 'restauracion_5')
                                   : ($esReemplazoVentas ? 'reemplazo_ventas'
-                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'))))))),
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool')))))))),
             'fuera_del_pool'   => $fueraDelPool,
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,

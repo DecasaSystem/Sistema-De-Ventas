@@ -51,6 +51,8 @@ export const DEFECTO = Object.freeze({
   bolson_incluye_almacenes: true,
   almacen_pct: 0.05,
   almacen_fraccion_meta: 0.5,
+  restauracion_compartida_persona: 'mitad',
+  pct_restauracion_compartida_persona: 0.05,
 })
 
 const SIN_CAMBIOS = Object.freeze({ mes: null, general: DEFECTO, excepciones: [] })

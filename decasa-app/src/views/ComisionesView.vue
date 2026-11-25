@@ -702,6 +702,11 @@ const FORMAS_PAGO = {
     resumen:  () => 'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga bonificación.',
     clase:    'bg-amber-100 text-amber-700',
   },
+  rest_compartida: {
+    etiqueta: 'Restauración compartida',
+    resumen:  (r) => `Un independiente compartió con esta persona una restauración: cobra el ${num(r.pct_restauracion_compartida_persona)}% de la restauración entera, solo para ella. No se parte con la tienda ni le suma a la meta; el bolsón de los independientes la recibe entera aparte.`,
+    clase:    'bg-purple-100 text-purple-700',
+  },
   sin_meta_5: {
     etiqueta: 'Individual',
     resumen:  (r) => `Sin meta no hay pool: cobra el ${num(r.pct_individual)}% de lo suyo, sin dividir.`,
@@ -749,6 +754,7 @@ function formaPago(c) {
 function pctDeLaForma(c) {
   const r = reglasDe(c)
   if (c.abono_de_almacen) return r.almacen_pct
+  if (c.forma_pago === 'rest_compartida') return r.pct_restauracion_compartida_persona
   if (c.forma_pago === 'restauracion_5' || c.forma_pago === 'restauracion_equipo') return r.pct_restauracion
   if (c.forma_pago === 'reemplazo_ventas') return r.pct_reemplazo
   return r.pct_individual

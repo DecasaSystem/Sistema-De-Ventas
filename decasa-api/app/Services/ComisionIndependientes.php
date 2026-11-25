@@ -116,6 +116,16 @@ class ComisionIndependientes
      */
     private static function mitadDelIndependiente(object $o, string $mes, array $idsRestauracion): object
     {
+        // 4. Una RESTAURACIÓN compartida con otra persona (no con una tienda),
+        //    con la regla "entera" (usuario, 2026-11-24): entra entera al
+        //    bolsón, igual que la compartida con una tienda. El compañero
+        //    cobra su propio porcentaje aparte (ComisionController,
+        //    ORIGEN_RESTAURACION_COMPARTIDA). Antes entraba solo la mitad.
+        if (! empty($o->es_compartida) && in_array($o->id, $idsRestauracion, true)
+            && ReglasComision::valor('restauracion_compartida_persona', $mes) === 'cinco_cada_uno') {
+            $o->valor_total = $o->base_entera;
+        }
+
         if (! empty($o->tienda_abonada_id)
             && ! in_array($o->id, $idsRestauracion, true)
             && Carbon::parse($o->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->toDateString()

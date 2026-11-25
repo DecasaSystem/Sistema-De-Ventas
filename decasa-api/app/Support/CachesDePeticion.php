@@ -28,6 +28,7 @@ class CachesDePeticion
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
         \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
         \App\Http\Controllers\ComisionController::olvidarEsquema();
+        \App\Http\Controllers\ComisionController::olvidarRestauracionesCompartidas();
         \App\Models\Orden::olvidarEsquema();
         \App\Services\AnticiposComision::olvidarEsquema();
         \App\Models\Orden::olvidarSedes();
