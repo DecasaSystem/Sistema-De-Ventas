@@ -1491,6 +1491,19 @@ Decisiones del dueño del 2026-10-08:
   el hilo aunque no haya contestado, no a cuentas inactivas, y una mención como texto ("5") ya
   dice "Te preguntaron". Tests en `ChatOrdenNotificacionTest`.
 
+- **Chat de la orden: venta compartida, respaldo y aviso directo** (2026-11-25, **sin subir**, sin
+  migración, rama `claude/elated-pike-5bbb9b`). Pedido del usuario: "la venta no es solo de una
+  persona sino de la que la subió y de la que está compartida": en la @ salen el vendedor, el
+  covendedor, los vendedores de la tienda de la orden y los de la tienda compartida
+  (`tienda_abonada_id`), con un botón "Toda la tienda"; tope de menciones 5 → 15. La lista y los
+  avisos se filtran con `puedeParticipar`: a quien ya no puede abrir el chat (se cambió de tienda)
+  no le llega el texto, y la API ya no deja arrobar a cualquiera. El chat se vuelve a pedir cada
+  minuto y al volver a la app (el WebSocket se cae en el celular) y el aviso lleva directo al chat
+  (`?chat=<mensaje>`; antes el conductor covendedor caía en Mis entregas). Por defecto mío (**falta
+  confirmar**): a la tienda compartida no le llega cada mensaje; solo si la arroban o si ya escribió.
+  Informe completo con los demás problemas (mensajes del sistema a nombre de la persona, chat cerrado
+  después de entregar, Enter en el celular, duplicados, sin "no leídos" por orden) en la carpeta de
+  notas de esa sesión; pendientes de decidir con el usuario.
 - **Análisis de Nómina + 2 arreglos** (2026-11-18, **subido a `main`** ese día, sin migración, rama
   `claude/dazzling-shaw-39a885`). Informe en `docs/analisis-nomina.md` (problemas A1–E, preguntas
   para el dueño/contador). Arreglados A1 y A2 (pedido del usuario): (1) **cambiar la frecuencia de

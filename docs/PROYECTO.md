@@ -240,6 +240,12 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 - **Chat de la orden** (`OrdenMensajeController`, `ChatOrden.vue`): dudas entre vendedores,
   supervisores y Producción; varias fotos por mensaje (`orden_mensajes.imagenes`), cada
   una se sube al elegirla con reintento. Se cierra al quedar lista para entrega.
+  A quién se arroba (`destinatarios`): supervisores, quien gestiona Producción, vendedor y
+  covendedor, y los vendedores de la tienda de la orden y de la tienda compartida
+  (`tienda_abonada_id`), en grupos con "Toda la tienda"; siempre filtrado con
+  `puedeParticipar` (también los avisos). La pantalla vuelve a pedir el hilo cada minuto y al
+  volver a la app (respaldo del WebSocket); el aviso `orden_mensaje` abre la orden con
+  `?chat=<mensaje>` y baja hasta el chat.
 - **Visibilidad:** `Orden::scopeVisiblesPara` / `laPuedeVer` / `laPuedeCobrar` /
   `laPuedeEditar` (ver `MEMORY.md` §2).
 

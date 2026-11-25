@@ -57,22 +57,58 @@ class OrdenMensajeController extends Controller
      */
     private function destinatarios(Usuario $usuario, Orden $orden)
     {
-        $idsOrden = array_filter([$orden->vendedor_id, $orden->covendedor_id]);
+        $idsOrden = array_map('intval', array_filter([$orden->vendedor_id, $orden->covendedor_id]));
+
+        // La venta no es solo de quien la subió: también de la tienda con la
+        // que se compartió (pedido del usuario, 2026-11-25). Un independiente
+        // la comparte con El Edén: el supervisor arroba al independiente y a
+        // los de El Edén; los de la tienda de la orden también salen.
+        $tiendaOrden    = (int) $orden->tienda_id;
+        $tiendaAbonada  = (int) $orden->tienda_abonada_id;
+        $tiendas        = array_values(array_filter(array_unique([$tiendaOrden, $tiendaAbonada])));
+
+        $nombresTienda = $tiendas
+            ? \App\Models\Tienda::whereIn('id', $tiendas)->pluck('nombre', 'id')->all()
+            : [];
 
         return Usuario::where('activo', true)
             ->where('id', '!=', $usuario->id)
             // Y quien gestiona Producción: es a quien se le pregunta por el taller.
-            ->where(fn ($q) => $q->where('rol', 'supervisor')->orWhere('gestiona_produccion', true)
-                ->orWhereIn('id', $idsOrden ?: [0]))
+            ->where(function ($q) use ($idsOrden, $tiendas) {
+                $q->where('rol', 'supervisor')->orWhere('gestiona_produccion', true)
+                    ->orWhereIn('id', $idsOrden ?: [0]);
+                if ($tiendas) {
+                    $q->orWhere(fn ($v) => $v->where('rol', 'vendedor')->whereIn('tienda_default_id', $tiendas));
+                }
+            })
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'rol'])
-            ->map(fn ($u) => [
-                'id'     => $u->id,
-                'nombre' => $u->nombre,
-                // Para que el supervisor distinga de un vistazo a quién le
-                // está preguntando entre siete nombres iguales
-                'es_de_la_orden' => in_array((int) $u->id, array_map('intval', $idsOrden), true),
-            ]);
+            ->get()
+            // Solo a quien de verdad puede abrir el chat hoy: si no, le llega
+            // el aviso con el texto y al tocarlo no puede entrar.
+            ->filter(fn ($u) => self::puedeParticipar($u, $orden))
+            ->map(function ($u) use ($orden, $idsOrden, $tiendaOrden, $tiendaAbonada, $nombresTienda) {
+                $esDeLaOrden = in_array((int) $u->id, $idsOrden, true);
+                $tienda = (int) $u->tienda_default_id;
+                // De qué tienda sale en la lista (los de la orden y los
+                // supervisores, de ninguna: van aparte).
+                $grupo = null;
+                if (! $esDeLaOrden && $u->rol === 'vendedor') {
+                    if ($tiendaAbonada && $tienda === $tiendaAbonada && $tiendaAbonada !== $tiendaOrden) $grupo = 'compartida';
+                    elseif ($tiendaOrden && $tienda === $tiendaOrden) $grupo = 'tienda';
+                }
+
+                return [
+                    'id'     => $u->id,
+                    'nombre' => $u->nombre,
+                    // Para que el supervisor distinga de un vistazo a quién le
+                    // está preguntando entre siete nombres iguales
+                    'es_de_la_orden' => $esDeLaOrden,
+                    'es_covendedor'  => (int) $u->id === (int) $orden->covendedor_id,
+                    'grupo'          => $grupo,
+                    'tienda'         => $grupo ? ($nombresTienda[$tienda] ?? null) : null,
+                ];
+            })
+            ->values();
     }
 
     /** GET /api/ordenes/{id}/mensajes */
@@ -103,7 +139,7 @@ class OrdenMensajeController extends Controller
     public function store(Request $request, int $id)
     {
         $usuario = $request->user();
-        $orden   = Orden::with('cliente:id,nombre')->findOrFail($id);
+        $orden   = Orden::findOrFail($id);
 
         if (! $this->puedeParticipar($usuario, $orden)) {
             return response()->json(['message' => 'No autorizado.'], 403);
@@ -123,17 +159,25 @@ class OrdenMensajeController extends Controller
             'imagen_url'      => ['nullable', 'string', 'max:500', 'regex:#^https://#'],
             'imagenes'        => 'nullable|array|max:6',
             'imagenes.*'      => ['string', 'max:500', 'regex:#^https://#'],
-            'mencionados'     => 'nullable|array|max:5',
-            'mencionados.*'   => 'integer|exists:usuarios,id',
+            // Hasta 15: con "toda la tienda" + el independiente + un supervisor
+            // se pasaba de los 5 de antes.
+            'mencionados'     => 'nullable|array|max:15',
+            'mencionados.*'   => 'integer',
         ]);
 
         // Uno mismo no cuenta como mencionado aunque venga en la lista
         // En enteros: si llegan como texto ("5"), el aviso decía "Mensaje nuevo"
         // en vez de "Te preguntaron" (la comparación de abajo es estricta).
+        // Y solo los de la lista de la pantalla: antes la API dejaba arrobar a
+        // cualquier usuario del sistema y le llegaba el texto del mensaje.
         $mencionados = collect($data['mencionados'] ?? [])
             ->map(fn ($uid) => (int) $uid)
             ->unique()->reject(fn ($uid) => $uid === (int) $usuario->id)
             ->values()->all();
+        if ($mencionados) {
+            $permitidos  = $this->destinatarios($usuario, $orden)->pluck('id')->map(fn ($x) => (int) $x)->all();
+            $mencionados = array_values(array_intersect($mencionados, $permitidos));
+        }
 
         // La lista completa; la primera también en `imagen_url` (lo de antes).
         $imagenes = array_values(array_unique(array_filter($data['imagenes'] ?? [])));
@@ -228,9 +272,13 @@ class OrdenMensajeController extends Controller
             ->reject(fn ($uid) => $uid === (int) $autor->id)
             ->values();
 
-        // Una sola consulta para saber quién sigue activo (cada una son ~200 ms).
+        // Una sola consulta para saber quién sigue activo (cada una son ~200 ms)
+        // y quién todavía puede abrir el chat: el vendedor que se cambió de
+        // tienda, o a quien le quitaron Producción, ya no recibe el texto.
         $activos = $destinos->isEmpty() ? [] : Usuario::whereIn('id', $destinos)
-            ->where('activo', true)->pluck('id')->map(fn ($x) => (int) $x)->all();
+            ->where('activo', true)->get()
+            ->filter(fn ($u) => self::puedeParticipar($u, $orden))
+            ->pluck('id')->map(fn ($x) => (int) $x)->all();
         $destinos = $destinos->filter(fn ($uid) => in_array($uid, $activos, true))->values();
 
         $ref     = $orden->referencia;

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -21,6 +22,7 @@ const props = defineProps({
 const auth  = useAuthStore()
 const toast = useToast()
 const notif = useNotificacionesStore()
+const route = useRoute()
 
 const mensajes      = ref([])
 const destinatarios = ref([])
@@ -165,27 +167,109 @@ function toggleMencion(id) {
   else        mencionados.value.push(id)
 }
 
+// ── A quién se le puede preguntar, por grupos ───────────────────────────────
+// La venta es de quien la subió y de con quien se compartió (pedido del
+// usuario, 2026-11-25): primero los dueños de la venta, después cada tienda
+// (la de la orden y la compartida) con un botón para arrobarla entera, y al
+// final supervisores y Producción.
+const deLaVenta = computed(() => destinatarios.value.filter(d => d.es_de_la_orden))
+const otros     = computed(() => destinatarios.value.filter(d => !d.es_de_la_orden && !d.grupo))
+const tiendasMencion = computed(() => {
+  const grupos = []
+  for (const clave of ['compartida', 'tienda']) {
+    const gente = destinatarios.value.filter(d => d.grupo === clave)
+    if (!gente.length) continue
+    grupos.push({
+      clave,
+      titulo: clave === 'compartida'
+        ? `Tienda con la que se compartió${gente[0].tienda ? ' · ' + gente[0].tienda : ''}`
+        : `Tienda de la orden${gente[0].tienda ? ' · ' + gente[0].tienda : ''}`,
+      gente,
+    })
+  }
+  return grupos
+})
+
+function todaLaTiendaMarcada(g) {
+  return g.gente.every(d => mencionados.value.includes(d.id))
+}
+function toggleTienda(g) {
+  if (todaLaTiendaMarcada(g)) {
+    mencionados.value = mencionados.value.filter(id => !g.gente.some(d => d.id === id))
+  } else {
+    for (const d of g.gente) if (!mencionados.value.includes(d.id)) mencionados.value.push(d.id)
+  }
+}
+
+function claseChip(d) {
+  if (mencionados.value.includes(d.id)) return 'bg-amber-500 text-white border-amber-500'
+  return d.es_de_la_orden
+    ? 'bg-white text-blue-700 border-blue-300 hover:border-amber-400 font-medium'
+    : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400'
+}
+
+/** ¿El hilo está abajo del todo (o casi)? Si la persona subió a leer algo, no se la baja sola. */
+function estaAbajo() {
+  const h = hilo.value
+  return !h || h.scrollHeight - h.scrollTop - h.clientHeight < 60
+}
+
 async function alFinal() {
   await nextTick()
   if (hilo.value) hilo.value.scrollTop = hilo.value.scrollHeight
 }
 
-async function cargar() {
-  cargando.value = true
+/**
+ * Trae el hilo del servidor.
+ *
+ * `silencioso`: es el respaldo del tiempo real (al volver a la app y cada
+ * minuto), sin rueda de carga ni bajar el hilo si la persona está leyendo
+ * arriba. Antes el chat solo se pedía al abrir la orden: si el WebSocket se
+ * caía —en el celular pasa apenas la app queda en segundo plano— los mensajes
+ * nuevos no salían hasta recargar la página.
+ */
+async function cargar({ silencioso = false } = {}) {
+  if (!silencioso) cargando.value = true
   try {
-    const { data } = await api.get(`/ordenes/${props.ordenId}/mensajes`)
-    mensajes.value      = data.mensajes ?? []
+    const { data } = await api.get(`/ordenes/${props.ordenId}/mensajes`, silencioso ? { silencioso: true } : undefined)
+    const nuevos  = data.mensajes ?? []
+    const habiaAbajo = estaAbajo()
+    const cambio  = nuevos.length !== mensajes.value.length
+      || nuevos[nuevos.length - 1]?.id !== mensajes.value[mensajes.value.length - 1]?.id
+    if (!silencioso || cambio) mensajes.value = nuevos
     destinatarios.value = data.destinatarios ?? []
     abierto.value       = !!data.abierto
-    await alFinal()
+    if (!silencioso || (cambio && habiaAbajo)) await alFinal()
   } catch (e) {
     // Quién participa lo decide el servidor (OrdenMensajeController): si dice
     // que no, el chat no se pinta. Si es la señal, se queda con lo que había.
     if (e.response?.status === 403) permitido.value = false
     else if (!mensajes.value.length) mensajes.value = []
   } finally {
-    cargando.value = false
+    if (!silencioso) cargando.value = false
   }
+}
+
+// ── Respaldo del tiempo real ────────────────────────────────────────────────
+// Cada minuto con la app a la vista, y al volver a ella. Es una consulta
+// liviana (solo el hilo de esta orden).
+const CADA_RESPALDO = 60_000
+let relojRespaldo = null
+let ultimoRespaldo = 0
+function respaldo() {
+  if (document.hidden || !permitido.value || cargando.value) return
+  ultimoRespaldo = Date.now()
+  cargar({ silencioso: true })
+}
+
+// ── Llegar desde el aviso ───────────────────────────────────────────────────
+// El aviso del chat abre la orden con ?chat=<mensaje>: se baja hasta el chat,
+// que está al final de una página larga. Antes había que buscarlo.
+async function enfocarSiLoPiden() {
+  if (!route.query.chat || !caja.value) return
+  await nextTick()
+  caja.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  await alFinal()
 }
 
 async function enviar() {
@@ -268,19 +352,35 @@ function observar() {
 // Lo que llega por la campana mientras el chat se ve, también queda visto.
 watch(() => notif.items.length, () => marcarVisto())
 watch(() => mensajes.value.length, () => marcarVisto())
-function alVolver() { if (!document.hidden) marcarVisto() }
+function alVolver() {
+  if (document.hidden) return
+  marcarVisto()
+  // Al volver a la app el WebSocket pudo haberse caído mientras tanto: se
+  // pregunta de una (salvo que se haya preguntado hace un momento).
+  if (Date.now() - ultimoRespaldo > 5_000) respaldo()
+}
 
-onMounted(() => {
-  cargar(); conectar()
+onMounted(async () => {
+  conectar()
   nextTick(observar)
   document.addEventListener('visibilitychange', alVolver)
+  relojRespaldo = setInterval(respaldo, CADA_RESPALDO)
+  await cargar()
+  enfocarSiLoPiden()
 })
 onBeforeUnmount(() => {
   desconectar(); quitarTodas()
   observador?.disconnect()
   document.removeEventListener('visibilitychange', alVolver)
+  clearInterval(relojRespaldo)
 })
-watch(() => props.estado, cargar)
+watch(() => props.estado, () => cargar({ silencioso: true }))
+// Ya estaba en esta orden y tocó otro aviso del mismo chat.
+watch(() => route.query.chat, async (v) => {
+  if (!v) return
+  await cargar({ silencioso: true })
+  enfocarSiLoPiden()
+})
 
 function hora(iso) {
   if (!iso) return ''
@@ -381,22 +481,47 @@ function iniciales(nombre) {
     <div v-if="!cargando" class="border-t border-gray-100 p-3 space-y-2">
       <template v-if="abierto">
         <!-- A quién se le pregunta -->
-        <div v-if="mostrarMenciones && destinatarios.length" class="flex flex-wrap gap-1.5 pb-1">
-          <button
-            v-for="d in destinatarios"
-            :key="d.id"
-            type="button"
-            @click="toggleMencion(d.id)"
-            :class="['text-xs px-2.5 py-1 rounded-full border transition-colors',
-              mencionados.includes(d.id)
-                ? 'bg-amber-500 text-white border-amber-500'
-                : d.es_de_la_orden
-                  ? 'bg-white text-blue-700 border-blue-300 hover:border-amber-400 font-medium'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400']"
-          >
-            {{ d.nombre }}
-            <span v-if="d.es_de_la_orden" class="opacity-70">· hizo la venta</span>
-          </button>
+        <div v-if="mostrarMenciones && destinatarios.length" class="space-y-2 pb-1">
+          <!-- Los dueños de la venta: quien la subió y con quien la compartió -->
+          <div v-if="deLaVenta.length" class="flex flex-wrap gap-1.5">
+            <button
+              v-for="d in deLaVenta" :key="d.id" type="button" @click="toggleMencion(d.id)"
+              :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+            >
+              {{ d.nombre }}
+              <span class="opacity-70">· {{ d.es_covendedor ? 'comparte la venta' : 'hizo la venta' }}</span>
+            </button>
+          </div>
+
+          <!-- Cada tienda (la compartida y la de la orden), con "toda la tienda" -->
+          <div v-for="g in tiendasMencion" :key="g.clave">
+            <p class="text-[11px] font-semibold text-gray-500 mb-1">{{ g.titulo }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                type="button" @click="toggleTienda(g)"
+                :class="['text-xs px-2.5 py-1 rounded-full border font-semibold transition-colors',
+                  todaLaTiendaMarcada(g) ? 'bg-amber-500 text-white border-amber-500'
+                                         : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500']"
+              >
+                Toda la tienda ({{ g.gente.length }})
+              </button>
+              <button
+                v-for="d in g.gente" :key="d.id" type="button" @click="toggleMencion(d.id)"
+                :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+              >{{ d.nombre }}</button>
+            </div>
+          </div>
+
+          <!-- Supervisores y Producción -->
+          <div v-if="otros.length">
+            <p v-if="deLaVenta.length || tiendasMencion.length" class="text-[11px] font-semibold text-gray-500 mb-1">Supervisores y Producción</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="d in otros" :key="d.id" type="button" @click="toggleMencion(d.id)"
+                :class="['text-xs px-2.5 py-1 rounded-full border transition-colors', claseChip(d)]"
+              >{{ d.nombre }}</button>
+            </div>
+          </div>
         </div>
 
         <p v-if="mencionados.length" class="text-[11px] text-amber-700">

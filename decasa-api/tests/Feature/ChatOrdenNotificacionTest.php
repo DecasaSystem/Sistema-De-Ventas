@@ -197,6 +197,93 @@ class ChatOrdenNotificacionTest extends TestCase
         $this->actingAs($conductor)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertForbidden();
     }
 
+    /**
+     * Henry (independiente) vende y comparte con El Edén. La venta es de los
+     * dos: el supervisor arroba a Henry y a los de El Edén (pedido del
+     * usuario, 2026-11-25). Los de otra tienda no salen.
+     */
+    private function ventaCompartidaConElEden(): array
+    {
+        Schema::create('tiendas', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->boolean('es_independientes')->default(false); $t->timestamps();
+        });
+        Schema::table('usuarios', fn (Blueprint $t) => $t->boolean('independiente')->default(false));
+        Schema::table('ordenes', fn (Blueprint $t) => $t->unsignedBigInteger('tienda_id')->nullable());
+        \App\Support\CachesDePeticion::olvidarTodo();
+        Orden::olvidarSedes();
+
+        $sede  = \App\Models\Tienda::forceCreate(['nombre' => 'Independientes', 'es_independientes' => true]);
+        $eden  = \App\Models\Tienda::forceCreate(['nombre' => 'El Edén']);
+        $norte = \App\Models\Tienda::forceCreate(['nombre' => 'Norte']);
+
+        $henry   = Usuario::forceCreate(['nombre' => 'Henry', 'rol' => 'vendedor', 'independiente' => true, 'tienda_default_id' => $sede->id]);
+        $gladys  = Usuario::forceCreate(['nombre' => 'Gladys', 'rol' => 'vendedor', 'tienda_default_id' => $eden->id]);
+        $sebas   = Usuario::forceCreate(['nombre' => 'Sebastián', 'rol' => 'vendedor', 'tienda_default_id' => $eden->id]);
+        $martha  = Usuario::forceCreate(['nombre' => 'Martha', 'rol' => 'vendedor', 'tienda_default_id' => $norte->id]);
+
+        $this->orden->forceFill([
+            'vendedor_id' => $henry->id, 'tienda_id' => $sede->id, 'tienda_abonada_id' => $eden->id,
+        ])->save();
+
+        return compact('henry', 'gladys', 'sebas', 'martha', 'eden');
+    }
+
+    public function test_en_una_venta_compartida_se_puede_arrobar_al_independiente_y_a_la_tienda(): void
+    {
+        ['henry' => $henry, 'gladys' => $gladys, 'sebas' => $sebas, 'martha' => $martha] = $this->ventaCompartidaConElEden();
+
+        $dest = collect($this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()->json('destinatarios'))->keyBy('id');
+
+        $this->assertTrue($dest[$henry->id]['es_de_la_orden']);
+        $this->assertSame('compartida', $dest[$gladys->id]['grupo']);
+        $this->assertSame('El Edén', $dest[$sebas->id]['tienda']);
+        $this->assertArrayNotHasKey($martha->id, $dest->all());   // otra tienda
+        $this->assertArrayHasKey($this->otroSup->id, $dest->all());
+
+        // Y Gladys, de la tienda compartida, también arroba a Henry.
+        $destGladys = collect($this->actingAs($gladys)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertOk()->json('destinatarios'))->pluck('id');
+        $this->assertContains($henry->id, $destGladys);
+        $this->assertContains($sebas->id, $destGladys);
+
+        Queue::fake();
+        $this->escribir($this->admin, [
+            'mensaje' => '¿Quién le confirma la tela?', 'mencionados' => [$henry->id, $gladys->id, $sebas->id],
+        ])->assertCreated();
+
+        foreach ([$henry, $gladys, $sebas] as $u) {
+            $this->assertSame('Te preguntaron en la orden FV2-150',
+                Notificacion::where('usuario_id', $u->id)->sole()->titulo);
+        }
+    }
+
+    public function test_no_se_puede_arrobar_a_quien_no_puede_ver_el_chat(): void
+    {
+        ['martha' => $martha] = $this->ventaCompartidaConElEden();
+        Queue::fake();
+
+        // Por la API, Martha (de otra tienda) no recibe el texto.
+        $this->escribir($this->admin, ['mensaje' => 'Hola', 'mencionados' => [$martha->id]])->assertCreated()
+            ->assertJsonPath('mencionados', []);
+        $this->assertSame(0, Notificacion::where('usuario_id', $martha->id)->count());
+    }
+
+    public function test_quien_ya_no_puede_ver_la_orden_deja_de_recibir_los_mensajes(): void
+    {
+        ['gladys' => $gladys, 'eden' => $eden] = $this->ventaCompartidaConElEden();
+        Queue::fake();
+
+        $this->escribir($gladys, ['mensaje' => 'Yo le confirmo'])->assertCreated();
+
+        // Gladys se pasa a otra tienda: ya no es de la venta compartida.
+        $otra = \App\Models\Tienda::forceCreate(['nombre' => 'Unicentro']);
+        $gladys->forceFill(['tienda_default_id' => $otra->id])->save();
+
+        $this->escribir($this->admin, ['mensaje' => '¿Ya le confirmaron?'])->assertCreated();
+        $this->assertSame(0, Notificacion::where('usuario_id', $gladys->id)->count());
+    }
+
     public function test_leer_la_notificacion_no_la_borra(): void
     {
         Queue::fake();
