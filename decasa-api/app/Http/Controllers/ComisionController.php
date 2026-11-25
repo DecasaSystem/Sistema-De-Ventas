@@ -3335,6 +3335,43 @@ class ComisionController extends Controller
         return response()->json($this->datosPagosPendientes());
     }
 
+    /**
+     * GET /api/comisiones/pagos-pendientes/quienes
+     *
+     * Para el "De quién" del Excel de pagos pendientes: las tiendas, los
+     * independientes y las personas con algo sin pagar en los últimos 12 meses.
+     * Una sola consulta, sin calcular plata: la lista salía de la cuenta entera
+     * (12 meses de resumen) y en producción se quedaba "Cargando…" (usuario,
+     * 2026-11-25). Es una lista para escoger; si alguien sale aquí y al final
+     * no tiene nada listo, el Excel lo dice.
+     */
+    public function quienesTienenPendientes(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $desde = self::hoy()->copy()->subMonthsNoOverflow(13)->format('Y-m');
+        $filas = DB::table('comisiones as c')
+            ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->leftJoin('tiendas as t', 't.id', '=', 'c.tienda_id')
+            ->whereIn('c.estado', ['pendiente', 'lista'])
+            ->where('c.mes_venta', '>=', $desde)
+            ->select('c.vendedor_id', 'u.nombre as vendedor', 'u.independiente', 'c.tienda_id', 't.nombre as tienda')
+            ->distinct()
+            ->get();
+
+        $lista = fn ($c) => $c->unique('id')->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE)->values()->all();
+
+        return response()->json([
+            'tiendas'        => $lista($filas->reject(fn ($f) => $f->independiente || ! $f->tienda_id)
+                ->map(fn ($f) => ['id' => (int) $f->tienda_id, 'nombre' => $f->tienda])),
+            'independientes' => $lista($filas->filter(fn ($f) => $f->independiente)
+                ->map(fn ($f) => ['id' => (int) $f->vendedor_id, 'nombre' => $f->vendedor])),
+            'personas'       => $lista($filas->map(fn ($f) => ['id' => (int) $f->vendedor_id, 'nombre' => $f->vendedor])),
+        ]);
+    }
+
     /** Lo de pagosPendientes(), aparte para poder probarlo sin la petición. */
     public function datosPagosPendientes(): array
     {

@@ -1239,6 +1239,7 @@ function abrirExcel() {
   excelMesPersona.value = mesListas.value || mesActual.value
   // Los pagos pendientes se vuelven a pedir al abrir: pudieron pagar algo.
   pendientesParaMandar.value = null
+  opcionesCargadas.value = false
   excelPendDe.value = ''
   if (excelQueTienda.value === 'pendientes' || excelQuePersona.value === 'pendientes') cargarPendientesParaMandar()
   hojaExcel.value = true
@@ -1391,7 +1392,9 @@ async function exportarExcelComoVa() {
 // filtro: { tiendaId } o { vendedorId } con `para` (el nombre), para mandarle a
 // una tienda, un independiente o una persona solo lo suyo (usuario, 2026-11-25).
 async function exportarExcelPendientes(filtro = null) {
-  const todo = pendientesParaMandar.value ?? (await api.get('/comisiones/pagos-pendientes')).data
+  // La cuenta de 12 meses tarda: se guarda mientras la hoja siga abierta, así
+  // sacar el de otra tienda o persona después es inmediato.
+  const todo = pendientesParaMandar.value ??= (await api.get('/comisiones/pagos-pendientes')).data
   const { exportarPendientesExcel, hayPendientes, soloDe } = await import('@/utils/excelPendientes')
   const data = filtro ? soloDe(todo, filtro) : todo
   if (!hayPendientes(data)) {
@@ -1427,15 +1430,17 @@ const pendientesParaMandar = ref(null)
 const cargandoPendientes   = ref(false)
 const opcionesPendientes   = ref({ tiendas: [], independientes: [], personas: [] })
 
-// Se pide una vez por hoja abierta: es la cuenta de varios meses y tarda.
+// La lista de "De quién" sale de una consulta liviana (2026-11-25): antes se
+// pedía la cuenta entera de 12 meses solo para llenarla y se quedaba
+// "Cargando…" un buen rato. La cuenta se pide al descargar, una vez por hoja.
+const opcionesCargadas = ref(false)
 async function cargarPendientesParaMandar() {
-  if (pendientesParaMandar.value || cargandoPendientes.value) return
+  if (opcionesCargadas.value || cargandoPendientes.value) return
   cargandoPendientes.value = true
   try {
-    const { data } = await api.get('/comisiones/pagos-pendientes', { silencioso: true })
-    const { opcionesDePendientes } = await import('@/utils/excelPendientes')
-    pendientesParaMandar.value = data
-    opcionesPendientes.value = opcionesDePendientes(data)
+    const { data } = await api.get('/comisiones/pagos-pendientes/quienes', { silencioso: true })
+    opcionesPendientes.value = { tiendas: [], independientes: [], personas: [], ...(data ?? {}) }
+    opcionesCargadas.value = true
   } catch {
     toast.error('No se pudieron cargar los pagos pendientes.')
   } finally {
@@ -3308,7 +3313,10 @@ onMounted(() => {
           class="w-full flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg py-2.5 text-xs font-semibold"
         >
           <ArrowDownTrayIcon class="w-4 h-4" />
-          {{ exportando ? 'Armando el Excel…' : 'Descargar' }}
+          {{ !exportando ? 'Descargar'
+            : !pendientesParaMandar && (excelOpcion === 'pendientes' || (excelOpcion === 'tienda' && excelQueTienda === 'pendientes') || (excelOpcion === 'persona' && excelQuePersona === 'pendientes'))
+              ? 'Calculando los pagos pendientes… puede tardar un minuto'
+              : 'Armando el Excel…' }}
         </button>
       </div>
     </div>

@@ -655,6 +655,10 @@ escribiendo precios (Fase 1b).
   Mismo día (usuario): el selector "De quién" (Todos / una tienda / un independiente / una persona)
   está también dentro de la opción **Pagos pendientes** (`excelPendDe`; las personas no repiten a los
   independientes). Revisado con servidor falso: los recortes suman lo mismo que el de todos.
+  Mismo día: el "De quién" se quedaba "Cargando…" un buen rato en producción porque se llenaba con
+  la cuenta entera de 12 meses (`/comisiones/pagos-pendientes`). Ahora sale de `/pagos-pendientes/quienes`
+  (una consulta: quién tiene renglones pendientes o listos en 13 meses) y la cuenta se pide solo al
+  descargar, una vez por hoja abierta. La cuenta de 12 meses sigue siendo lenta (resumenDelMes por mes).
 - **Excel de una tienda, de un independiente o de una persona** (2026-11-05, sin migración; la persona que estuvo en dos tiendas sigue saliendo en el Excel de cada una: decisión del dueño). Pedido
   del dueño: escoger tienda y mes y mandárselo al equipo (agosto de El Edén a Sebastián y Gladys)
   con qué se les paga, si ya está listo y por qué. Cuarta opción del botón Excel; detalle en

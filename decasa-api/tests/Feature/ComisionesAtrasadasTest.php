@@ -516,6 +516,23 @@ class ComisionesAtrasadasTest extends TestCase
     public function test_un_vendedor_sin_bonificaciones_no_ve_los_pagos_pendientes(): void
     {
         $this->actingAs(Usuario::find(self::JUAN))->getJson('/api/comisiones/pagos-pendientes')->assertStatus(403);
+        $this->actingAs(Usuario::find(self::JUAN))->getJson('/api/comisiones/pagos-pendientes/quienes')->assertStatus(403);
+    }
+
+    public function test_la_lista_de_quien_sale_rapido_y_con_los_mismos_que_los_pagos_pendientes(): void
+    {
+        $r = $this->jefe()->getJson('/api/comisiones/pagos-pendientes')->assertOk()->json();
+        DB::enableQueryLog();
+        $q = $this->jefe()->getJson('/api/comisiones/pagos-pendientes/quienes')->assertOk()->json();
+        $consultas = count(DB::getQueryLog());
+
+        // Los que tienen algo en la cuenta completa salen en la lista.
+        $personas = collect($r['por_pagar']['personas'])->pluck('vendedor_id')->merge(collect($r['todavia_no'])->pluck('vendedor_id'))->unique();
+        foreach ($personas as $vid) {
+            $this->assertContains($vid, array_column($q['personas'], 'id'));
+        }
+        $this->assertContains(self::EDEN, array_column($q['tiendas'], 'id'));
+        $this->assertLessThan(10, $consultas, 'una consulta, no la cuenta de 12 meses');
     }
 
     public function test_el_detalle_del_excel_dice_las_mismas_cifras_que_listas(): void

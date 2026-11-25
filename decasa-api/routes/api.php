@@ -1041,6 +1041,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/por-pagar',                 [ComisionController::class, 'porPagar']);
         // El Excel de una tienda en un mes, para mandárselo a sus vendedores.
         // El Excel "Pagos pendientes": lo que toca, lo que ya se dio y lo que falta.
+        Route::get('/pagos-pendientes/quienes',  [ComisionController::class, 'quienesTienenPendientes']);
         Route::get('/pagos-pendientes',          [ComisionController::class, 'pagosPendientes']);
         Route::get('/libro-tienda',              [ComisionController::class, 'libroTienda']);
         Route::post('/pagar-meses',              [ComisionController::class, 'pagarMeses'])->middleware('role:supervisor');
