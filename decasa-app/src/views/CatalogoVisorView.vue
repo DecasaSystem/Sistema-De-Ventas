@@ -28,8 +28,9 @@ import { catalogoPublico } from '@/api/catalogos'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   ChevronLeftIcon, ChevronRightIcon, XMarkIcon,
-  ArrowsPointingOutIcon, ArrowsPointingInIcon, ShareIcon,
+  ArrowsPointingOutIcon, ArrowsPointingInIcon, ShareIcon, ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
+import { descargarFoto } from '@/utils/fotos'
 
 const route  = useRoute()
 const router = useRouter()
@@ -400,6 +401,23 @@ async function compartir() {
   }
 }
 
+// ── Descargar la hoja ────────────────────────────────────────────────────────
+// La hoja que se está viendo, en JPG y del original (no la versión achicada de
+// la pantalla), en el celular y en el computador. El archivo lleva el nombre del
+// catálogo y el número de hoja; nunca el nombre interno de la hoja (ese es para
+// Elena, el cliente no lo ve).
+const descargando = ref(false)
+async function descargarHoja() {
+  const pg = paginas.value[i.value]
+  if (!pg?.imagen_url || descargando.value) return
+  descargando.value = true
+  try {
+    await descargarFoto(pg.imagen_url, `${nombre.value || 'catalogo'} hoja ${i.value + 1}`)
+  } finally {
+    descargando.value = false
+  }
+}
+
 async function scrollMiniActiva() {
   await nextTick()
   const cont = miniRef.value
@@ -446,6 +464,16 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
           <p class="text-white font-semibold text-sm leading-tight truncate">{{ nombre }}</p>
           <p v-if="descrip" class="text-white/50 text-[11px] truncate">{{ descrip }}</p>
         </div>
+        <button
+          @click="descargarHoja"
+          :disabled="descargando"
+          class="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 disabled:opacity-60"
+          title="Descargar esta hoja"
+          aria-label="Descargar esta hoja"
+        >
+          <span v-if="descargando" class="w-4 h-4 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+          <ArrowDownTrayIcon v-else class="w-5 h-5" />
+        </button>
         <button
           @click="compartir"
           class="relative w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70"

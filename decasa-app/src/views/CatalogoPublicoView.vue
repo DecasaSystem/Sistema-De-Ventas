@@ -16,6 +16,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useVisorFoto } from '@/composables/useVisorFoto'
+import { descargarFoto } from '@/utils/fotos'
 
 const route  = useRoute()
 const router = useRouter()
@@ -105,6 +106,20 @@ watch(() => route.query.p, () => { cerrarFoto(); fotoIdx.value = 0 })
 // Foto a pantalla completa (visor único, con Descargar y Compartir): en el
 // celular la miniatura no deja ver el mueble.
 const { abrirFoto, cerrarFoto } = useVisorFoto()
+
+// Descargar la foto que está a la vista, sin tener que ampliarla primero.
+const descargando = ref(false)
+async function descargarActual() {
+  const url = fotosDe(abierto.value)[fotoIdx.value]
+  if (!url || descargando.value) return
+  descargando.value = true
+  try {
+    const n = fotosDe(abierto.value).length > 1 ? ` ${fotoIdx.value + 1}` : ''
+    await descargarFoto(url, `${abierto.value.nombre}${n}`)
+  } finally {
+    descargando.value = false
+  }
+}
 </script>
 
 <template>
@@ -146,7 +161,18 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()
     <!-- ── Ficha de un producto ───────────────────────────────────────── -->
     <main v-else-if="abierto" class="max-w-5xl mx-auto sm:px-10 sm:py-10 pb-10">
       <div class="sm:grid sm:grid-cols-2 sm:gap-12">
-        <div>
+        <div class="relative">
+          <!-- Descargar la foto que se está viendo (JPG del original). Va aparte
+               del botón de ampliar: tocarlo no abre el visor. -->
+          <button v-if="fotosDe(abierto).length" type="button"
+            @click="descargarActual"
+            :disabled="descargando"
+            class="absolute top-3.5 right-3.5 z-10 flex items-center gap-1.5 text-xs font-semibold bg-[#F6F1E9] rounded-full px-3 py-1.5 disabled:opacity-60"
+            :aria-label="`Descargar la foto de ${abierto.nombre}`">
+            <span v-if="descargando" class="w-3.5 h-3.5 border-2 border-[#231C17] border-t-transparent rounded-full animate-spin" />
+            <svg v-else class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            Descargar
+          </button>
           <button v-if="fotosDe(abierto).length" type="button"
             @click="abrirFoto(fotosDe(abierto), { indice: fotoIdx, nombre: abierto.nombre })"
             class="relative block w-full aspect-[4/5] bg-white sm:rounded-[20px] overflow-hidden"

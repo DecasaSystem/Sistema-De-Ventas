@@ -20,8 +20,9 @@ import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   PlusIcon, PencilIcon, TrashIcon, EyeIcon, EyeSlashIcon, XMarkIcon,
   LinkIcon, ArrowTopRightOnSquareIcon, ArrowUpIcon, ArrowDownIcon,
-  PhotoIcon, StarIcon, ArrowUpTrayIcon, QrCodeIcon,
+  PhotoIcon, StarIcon, ArrowUpTrayIcon, QrCodeIcon, ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
+import { descargarFoto } from '@/utils/fotos'
 import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
 import QrCatalogo from '@/components/gestion/QrCatalogo.vue'
 
@@ -45,6 +46,19 @@ const origen = computed(() => window.location.origin)
 // El QR abierto: { url, titulo, nota } o null.
 const qr = ref(null)
 const linkDe = (slug) => `${origen.value}/c/${slug}`
+
+// Descargar una hoja (JPG del original), igual que el botón del visor público.
+// Aquí sí se usa el nombre de la hoja si lo tiene: esto lo ve solo la empresa.
+const descargandoId = ref(null)
+async function descargarHoja(p, idx) {
+  if (!p?.imagen_url || descargandoId.value) return
+  descargandoId.value = p.id
+  try {
+    await descargarFoto(p.imagen_url, `${editor.value?.nombre || 'catalogo'} ${p.nombre?.trim() || `hoja ${idx + 1}`}`)
+  } finally {
+    descargandoId.value = null
+  }
+}
 
 async function cargar() {
   cargando.value = true
@@ -437,6 +451,9 @@ const thumb = (url) => cloudinaryOpt(url, 400)
                 <div class="flex items-center gap-1">
                   <button @click="copiarLinkHoja(p)" title="Copiar el enlace de esta hoja" class="flex-1 h-7 rounded bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200">
                     <LinkIcon class="w-3.5 h-3.5" />
+                  </button>
+                  <button @click="descargarHoja(p, idx)" :disabled="descargandoId === p.id" title="Descargar esta hoja" aria-label="Descargar esta hoja" class="flex-1 h-7 rounded bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 disabled:opacity-50">
+                    <ArrowDownTrayIcon class="w-3.5 h-3.5" />
                   </button>
                   <button @click="mover(idx, -1)" :disabled="idx === 0" class="flex-1 h-7 rounded bg-gray-100 text-gray-500 flex items-center justify-center disabled:opacity-30 hover:bg-gray-200">
                     <ArrowUpIcon class="w-3.5 h-3.5" />
