@@ -93,6 +93,11 @@ const { conectar: conectarSurtidos } = useSurtidosSocket()
 // programa aunque quien la abra tenga sesión iniciada.
 const SIN_MENU = ['login', 'catalogo-publico', 'catalogos-portada', 'catalogo-visor', 'firmar-anexo']
 const showNav       = computed(() => auth.isAuthenticated && !SIN_MENU.includes(route.name))
+// Las páginas que se le mandan al cliente (catálogos, firma). Ahí no se ofrece
+// instalar el programa: el cliente quedaba con un ícono "SODEGE" que abre el
+// inicio de sesión. En el login sí, para que el personal lo instale.
+const PAGINAS_DEL_CLIENTE = ['catalogo-publico', 'catalogos-portada', 'catalogo-visor', 'firmar-anexo']
+const esPaginaDelCliente  = computed(() => PAGINAS_DEL_CLIENTE.includes(route.name))
 const abrirNotif    = ref(false)
 const abrirMas      = ref(false)
 const navCargando   = ref(false)
@@ -1182,7 +1187,7 @@ function formatFecha(iso) {
     <ScrollToTop />
 
     <!-- PWA install prompt -->
-    <AppInstallPrompt />
+    <AppInstallPrompt :oculto="esPaginaDelCliente" />
 
     <!-- Se subió algo nuevo y esta pestaña sigue con lo viejo: que recargue.
          Solo con sesión: en la página del cliente (catálogo, firma) no. -->

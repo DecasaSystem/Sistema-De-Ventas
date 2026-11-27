@@ -2,13 +2,17 @@
 import { usePwaInstall } from '@/composables/usePwaInstall'
 import { XMarkIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 
+// Oculto, pero montado: así se sigue escuchando el aviso del navegador y, si
+// alguien del personal pasa del catálogo al login, ahí sí le sale.
+defineProps({ oculto: { type: Boolean, default: false } })
+
 const { canInstall, instalar, descartar } = usePwaInstall()
 </script>
 
 <template>
   <Transition name="slide-up">
     <div
-      v-if="canInstall"
+      v-if="canInstall && !oculto"
       class="fixed bottom-24 inset-x-4 z-30 bg-blue-600 text-white rounded-xl shadow-xl px-4 py-3 flex items-center gap-3"
     >
       <ArrowDownTrayIcon class="w-6 h-6 flex-shrink-0" />
