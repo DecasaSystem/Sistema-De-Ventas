@@ -207,9 +207,38 @@ class OrdenController extends Controller
     }
 
     /**
+     * GET /api/ordenes/vendedores
+     *
+     * Los vendedores que se ofrecen en el filtro "Vendedor" de Órdenes. Salen
+     * de las órdenes que la persona ve (visiblesPara), no de la lista de
+     * usuarios: así al supervisor le salen todos los que han vendido y al
+     * vendedor los de su tienda y con quienes compartió, sin dejarle ver
+     * nombres de otras tiendas ni escoger a alguien cuyas órdenes no ve.
+     */
+    public function vendedoresDelFiltro(Request $request)
+    {
+        $base = fn () => Orden::query()
+            ->where('estado', '!=', 'cotizacion')
+            ->visiblesPara($request->user());
+
+        $ids = $base()->whereNotNull('vendedor_id')->distinct()->pluck('vendedor_id')
+            ->merge($base()->whereNotNull('covendedor_id')->distinct()->pluck('covendedor_id'))
+            ->map(fn ($v) => (int) $v)->unique()->values();
+
+        $vendedores = \App\Models\Usuario::whereIn('id', $ids)
+            ->get(['id', 'nombre', 'activo'])
+            // Los que siguen trabajando primero; los que ya no, al final.
+            ->sortBy(fn ($u) => [($u->activo ?? true) ? 0 : 1, mb_strtolower($u->nombre)])
+            ->values()
+            ->map(fn ($u) => ['id' => $u->id, 'nombre' => $u->nombre, 'activo' => (bool) ($u->activo ?? true)]);
+
+        return response()->json($vendedores);
+    }
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
-     * Filtros: estado, tienda_id, desde, hasta.
+     * Filtros: estado, tienda_id, vendedor_id, desde, hasta.
      */
     public function index(Request $request)
     {
@@ -235,6 +264,13 @@ class OrdenController extends Controller
         }
         if ($v = $request->query('tienda_id')) {
             $query->where('tienda_id', $v);
+        }
+        // Las de un vendedor: las que vendió y las que le compartieron
+        // (covendedor), porque las dos son suyas y cobra por ellas. Va encima
+        // de visiblesPara: solo recorta lo que la persona ya ve, nunca abre
+        // órdenes de otra tienda.
+        if ($v = (int) $request->query('vendedor_id')) {
+            $query->where(fn ($q) => $q->where('vendedor_id', $v)->orWhere('covendedor_id', $v));
         }
         if ($v = $request->query('desde')) {
             $query->whereDate('created_at', '>=', $v);

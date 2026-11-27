@@ -1240,6 +1240,10 @@ escribiendo precios (Fase 1b).
   ya pagado que lo deja bajo el 50 % (no pasa por `sincronizarValorOrden`) y las restauraciones del
   bolsón que solo bajan de valor.
   Tests al final de la sección "cobrado de más" de `AuditoriaComisionesTest`.
+- **Filtro por vendedor en Órdenes** (usuario, 2026-11-27, **subido a `main`** ese día, sin migración).
+  `GET /ordenes?vendedor_id=` trae lo que vendió **y lo que le compartieron** (`covendedor_id`), encima de
+  `visiblesPara` (nunca abre órdenes de otra tienda). La lista del menú sale de `GET /ordenes/vendedores`:
+  quienes aparecen en las órdenes que uno ve (no la tabla de usuarios). Tests en `VerOrdenesCompartidasTest`.
 - **Bonificaciones más rápida** (2026-11-20, pedido del usuario: "que cargue más rápido", sin quitar
   información; **sin subir**, sin migración). Medido con `scripts/perf/medir.sh` (200 ms por consulta):
   (1) los anticipos de Listas y de los Excel se leían persona por persona y dos veces (la nota de

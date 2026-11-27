@@ -301,6 +301,58 @@ class VerOrdenesCompartidasTest extends TestCase
         $this->assertTrue($mia->fresh()->laPuedeCobrar($marta));
     }
 
+    // ── Filtro "Vendedor" de la lista ─────────────────────────────────────────
+
+    private function ids(Usuario $u, array $params): array
+    {
+        return collect($this->actingAs($u)->getJson('/api/ordenes?' . http_build_query($params))->assertOk()->json('data'))
+            ->pluck('id')->sort()->values()->all();
+    }
+
+    public function test_el_filtro_por_vendedor_trae_lo_que_vendio_y_lo_que_le_compartieron(): void
+    {
+        $yo    = $this->vendedor('Yo', 1);
+        $marta = $this->vendedor('Marta', 1);
+
+        $deMarta    = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'estado' => 'en_produccion', 'valor_total' => 500000]);
+        $compartida = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id, 'covendedor_id' => $marta->id, 'es_compartida' => true, 'estado' => 'en_produccion', 'valor_total' => 600000]);
+        $mia        = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id, 'estado' => 'en_produccion', 'valor_total' => 700000]);
+
+        $this->assertSame([$deMarta->id, $compartida->id], $this->ids($yo, ['vendedor_id' => $marta->id]));
+        $this->assertSame([$compartida->id, $mia->id], $this->ids($yo, ['vendedor_id' => $yo->id]));
+        $this->assertCount(3, $this->ids($yo, []), 'sin filtro, todas las de la tienda');
+    }
+
+    public function test_el_filtro_por_vendedor_no_abre_ordenes_de_otra_tienda(): void
+    {
+        $yo   = $this->vendedor('Yo', 1);
+        $otro = $this->vendedor('Otro', 3);
+
+        Orden::create(['cliente_id' => 1, 'tienda_id' => 3, 'vendedor_id' => $otro->id, 'estado' => 'en_produccion', 'valor_total' => 500000]);
+
+        $this->assertSame([], $this->ids($yo, ['vendedor_id' => $otro->id]));
+    }
+
+    public function test_la_lista_de_vendedores_del_filtro_sale_de_lo_que_uno_ve(): void
+    {
+        $yo     = $this->vendedor('Yo', 1);
+        $marta  = $this->vendedor('Marta', 1);
+        $ayuda  = $this->vendedor('Ayudante', null);
+        $otro   = $this->vendedor('Otro', 3);
+        $jefe   = Usuario::create(['nombre' => 'Jefe', 'email' => 'jefe@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now()]);
+
+        Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'covendedor_id' => $ayuda->id, 'estado' => 'en_produccion', 'valor_total' => 500000]);
+        Orden::create(['cliente_id' => 1, 'tienda_id' => 3, 'vendedor_id' => $otro->id, 'estado' => 'en_produccion', 'valor_total' => 500000]);
+        // Una cotización no es orden: su vendedor no entra por ella.
+        Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id, 'estado' => 'cotizacion', 'valor_total' => 100000]);
+
+        $nombres = fn (Usuario $u) => collect($this->actingAs($u)->getJson('/api/ordenes/vendedores')->assertOk()->json())
+            ->pluck('nombre')->sort()->values()->all();
+
+        $this->assertSame(['Ayudante', 'Marta'], $nombres($yo), 'los de su tienda y con quien compartieron, no los de otra');
+        $this->assertSame(['Ayudante', 'Marta', 'Otro'], $nombres($jefe), 'el supervisor ve a todos los que han vendido');
+    }
+
     public function test_si_me_cambio_de_tienda_lo_que_vendi_alla_sigue_siendo_de_esa_tienda_y_mio(): void
     {
         DB::table('tiendas')->insert(['id' => 3, 'nombre' => 'Decasa Unicentro']);

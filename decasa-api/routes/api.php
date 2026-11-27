@@ -468,6 +468,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ordenes-eliminadas',   [OrdenController::class, 'eliminadas']);
     // "¿Quisiste decir…?" del buscador. Antes de /ordenes/{id}, que si no se la come.
     Route::get('/ordenes/sugerencias',  [OrdenController::class, 'sugerenciasBusqueda'])->middleware('permiso:acceso_ordenes');
+    // Los vendedores del filtro de la lista (los de las órdenes que uno ve).
+    Route::get('/ordenes/vendedores',   [OrdenController::class, 'vendedoresDelFiltro'])->middleware('permiso:acceso_ordenes');
     Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware(['throttle:20,1', 'permiso:acceso_nueva_orden']);
     Route::get('/ordenes/{id}',                         [OrdenController::class, 'show']);
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);

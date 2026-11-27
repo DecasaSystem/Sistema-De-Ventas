@@ -8,7 +8,7 @@ import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter, useRoute } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
-import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes, getChatsSinLeer } from '@/api/ordenes'
+import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes, getChatsSinLeer, getVendedoresOrdenes } from '@/api/ordenes'
 import { useNotificacionesStore } from '@/stores/notificaciones'
 import { ChatBubbleLeftRightIcon } from '@heroicons/vue/24/solid'
 import { useRealtime } from '@/composables/useRealtime'
@@ -61,6 +61,7 @@ const busqueda = ref('')
 const filtros = ref({
   estado: '',
   tienda_id: '',
+  vendedor_id: '',    // las que vendió o le compartieron
   desde: '',
   hasta: '',
   serie: '',          // '' todas · 'normales' · 'FV2' descuentos especiales
@@ -80,6 +81,7 @@ useFiltrosRecordados('ordenes', { filtros, busqueda, porEntregar })
     filtros.value = {
       estado: q.retrasadas ? '' : String(q.estado ?? ''),
       tienda_id: q.tienda_id ? Number(q.tienda_id) : '',
+      vendedor_id: '',
       desde: '', hasta: '', serie: '',
       atrasados: !!q.retrasadas,
     }
@@ -93,7 +95,7 @@ useFiltrosRecordados('ordenes', { filtros, busqueda, porEntregar })
 // que le faltan órdenes. La serie no cuenta, ya se ve en los apartados.
 const hayFiltros = computed(() => {
   const f = filtros.value
-  return !!(f.estado || f.tienda_id || f.desde || f.hasta || f.atrasados)
+  return !!(f.estado || f.tienda_id || f.vendedor_id || f.desde || f.hasta || f.atrasados)
 })
 
 // Apartados: lo que lleva serie propia no gasta consecutivo de venta.
@@ -146,6 +148,16 @@ const estadoElegido = computed({
   },
 })
 
+// Vendedores para el filtro. Salen de las órdenes que uno ve: al supervisor
+// todos, al vendedor los de su tienda y con quienes compartió.
+const vendedores = ref([])
+async function loadVendedores() {
+  try {
+    const { data } = await getVendedoresOrdenes()
+    vendedores.value = data ?? []
+  } catch {}
+}
+
 const sentinel = ref(null)
 let observer = null
 
@@ -175,6 +187,7 @@ async function fetchOrdenes(page = 1, append = false, porPagina = 20) {
     if (porPagina !== 20) params.per_page = porPagina
     if (filtros.value.estado) params.estado = filtros.value.estado
     if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
+    if (filtros.value.vendedor_id) params.vendedor_id = filtros.value.vendedor_id
     if (filtros.value.desde) params.desde = filtros.value.desde
     if (filtros.value.hasta) params.hasta = filtros.value.hasta
     if (filtros.value.serie) params.serie = filtros.value.serie
@@ -227,7 +240,7 @@ function applyFilters() {
 }
 
 function clearFilters() {
-  filtros.value = { estado: '', tienda_id: '', desde: '', hasta: '', serie: '', atrasados: false }
+  filtros.value = { estado: '', tienda_id: '', vendedor_id: '', desde: '', hasta: '', serie: '', atrasados: false }
   busqueda.value = ''
   showFilters.value = false
   currentPage.value = 1
@@ -293,6 +306,7 @@ async function exportarExcelOrdenes() {
     const baseParams = {}
     if (filtros.value.estado)    baseParams.estado    = filtros.value.estado
     if (filtros.value.tienda_id) baseParams.tienda_id = filtros.value.tienda_id
+    if (filtros.value.vendedor_id) baseParams.vendedor_id = filtros.value.vendedor_id
     if (filtros.value.desde)     baseParams.desde     = filtros.value.desde
     if (filtros.value.hasta)     baseParams.hasta     = filtros.value.hasta
     if (filtros.value.serie)     baseParams.serie     = filtros.value.serie
@@ -431,6 +445,7 @@ watch(() => notif.noLeidas, () => cargarChatsSinLeer())
 onMounted(async () => {
   cargarChatsSinLeer()
   cargarTipos()   // nombres y colores de los procesos
+  loadVendedores()
   await loadTiendas()
 
   if (seVolvioAtras() && dondeIba) {
@@ -609,6 +624,19 @@ onUnmounted(() => {
           <option value="">Todas</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
+      </div>
+
+      <!-- Vendedor: solo si hay de quién escoger (un independiente solo se ve a sí mismo) -->
+      <div v-if="vendedores.length > 1">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Vendedor</label>
+        <select
+          v-model="filtros.vendedor_id"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Todos</option>
+          <option v-for="v in vendedores" :key="v.id" :value="v.id">{{ v.nombre }}{{ v.activo ? '' : ' (inactivo)' }}</option>
+        </select>
+        <p class="text-[11px] text-gray-400 mt-1">Incluye las ventas que comparte con otro asesor.</p>
       </div>
 
       <!-- Fechas -->
