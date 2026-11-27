@@ -146,8 +146,15 @@ function quitar(usuarioId) {
 
 const faltaDestino = computed(() => esTerminar.value && props.pedirDestino && !destinoFinal.value)
 
+/**
+ * Al terminar, decir quién lo hizo es opcional por ahora (usuario, 2026-11-27):
+ * se puede cerrar el paso sin escoger a nadie, como antes. Al empezar sí hace
+ * falta alguien: apuntar a nadie no sirve de nada.
+ */
+const faltaAlguien = computed(() => !esTerminar.value && !elegidos.value.length)
+
 function guardar() {
-  if (!elegidos.value.length || faltaDestino.value) return
+  if (faltaAlguien.value || faltaDestino.value) return
   emit('guardar', elegidos.value.map(e => ({
     usuario_id: e.usuario_id,
     // En "empezar" no se manda nada de esto: todavía no se sabe. Tampoco si
@@ -253,6 +260,7 @@ function estrellasDe(promedio) {
           <div>
             <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
               {{ elegidos.length ? 'Agregar a alguien más' : 'Quién hizo este paso' }}
+              <span v-if="esTerminar && !elegidos.length" class="normal-case font-normal text-gray-400">(opcional)</span>
             </label>
             <div class="relative">
               <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -341,7 +349,7 @@ function estrellasDe(promedio) {
           </button>
           <button
             @click="guardar"
-            :disabled="!elegidos.length || faltaDestino || guardando"
+            :disabled="faltaAlguien || faltaDestino || guardando"
             :class="['flex-1 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-40 transition-colors',
               esTerminar ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700']"
           >

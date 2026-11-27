@@ -141,7 +141,9 @@ function abrirModal(paso, modo) {
  */
 async function guardarTrabajadores(trabajadores, extra = {}) {
   const paso = pasoConfirmar.value
-  if (!paso || !trabajadores.length) return
+  // Al terminar, quién lo hizo es opcional (usuario, 2026-11-27); al apuntar
+  // quién empieza, sí hace falta alguien.
+  if (!paso || (modoModal.value !== 'terminar' && !trabajadores.length)) return
   guardandoModal.value = true
   try {
     if (modoModal.value === 'terminar') {

@@ -1080,6 +1080,21 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   nunca uno que hizo una liquidación al retiro (se anula la liquidación). Los
   pendientes arrancan después del último pago: uno del medio quedaba sin pagar y
   sin aparecer. Análisis completo del módulo: [`analisis-nomina.md`](analisis-nomina.md).
+- **Taller: la hoja de trabajo de cada uno** (2026-11-27, pestaña Taller,
+  `NominaTrabajoTallerController`, `Services/TrabajoDelTaller`, PDF
+  `pdf/trabajo_taller`). Antes cada trabajador llenaba a mano lo que hizo en el mes.
+  Ahora sale de `paso_trabajadores`: cada paso **terminado** en el periodo (hora de
+  Bogotá), completo para cada persona que figura; uno devuelto y rehecho cuenta una
+  vez, para quien lo cerró; garantías y restauraciones también (con su marca);
+  Despacho no; no dice para quién era. Se juntan los iguales (paso + producto +
+  versión) con la cantidad sumada, para que quepa en carta. Periodo: quincena (por
+  defecto), mes, cada 20 días, semana (`periodicidad` + `fecha`, con
+  `CicloNomina::rango`) o personalizado (`desde`/`hasta`, máximo un año). PDF de una
+  persona o de todas (una página por persona), con renglones para escribir a mano y
+  firmas. Solo lee: no toca pagos ni la bonificación por producción. Poner quién hizo
+  el paso al cerrarlo es **opcional** por ahora (usuario, 2026-11-27): un paso cerrado
+  sin nadie no sale en la hoja de nadie. Plan y
+  decisiones: [`plan-hoja-mensual-del-taller.md`](plan-hoja-mensual-del-taller.md).
 
 ### 6.14 Encargos (herramientas a cargo)
 `EncargoController`, `RevisionEncargos`. Qué herramientas/equipos tiene cada

@@ -306,6 +306,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/producciones',        [NominaProduccionController::class, 'store']);
         Route::delete('/producciones/{id}', [NominaProduccionController::class, 'destroy'])->whereNumber('id');
 
+        // Trabajo del taller: lo que hizo cada uno (de Producción), para su hoja.
+        // Sección aparte: no suma a la bonificación ni a los pagos.
+        Route::get('/trabajo-taller',     [\App\Http\Controllers\NominaTrabajoTallerController::class, 'index']);
+        Route::get('/trabajo-taller/pdf', [\App\Http\Controllers\NominaTrabajoTallerController::class, 'pdf']);
+
         // Esquemas de bonificación y su escalera de metas.
         Route::get('/bonificaciones',              [NominaBonificacionController::class, 'index']);
         Route::post('/bonificaciones',             [NominaBonificacionController::class, 'store']);

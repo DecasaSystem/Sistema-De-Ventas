@@ -7,6 +7,7 @@ import CostoEmpleadorDetalle from '@/components/nomina/CostoEmpleadorDetalle.vue
 import CostoEmpleadorConfig from '@/components/nomina/CostoEmpleadorConfig.vue'
 import PrestacionesPanel from '@/components/nomina/PrestacionesPanel.vue'
 import TiposHoraExtraConfig from '@/components/nomina/TiposHoraExtraConfig.vue'
+import TrabajoTallerPanel from '@/components/nomina/TrabajoTallerPanel.vue'
 import { getEmpleados, actualizarEmpleado, eliminarEmpleado, asignarEnLote } from '@/api/empleados'
 import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo, abonarPrestamo, quitarAbonoPrestamo, getAdelantos, darAdelanto, quitarAdelanto } from '@/api/nomina'
 import {
@@ -1380,9 +1381,18 @@ async function quitarAjuste(id) {
       >
         Prestaciones
       </button>
+      <!-- Lo que hizo cada trabajador en Producción, para imprimirle su hoja.
+           Sección aparte: no toca los pagos ni la bonificación. -->
+      <button
+        @click="tab = 'taller'"
+        :class="['flex-1 text-xs font-semibold rounded-lg py-2 px-1 whitespace-nowrap transition-colors', tab === 'taller' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+      >
+        Taller
+      </button>
     </div>
 
     <PrestacionesPanel v-if="tab === 'prestaciones'" />
+    <TrabajoTallerPanel v-if="tab === 'taller'" />
 
     <!-- ═══════════ PAGOS ═══════════ -->
     <template v-if="tab === 'pagos'">

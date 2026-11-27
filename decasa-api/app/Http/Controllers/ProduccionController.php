@@ -261,7 +261,19 @@ class ProduccionController extends Controller
             'destino_final' => 'nullable|in:reserva,despacho',
         ])['destino_final'] ?? 'reserva';
 
-        $participantes = $this->validarParticipantes($request, exigirAlMenosUno: true);
+        // Quién lo hizo es OPCIONAL por ahora (usuario, 2026-11-27): "que deje
+        // hacerlo sin eso, como ahora se está haciendo", mientras se decide cómo
+        // se maneja lo que va para inventario y Reserva. Desde 2026-08-25 se
+        // exigía al menos uno. Sin nadie, el paso se cierra igual; si alguien
+        // quedó apuntado al empezarlo, sigue figurando. Ojo: un paso cerrado sin
+        // nadie no le sale a nadie en la hoja de Nómina → Taller.
+        $participantes = $this->validarParticipantes($request, exigirAlMenosUno: false);
+        if (empty($participantes)) {
+            $participantes = $paso->participantes()->get()
+                ->map(fn ($p) => ['usuario_id' => $p->usuario_id, 'nombre' => null,
+                                  'horas' => null, 'calidad' => null, 'comentario' => null])
+                ->all();
+        }
 
         // Completar el paso actual. `completado_por` es quien AUTORIZA que siga
         // al siguiente paso, que no siempre es quien lo hizo: por eso se guarda

@@ -223,4 +223,35 @@ class AjustesCalificarTallerTest extends TestCase
         $this->actingAs($monica)->getJson('/api/ajustes-sistema')
             ->assertOk()->assertJsonPath('trabajos_restauracion', ['Laca', 'Tapizado', 'Cambio de cojinería']);
     }
+
+    /**
+     * Quién hizo el paso es opcional por ahora (usuario, 2026-11-27): el paso se
+     * cierra sin escoger a nadie, como se venía haciendo.
+     */
+    public function test_el_paso_se_termina_sin_decir_quien_lo_hizo(): void
+    {
+        $paso   = $this->paso();
+        $monica = $this->usuario('Monica');
+
+        $this->actingAs($monica)->patchJson("/api/produccion/pasos/{$paso->id}/completar", [])->assertOk();
+
+        $this->assertSame('completado', $paso->fresh()->estado);
+        $this->assertSame(0, DB::table('paso_trabajadores')->where('paso_id', $paso->id)->count());
+    }
+
+    /** Si alguien quedó apuntado al empezar y al cerrar no se escoge a nadie, sigue figurando. */
+    public function test_sin_escoger_al_cerrar_se_queda_quien_se_apunto_al_empezar(): void
+    {
+        $paso   = $this->paso();
+        $monica = $this->usuario('Monica');
+
+        $this->actingAs($monica)->patchJson("/api/produccion/pasos/{$paso->id}/trabajadores", [
+            'trabajadores' => [['usuario_id' => $monica->id]],
+        ])->assertOk();
+
+        $this->actingAs($monica)->patchJson("/api/produccion/pasos/{$paso->id}/completar", ['trabajadores' => []])->assertOk();
+
+        $this->assertSame([$monica->id], DB::table('paso_trabajadores')->where('paso_id', $paso->id)->pluck('usuario_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame(['Monica'], $paso->fresh()->trabajadores);
+    }
 }

@@ -93,6 +93,11 @@ export const registrarLiquidacion   = (payload) => api.post('/nomina/liquidacion
 export const anularLiquidacion      = (id, motivo) => api.post(`/nomina/liquidaciones/${id}/anular`, { motivo })
 export const pdfLiquidacion         = (id) => api.get(`/nomina/liquidaciones/${id}/pdf`, { responseType: 'blob' })
 
+// ── Trabajo del taller: lo que hizo cada uno en Producción, para su hoja ──
+// params: { periodicidad, fecha } o { desde, hasta }; en el PDF, usuario_id opcional.
+export const getTrabajoTaller = (params) => api.get('/nomina/trabajo-taller', { params })
+export const pdfTrabajoTaller = (params) => api.get('/nomina/trabajo-taller/pdf', { params, responseType: 'blob' })
+
 // ── Adelantos de sueldo: se entrega antes y el pago del ciclo lo descuenta ──
 export const getAdelantos   = (usuarioId) => api.get('/nomina/adelantos', { params: { usuario_id: usuarioId } })
 export const darAdelanto    = (payload) => api.post('/nomina/adelantos', payload)

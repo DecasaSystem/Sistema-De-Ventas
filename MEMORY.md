@@ -747,8 +747,8 @@ escribiendo precios (Fase 1b).
   lo de las puntuaciones de los trabajadores cuando de producción pasan de un paso a otro",
   desde Gestión. Se interpretó como el formulario de "Terminar paso": tiempo, estrellas y
   opinión de cada trabajador (lo que arma la "puntuación" en Usuarios y el orden de quién
-  conviene poner). Apagado se sigue pidiendo **quién lo hizo** (es el registro del paso y
-  el backend lo exige). Si el dueño quería quitar también eso, es otro cambio. Nueva
+  conviene poner). Apagado se sigue pidiendo **quién lo hizo**. **Desde el 2026-11-27 quién
+  lo hizo es opcional** (ver "Hoja de trabajo del taller" abajo). Nueva
   pestaña Gestión → Ajustes (`Support/AjustesSistema`), pensada para más interruptores.
   Verificado que no toca plata: Nómina no lee `paso_trabajadores`. Tests en
   `AjustesCalificarTallerTest`.
@@ -1290,6 +1290,22 @@ escribiendo precios (Fase 1b).
   hay cómo registrar que el conductor lo trajo; (3) la lista trae solo los últimos 60, sin filtro
   de fechas ni cierre/arqueo diario. Las devoluciones viejas siguen con el vendedor y la tienda de
   la orden (no se movieron).
+- **Hoja de trabajo del taller** (2026-11-27, **hecho, sin subir**, sin migración; Nómina → Taller,
+  `docs/plan-hoja-mensual-del-taller.md`, `docs/PROYECTO.md` §6.13, rama
+  `claude/monthly-work-accumulation-plan-6c6f27`; tests en `TrabajoDelTallerTest`). Hoy cada trabajador llena a mano lo que hizo
+  en el mes y se puede poner de más; la idea es sacarlo de `paso_trabajadores`. Decisiones del
+  usuario: un paso devuelto cuenta una vez, para quien lo termina; con varios trabajadores, completo
+  a cada uno; garantías y restauraciones también; el destino (orden/Reserva/tienda) no importa,
+  solo lo que hizo; vive en **Nómina, en una sección aparte** (no se conecta a la plata ni a la
+  bonificación por producción); periodo quincenal por defecto, cambiable a mensual, 20 días,
+  semanal o personalizado; la ve e imprime quien tiene `acceso_nomina`; se imprime solo el trabajo
+  y el nombre (sin horas ni calidad), carta, máximo 2 hojas por persona; una persona o todas.
+  **Mismo día (usuario): poner quién hizo el paso es OPCIONAL por ahora** ("que deje hacerlo
+  sin eso, como ahora se está haciendo", mientras deciden cómo manejar lo que va a inventario y
+  Reserva). `completarPaso` ya no exige trabajador (desde 2026-08-25 lo exigía); si alguien se
+  apuntó al empezar, sigue figurando. El formulario dice "(opcional)". Consecuencia: un paso
+  cerrado sin nadie no sale en la hoja de nadie. Si un día lo vuelven obligatorio, sería un
+  interruptor en Gestión → Ajustes (no existe aún).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
