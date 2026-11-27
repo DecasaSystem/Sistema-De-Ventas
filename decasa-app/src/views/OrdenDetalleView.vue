@@ -248,14 +248,20 @@ const clienteTipo = computed(() => {
 // La venta compartida es de los dos: del vendedor y de su covendedor, o de
 // la tienda a la que se le abona la mitad. Misma regla que el backend
 // (Orden::laPuedeEditar): quien la ve porque es parte, la edita y le cobra.
-const esParteDeLaOrden = computed(() => {
+// ¿Puede cobrarla / editarla quien la mira? Lo dice el servidor
+// (`puede_cobrar`, `puede_editar`, con Orden::laPuedeCobrar / laPuedeEditar):
+// ahí está la regla de "las ventas de la tienda son de la tienda", que la
+// pantalla no puede repetir (no sabe cuál es la sede de independientes). Si
+// la respuesta no lo trae (servidor viejo), la regla de antes.
+function esParteDeLaOrden(campo) {
   const o  = orden.value
-  const yo = Number(auth.usuario?.id)
   if (!o) return false
+  if (typeof o[campo] === 'boolean') return o[campo]
+  const yo = Number(auth.usuario?.id)
   if (Number(o.vendedor_id) === yo || Number(o.covendedor_id) === yo) return true
   const miTienda = Number(auth.usuario?.tienda_default_id)
   return !!o.tienda_abonada_id && !!miTienda && Number(o.tienda_abonada_id) === miTienda && o.estado !== 'borrador'
-})
+}
 
 // "Tela por definir" apagado en Gestión → Ajustes: lo vendido así no espera
 // la tela ni muestra el aviso, y el texto guardado ("Cuero · tela por
@@ -270,7 +276,7 @@ function textoVariante(item) {
 const puedeEditar = computed(() => {
   if (!orden.value) return false
   if (orden.value.estado === 'cancelado') return false
-  if (auth.soloVeSusOrdenes && !esParteDeLaOrden.value) return false
+  if (auth.soloVeSusOrdenes && !esParteDeLaOrden('puede_editar')) return false
   return true
 })
 
@@ -956,7 +962,7 @@ const puedeRegistrarPago = computed(() => {
   // 'entregado' se permite para cobrar el saldo residual de una venta directa.
   if (['cancelado', 'borrador'].includes(orden.value.estado)) return false
   if (orden.value.saldo_pendiente <= 0) return false
-  if (auth.soloVeSusOrdenes && !esParteDeLaOrden.value) return false
+  if (auth.soloVeSusOrdenes && !esParteDeLaOrden('puede_cobrar')) return false
   return true
 })
 

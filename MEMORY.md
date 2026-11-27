@@ -1244,6 +1244,12 @@ escribiendo precios (Fase 1b).
   `GET /ordenes?vendedor_id=` trae lo que vendió **y lo que le compartieron** (`covendedor_id`), encima de
   `visiblesPara` (nunca abre órdenes de otra tienda). La lista del menú sale de `GET /ordenes/vendedores`:
   quienes aparecen en las órdenes que uno ve (no la tabla de usuarios). Tests en `VerOrdenesCompartidasTest`.
+- **"A algunas órdenes no dejan registrar abonos"** (usuario, 2026-11-27, **subido a `main`** ese día, sin migración). Eran
+  las ventas de un compañero de la misma tienda: el servidor las dejaba cobrar y editar (`laDeSuTienda`, desde
+  el 2026-10-03), pero Detalle de la orden repetía la regla a mano con la versión vieja y escondía "Registrar
+  pago" y "Editar". Ahora `GET /ordenes/{id}` manda `puede_cobrar` / `puede_editar` (de `laPuedeCobrar` /
+  `laPuedeEditar`) y la pantalla los lee. **No volver a copiar en la pantalla una regla de quién puede: que
+  la mande el servidor.**
 - **Bonificaciones más rápida** (2026-11-20, pedido del usuario: "que cargue más rápido", sin quitar
   información; **sin subir**, sin migración). Medido con `scripts/perf/medir.sh` (200 ms por consulta):
   (1) los anticipos de Listas y de los Excel se leían persona por persona y dos veces (la nota de

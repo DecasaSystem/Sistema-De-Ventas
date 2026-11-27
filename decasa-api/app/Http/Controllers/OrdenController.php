@@ -1642,6 +1642,16 @@ class OrdenController extends Controller
         // es vendedor)
         $orden->puede_entregar_directo = $orden->laPuedeEntregarDirecto($usuario);
 
+        // ¿Le puede recibir un abono o editarla? Lo dice el servidor con su
+        // regla, no la pantalla. Antes la pantalla repetía la regla a mano y se
+        // quedó con la vieja: cuando "las ventas de la tienda son de la tienda"
+        // (2026-10-03) solo cambió aquí, al compañero de la tienda le salía la
+        // orden pero sin "Registrar pago" ni "Editar" (usuario, 2026-11-27: "a
+        // algunas órdenes no dejan registrar abonos"). El estado y el saldo los
+        // sigue mirando la pantalla.
+        $orden->puede_cobrar = $orden->laPuedeCobrar($usuario);
+        $orden->puede_editar = $orden->laPuedeEditar($usuario);
+
         // Para quien la mira: si ya no la puede modificar (pasaron los días de
         // la garantía) y hasta cuándo podía. La pantalla cambia "Editar" por
         // "Pedir cambio de dinero".

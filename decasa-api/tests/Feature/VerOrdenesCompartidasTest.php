@@ -301,6 +301,41 @@ class VerOrdenesCompartidasTest extends TestCase
         $this->assertTrue($mia->fresh()->laPuedeCobrar($marta));
     }
 
+    /**
+     * El detalle le dice a la pantalla si puede cobrarla y editarla.
+     *
+     * Usuario, 2026-11-27: "a algunas órdenes no dejan registrar abonos a los
+     * vendedores que no son supervisores". Eran las de un compañero de la
+     * tienda: el servidor lo dejaba, pero la pantalla tenía la regla vieja y
+     * escondía "Registrar pago" y "Editar". Ahora la pantalla lee esto.
+     */
+    public function test_el_detalle_dice_que_la_companera_de_tienda_puede_cobrar_y_editar(): void
+    {
+        $yo    = $this->vendedor('Yo', 1);
+        $marta = $this->vendedor('Marta', 1);
+        $mia   = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id, 'estado' => 'en_produccion', 'valor_total' => 800000]);
+
+        $this->actingAs($marta)->getJson("/api/ordenes/{$mia->id}")
+            ->assertOk()
+            ->assertJsonPath('puede_cobrar', true)
+            ->assertJsonPath('puede_editar', true);
+    }
+
+    /** Y a quien solo la puede ver (el facturador de otra tienda) le dice que no. */
+    public function test_el_detalle_dice_que_el_facturador_de_otra_tienda_no_cobra_ni_edita(): void
+    {
+        $otra  = $this->vendedor('Otra', 2);
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $otra->id, 'estado' => 'en_produccion', 'valor_total' => 800000]);
+
+        $facturadora = $this->vendedor('Facturadora', 1);
+        $facturadora->update(['facturacion' => true]);
+
+        $this->actingAs($facturadora->fresh())->getJson("/api/ordenes/{$orden->id}")
+            ->assertOk()
+            ->assertJsonPath('puede_cobrar', false)
+            ->assertJsonPath('puede_editar', false);
+    }
+
     // ── Filtro "Vendedor" de la lista ─────────────────────────────────────────
 
     private function ids(Usuario $u, array $params): array
