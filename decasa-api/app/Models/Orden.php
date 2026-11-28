@@ -70,6 +70,7 @@ class Orden extends Model
         'tienda_abonada_id',
         'canal',
         'entrega_inmediata',
+        'recoge_en_tienda',
         'tipo',
         'estado',
         'confirmada_en',
@@ -195,6 +196,7 @@ class Orden extends Model
             'fuera_del_pool'   => 'boolean',
             'fuera_del_pool_at' => 'datetime',
             'entrega_inmediata' => 'boolean',
+            'recoge_en_tienda' => 'boolean',
             'listo_entrega_at' => 'datetime',
             'factura_fotos'    => 'array',
             'anticipo_borrador' => 'array',
@@ -868,6 +870,38 @@ class Orden extends Model
     public function tieneDespachoActivo(): bool
     {
         return DespachoItem::where('orden_id', $this->id)->vivas()->exists();
+    }
+
+    /**
+     * Por qué esta orden NO se puede marcar "el cliente la recoge en la
+     * tienda", o null si sí se puede (usuario, 2026-11-28).
+     *
+     * Es para lo que ya existe y el cliente queda de ir por él después: el
+     * camión no la lleva y la entrega quien está en la tienda. Lo que se
+     * fabrica, se retapiza o está en el taller por garantía no: eso sale del
+     * taller y lo lleva el camión. Tampoco una que ya va en una ruta (primero
+     * se saca de ahí).
+     */
+    public function porQueNoRecogeEnTienda(): ?string
+    {
+        if (! in_array($this->estado, self::ESTADOS_ENTREGABLES, true)
+            && ! in_array($this->estado, ['borrador', 'pendiente_cotizacion'], true)) {
+            return 'Esta orden ya no tiene nada por entregar.';
+        }
+
+        $this->loadMissing('items');
+        $delTaller = $this->items->first(fn ($i) => ! $i->devuelto_en && $i->pendienteEntregar() > 0 && $i->pasaPorElTaller());
+        if ($delTaller) {
+            $nombre = $delTaller->nombre_custom ?: ($delTaller->producto?->nombre ?? 'un producto');
+            return "\"{$nombre}\" pasa por el taller: lo que se fabrica sale de allá y lo lleva el camión.";
+        }
+
+        // Sin la tabla (esquemas de prueba armados a mano) no hay rutas.
+        if ($this->exists && \App\Support\Esquema::tabla('despacho_items') && $this->tieneDespachoActivo()) {
+            return 'Esta orden ya está en una ruta o en una entrega en curso. Sácala de ahí primero.';
+        }
+
+        return null;
     }
 
     public function items()

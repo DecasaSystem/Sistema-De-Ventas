@@ -1178,4 +1178,100 @@ class EntregaPorProductoTest extends TestCase
         $this->assertTrue($this->actingAs($v)->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
         $this->assertTrue($this->actingAs($this->supervisora())->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
     }
+
+    // ── "Lo recoge en la tienda" (usuario, 2026-11-28) ───────────────────────
+
+    /** Vende un reloj que el cliente queda de ir a recoger. */
+    private function venderRelojQueRecoge(Usuario $v, bool $recoge = true): Orden
+    {
+        $this->actingAs($v)->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
+            'firma_url' => 'https://ejemplo/firma.png', 'recoge_en_tienda' => $recoge,
+            'items' => [['producto_id' => self::RELOJ, 'cantidad' => 1, 'precio_unitario' => 200000]],
+        ])->assertCreated();
+
+        return Orden::latest('id')->first();
+    }
+
+    public function test_lo_que_recoge_en_la_tienda_no_entra_a_la_cola_del_camion(): void
+    {
+        $orden = $this->venderRelojQueRecoge($this->vendedora());
+        $this->assertTrue($orden->recoge_en_tienda);
+        // No se entregó al vender: queda apartado hasta que vaya por él.
+        $this->assertSame([3, 1], $this->stockReloj());
+
+        $orden->update(['estado' => 'listo_entrega']);
+        $jefa = $this->despachadora();
+        $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(0);
+        $this->actingAs($jefa)->getJson('/api/despacho/cola/conteo')->assertOk()->assertExactJson(['total' => 0]);
+    }
+
+    public function test_cuando_llega_el_cliente_se_entrega_desde_la_tienda(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojQueRecoge($v);
+
+        $this->entregar($v, $orden, null, ['monto' => 200000, 'metodo' => 'efectivo'])->assertOk();
+
+        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertSame([2, 0], $this->stockReloj());
+    }
+
+    public function test_con_algo_para_fabricar_la_marca_no_se_guarda(): void
+    {
+        $v = $this->vendedora();
+        $this->actingAs($v)->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'declaracion_foto_url' => 'https://ejemplo/declaracion.png', 'anticipo_monto' => 0,
+            'firma_url' => 'https://ejemplo/firma.png', 'recoge_en_tienda' => true,
+            'items' => [
+                ['producto_id' => self::RELOJ, 'cantidad' => 1, 'precio_unitario' => 200000],
+                ['nombre_custom' => 'Comedor a la medida', 'cantidad' => 1, 'precio_unitario' => 3000000],
+            ],
+        ])->assertCreated();
+
+        $this->assertFalse(Orden::latest('id')->first()->recoge_en_tienda);
+    }
+
+    public function test_desde_el_detalle_se_marca_y_se_desmarca(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojQueRecoge($v, recoge: false);
+        $orden->update(['estado' => 'listo_entrega']);
+        $jefa  = $this->despachadora();
+        $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(1);
+
+        $this->actingAs($v)->getJson("/api/ordenes/{$orden->id}")->assertOk()
+            ->assertJsonPath('recoge_en_tienda', false)
+            ->assertJsonPath('recoge_en_tienda_no_se_puede', null);
+
+        $this->actingAs($v)->patchJson("/api/ordenes/{$orden->id}/recoge-en-tienda", ['recoge' => true])
+            ->assertOk()->assertJsonPath('recoge_en_tienda', true);
+        $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(0);
+
+        $this->actingAs($v)->patchJson("/api/ordenes/{$orden->id}/recoge-en-tienda", ['recoge' => false])
+            ->assertOk()->assertJsonPath('recoge_en_tienda', false);
+        $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(1);
+    }
+
+    public function test_no_se_marca_si_algo_pasa_por_el_taller_o_ya_va_en_ruta(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->actingAs($v)->patchJson("/api/ordenes/{$orden->id}/recoge-en-tienda", ['recoge' => true])
+            ->assertStatus(422)->assertJsonFragment(['message' => '"Comedor a la medida" pasa por el taller: lo que se fabrica sale de allá y lo lleva el camión.']);
+
+        $otra = $this->venderRelojQueRecoge($v, recoge: false);
+        $this->actingAs($v)->postJson('/api/despacho/entrega-directa', ['orden_id' => $otra->id])->assertStatus(201);
+        $this->actingAs($v)->patchJson("/api/ordenes/{$otra->id}/recoge-en-tienda", ['recoge' => true])->assertStatus(422);
+    }
+
+    public function test_quien_no_puede_editar_la_orden_no_la_marca(): void
+    {
+        $orden = $this->venderRelojQueRecoge($this->vendedora(), recoge: false);
+        $ajena = Usuario::create([
+            'nombre' => 'Otra', 'email' => 'o' . rand() . '@d.com', 'password' => 'x', 'rol' => 'vendedor',
+            'tienda_default_id' => 99, 've_todas_ordenes' => false, 'created_at' => now(),
+        ]);
+        $this->actingAs($ajena)->patchJson("/api/ordenes/{$orden->id}/recoge-en-tienda", ['recoge' => true])->assertStatus(403);
+    }
 }

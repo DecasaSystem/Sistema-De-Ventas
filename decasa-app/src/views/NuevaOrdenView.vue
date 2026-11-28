@@ -1977,6 +1977,7 @@ let claveEnvio = globalThis.crypto?.randomUUID?.()
   ?? `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
 const modoGuardarBorrador  = ref(false)
 const entregaInmediata     = ref(false)  // venta directa: el cliente se lleva los productos ya
+const recogeEnTienda       = ref(false)  // lo recoge en la tienda más tarde: no va en el camión
 const enviarPdfAlGuardarBorrador = ref(false) // true solo si se usó "Guardar borrador y enviar PDF"
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
 let   cooldownTimer        = null
@@ -2767,6 +2768,19 @@ watch(() => items.value.map(i => sePuedeLlevar(i) && i._llevar_ahora), () => {
   entregaInmediata.value = marcables.length > 0 && marcables.every(i => i._llevar_ahora)
 }, { deep: true })
 
+// "Lo recoge en la tienda" (usuario, 2026-11-28): el cliente queda de ir por
+// él en unos días. No se entrega hoy ni va en el camión: la orden no entra a
+// Despacho y, cuando llegue, se entrega desde el detalle con "Entregar ahora".
+// Solo si todo ya existe (nada se fabrica ni se retapiza): lo del taller lo
+// lleva el camión. Con la tela por definir sí: se recoge cuando la escojan.
+function existeEnLaTienda(i) {
+  if (i._retapizar) return false
+  return !!i._producto_unico || (!i.es_personalizado && !!i.producto_id)
+}
+const puedeRecogerEnTienda = computed(() =>
+  items.value.length > 0 && items.value.every(existeEnLaTienda) && !seLlevaTodo.value
+)
+
 watch(esCompartida, async (val) => {
   if (val) tiendaAbonadaId.value = null
   if (val && !vendedoresLista.value.length) {
@@ -3289,6 +3303,8 @@ function armarPayload() {
       // Solo cuando se lo lleva TODO (la marca vieja de toda la orden); lo
       // demás va producto por producto en `llevar_ahora`.
       entrega_inmediata:    seLlevaTodo.value || undefined,
+      // Lo recoge en la tienda más tarde (el servidor lo vuelve a revisar).
+      recoge_en_tienda:     (puedeRecogerEnTienda.value && recogeEnTienda.value) || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
@@ -3559,7 +3575,7 @@ const camposBorrador = {
   descuentoModo, descuentoInput, descuentoCondModo, descuentoCondInput,
   anticipo_pct, anticipo_monto, anticipo_metodo, anticipo_referencia,
   pagoSplit, anticipo_monto1_input, anticipo_metodo2, anticipo_referencia2,
-  notas, fechaSugeridaVendedor, esCompartida, covendedorId, tiendaAbonadaId, entregaInmediata,
+  notas, fechaSugeridaVendedor, esCompartida, covendedorId, tiendaAbonadaId, entregaInmediata, recogeEnTienda,
   departamentoEnvio, ciudadEnvio, direccionEnvio,
   facturaFotos, firmaBlob, firmaUrl, anexoFotoFile, anexoFotoUrl, anexo,
   declaracionFotoFile, declaracionFotoUrl,
@@ -3855,6 +3871,7 @@ async function cargarBorradorServidor() {
     await nextTick()   // su watcher limpia el covendedor al cargar
     covendedorId.value          = o.covendedor_id ?? null
     tiendaAbonadaId.value       = o.tienda_abonada_id ?? null
+    recogeEnTienda.value        = !!o.recoge_en_tienda
 
     departamentoEnvio.value = o.departamento_envio ?? ''
     ciudadEnvio.value       = o.ciudad_envio ?? ''
@@ -6248,6 +6265,26 @@ onBeforeUnmount(() => {
         </p>
         <p v-else class="text-xs text-gray-400 mt-1.5 ml-[52px]">
           También puedes marcarlo producto por producto en el carrito: "Se lo lleva ahora".
+        </p>
+      </div>
+
+      <!-- "Lo recoge en la tienda": queda de ir por él después; el camión no lo lleva. -->
+      <div v-if="puedeRecogerEnTienda" class="rounded-xl border p-3"
+        :class="recogeEnTienda ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'">
+        <label class="flex items-center gap-2.5 cursor-pointer select-none">
+          <div
+            @click="recogeEnTienda = !recogeEnTienda"
+            :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', recogeEnTienda ? 'bg-blue-600' : 'bg-gray-300']"
+          >
+            <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', recogeEnTienda ? 'translate-x-5' : 'translate-x-0.5']" />
+          </div>
+          <span class="text-sm font-medium text-gray-700">🏬 Lo recoge en la tienda más tarde</span>
+        </label>
+        <p v-if="recogeEnTienda" class="text-xs text-blue-700 mt-1.5 ml-[52px]">
+          Queda apartado en la tienda y <strong>no va en el camión</strong>. Cuando el cliente llegue, entrégalo desde el detalle de la orden con "Entregar ahora".
+        </p>
+        <p v-else class="text-xs text-gray-400 mt-1.5 ml-[52px]">
+          Para cuando el cliente va por él en unos días. Si no lo marcas, la orden va a la cola de despacho.
         </p>
       </div>
 

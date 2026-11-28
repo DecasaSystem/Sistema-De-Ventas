@@ -72,6 +72,8 @@ abstract class TestCase extends BaseTestCase
         $agregar('orden_items',    'ficha_especial',     fn ($t) => $t->json('ficha_especial')->nullable());
         $agregar('ordenes',        'declaracion_foto_url', fn ($t) => $t->string('declaracion_foto_url', 500)->nullable());
         $agregar('ordenes',        'anticipo_borrador',  fn ($t) => $t->json('anticipo_borrador')->nullable());
+        // "Lo recoge en la tienda" (2026_11_28_000001).
+        $agregar('ordenes',        'recoge_en_tienda',   fn ($t) => $t->boolean('recoge_en_tienda')->default(false));
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
         // que hasta una prueba que solo crea órdenes necesita dónde escribirla.

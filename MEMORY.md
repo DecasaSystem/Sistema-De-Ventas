@@ -1240,6 +1240,18 @@ escribiendo precios (Fase 1b).
   ya pagado que lo deja bajo el 50 % (no pasa por `sincronizarValorOrden`) y las restauraciones del
   bolsón que solo bajan de valor.
   Tests al final de la sección "cobrado de más" de `AuditoriaComisionesTest`.
+- **"Lo recoge en la tienda"** (usuario, 2026-11-28, **sin subir**, trae **migración**
+  `2026_11_28_000001_recoge_en_tienda_en_ordenes`, solo agrega `ordenes.recoge_en_tienda`; rama
+  `claude/store-pickup-delivery-option-b2f0f4`). El cliente compró algo que ya existe y queda de ir por él
+  en unos días: no es "se lo lleva ahora" (eso se entrega al vender) ni va en el camión. Se marca en Nueva
+  orden o después en el detalle (`PATCH /ordenes/{id}/recoge-en-tienda`, quien puede editar la orden);
+  la orden sale de la cola de Despacho (`candidatasDeLaCola`, `cabeEnRuta`) y se entrega con la entrega
+  directa de siempre ("Entregar ahora": acta, foto, saldo en la última). Solo si nada pasa por el taller
+  (`Orden::porQueNoRecogeEnTienda`); si Editar orden le agrega algo para fabricar, la marca se apaga sola.
+  No mueve plata ni inventario (lo apartado sigue apartado). Por defecto mío (**falta confirmar**): quien no
+  tiene `acceso_entregas` no la puede entregar él (igual que hoy); al supervisor le sigue llegando "Asignar
+  fecha de entrega"; Elena todavía dice "Lista para entregar", no "lista para recoger" (sería cambio en
+  `AgentePedidosController` + aviso a los bots). Tests al final de `EntregaPorProductoTest`.
 - **Filtro por vendedor en Órdenes** (usuario, 2026-11-27, **subido a `main`** ese día, sin migración).
   `GET /ordenes?vendedor_id=` trae lo que vendió **y lo que le compartieron** (`covendedor_id`), encima de
   `visiblesPara` (nunca abre órdenes de otra tienda). La lista del menú sale de `GET /ordenes/vendedores`:

@@ -482,6 +482,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/ordenes/{id}',                      [OrdenController::class, 'destroy'])->whereNumber('id');
     Route::patch('/ordenes/{id}/estado',                [OrdenController::class, 'updateEstado']);
     Route::patch('/ordenes/{id}/revertir-entrega',      [OrdenController::class, 'revertirEntrega'])->whereNumber('id');
+    // El cliente la recoge en la tienda (no va en el camión), o ya no.
+    Route::patch('/ordenes/{id}/recoge-en-tienda',      [OrdenController::class, 'recogeEnTienda'])->whereNumber('id');
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador'])->middleware('permiso:acceso_nueva_orden');
     Route::get('/ordenes/{id}/para-continuar',          [OrdenController::class, 'paraContinuar'])->whereNumber('id');

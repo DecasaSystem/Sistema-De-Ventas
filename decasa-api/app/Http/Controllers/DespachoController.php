@@ -114,7 +114,10 @@ class DespachoController extends Controller
             ->whereIn('estado', ['listo_entrega', 'en_produccion', 'pendiente_anticipo'])
             // Una parada ya entregada de una ruta que sigue andando no la
             // tiene tomada: lo que falta vuelve a la cola (DespachoItem::scopeVivas).
-            ->whereDoesntHave('entregas', fn($q) => $q->vivas());
+            ->whereDoesntHave('entregas', fn($q) => $q->vivas())
+            // El cliente la recoge en la tienda: el camión no la lleva.
+            ->when(\App\Support\Esquema::columna('ordenes', 'recoge_en_tienda'),
+                fn ($q) => $q->where('recoge_en_tienda', false));
     }
 
     /** Deja en cada producto cuánto falta por entregar y si ya se puede. */
@@ -166,6 +169,8 @@ class DespachoController extends Controller
      */
     private static function cabeEnRuta(Orden $orden): bool
     {
+        // El cliente la recoge en la tienda (ver Orden::porQueNoRecogeEnTienda).
+        if ($orden->recoge_en_tienda) return false;
         if ($orden->estado === 'listo_entrega') return true;
         if (! in_array($orden->estado, ['en_produccion', 'pendiente_anticipo'], true)) return false;
 

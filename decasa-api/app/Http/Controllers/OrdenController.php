@@ -438,6 +438,8 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
             'guardar_borrador'                     => 'nullable|boolean',
             'entrega_inmediata'                    => 'nullable|boolean',
+            // El cliente lo recoge en la tienda más tarde: no va en el camión.
+            'recoge_en_tienda'                     => 'nullable|boolean',
             // Orden con descuento especial (serie FV2): numeración propia, sigue contando
             // como venta y generando comisión.
             'es_fv2'                               => 'nullable|boolean',
@@ -645,6 +647,19 @@ class OrdenController extends Controller
         }
         $hayParaLlevar = collect($data['items'])->contains(fn ($i) => $i['llevar_ahora']);
 
+        // "Lo recoge en la tienda" (usuario, 2026-11-28): queda de ir por él
+        // después, así que la orden no entra a la cola del camión. Solo con lo
+        // que ya existe: si algo se fabrica o se retapiza, sale del taller y
+        // lo lleva el camión, y la marca se ignora (igual que "se lo lleva
+        // ahora" en lo que se fabrica). Si se lo lleva todo hoy, sobra.
+        // "Ya existe" es lo mismo que arriba para "se lo lleva ahora": de
+        // catálogo sin retapizar, o mueble único (la tela por definir sí vale:
+        // se recoge cuando la escojan).
+        $recogeEnTienda = $request->boolean('recoge_en_tienda')
+            && collect($data['items'])->every(fn ($i) => ! empty($i['producto_unico'])
+                || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && empty($i['retapizar'])))
+            && ! collect($data['items'])->every(fn ($i) => $i['llevar_ahora']);
+
         // Calcular valor total server-side (subtotal de ítems menos descuento global)
         $subtotalItems = collect($data['items'])->sum(
             fn ($i) => $i['cantidad'] * $i['precio_unitario']
@@ -842,7 +857,7 @@ class OrdenController extends Controller
         }
 
         try {
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura, $borradorId) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $recogeEnTienda, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura, $borradorId) {
 
             $borrador = null;
             if ($borradorId) {
@@ -929,6 +944,9 @@ class OrdenController extends Controller
                     ? 'borrador'
                     : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo'),
                 'entrega_inmediata' => $quiereEntregaInmediata,
+                // Siempre que exista la columna (el borrador que se sigue
+                // también la apaga si la quitaron); una base sin ella no se entera.
+                ...(\App\Support\Esquema::columna('ordenes', 'recoge_en_tienda') ? ['recoge_en_tienda' => $recogeEnTienda] : []),
                 'valor_total'       => $valorTotal,
                 'descuento_total'   => $descuentoTotal,
                 'descuento_condicionado'     => $descuentoCondicionado,
@@ -1447,6 +1465,53 @@ class OrdenController extends Controller
     }
 
     /**
+     * PATCH /api/ordenes/{id}/recoge-en-tienda   { recoge: bool }
+     *
+     * El cliente queda de ir a la tienda por lo que compró (en dos días, la
+     * otra semana): la orden sale de la cola del camión y, cuando llegue, la
+     * entrega quien está en la tienda con "Entregar ahora" (usuario,
+     * 2026-11-28). Apagarla la devuelve a la cola, si tiene algo listo.
+     *
+     * Lo marca quien puede editar la orden (los de su tienda, el supervisor).
+     * No mueve plata ni inventario: lo apartado sigue apartado en la tienda.
+     */
+    public function recogeEnTienda(Request $request, int $id)
+    {
+        $data    = $request->validate(['recoge' => 'required|boolean']);
+        $usuario = $request->user();
+
+        $orden = DB::transaction(function () use ($id, $data, $usuario) {
+            $orden = Orden::with('items.producto:id,nombre', 'items.produccion')->lockForUpdate()->findOrFail($id);
+            if (! $orden->laPuedeEditar($usuario)) {
+                abort(403, 'No tienes permiso para cambiar esta orden.');
+            }
+
+            $recoge = (bool) $data['recoge'];
+            if ((bool) $orden->recoge_en_tienda === $recoge) return $orden;
+
+            if ($recoge && ($motivo = $orden->porQueNoRecogeEnTienda())) {
+                abort(422, $motivo);
+            }
+
+            $orden->update(['recoge_en_tienda' => $recoge]);
+
+            if (\App\Support\Esquema::tabla('orden_mensajes')) {
+                OrdenMensaje::delSistema([
+                    'orden_id'   => $orden->id,
+                    'usuario_id' => $usuario->id,
+                    'mensaje'    => $recoge
+                        ? 'El cliente la recoge en la tienda: no va en el camión.'
+                        : 'Ya no la recoge en la tienda: vuelve a la cola del camión.',
+                ]);
+            }
+
+            return $orden;
+        });
+
+        return response()->json(['recoge_en_tienda' => (bool) $orden->recoge_en_tienda]);
+    }
+
+    /**
      * POST /api/ordenes/{id}/items/{itemId}/definir-tela   { variante_id }
      *
      * La cama se vendió sabiendo la medida pero no la tela ("la 1.40, la tela
@@ -1651,6 +1716,12 @@ class OrdenController extends Controller
         // sigue mirando la pantalla.
         $orden->puede_cobrar = $orden->laPuedeCobrar($usuario);
         $orden->puede_editar = $orden->laPuedeEditar($usuario);
+
+        // "Lo recoge en la tienda": si se puede prender y, si no, por qué. Se
+        // pregunta solo a quien la puede cambiar y mientras esté apagada.
+        $orden->recoge_en_tienda_no_se_puede = $orden->puede_editar && ! $orden->recoge_en_tienda
+            ? $orden->porQueNoRecogeEnTienda()
+            : null;
 
         // Para quien la mira: si ya no la puede modificar (pasaron los días de
         // la garantía) y hasta cuándo podía. La pantalla cambia "Editar" por
@@ -2985,6 +3056,22 @@ class OrdenController extends Controller
             // ítem nuevo para fabricar. Sin estricto: una edición no se cae
             // porque falten metros, se aparta igual y en Telas se ve que falta.
             ConsumoTelas::sincronizarOrden($orden->fresh(), estricto: false);
+
+            // Se marcó "lo recoge en la tienda" y ahora lleva algo que se
+            // fabrica: eso sale del taller y lo lleva el camión, así que la
+            // marca se apaga (si no, la orden nunca entraría a la cola).
+            $recien = $orden->fresh(['items.producto:id,nombre']);
+            if ($recien->recoge_en_tienda && $recien->items->contains(fn ($i) =>
+                    ! $i->devuelto_en && $i->pendienteEntregar() > 0 && $i->pasaPorElTaller())) {
+                $recien->update(['recoge_en_tienda' => false]);
+                if (\App\Support\Esquema::tabla('orden_mensajes')) {
+                    OrdenMensaje::delSistema([
+                        'orden_id'   => $orden->id,
+                        'usuario_id' => $usuario->id,
+                        'mensaje'    => 'Ya no la recoge en la tienda: ahora lleva algo que se fabrica y lo lleva el camión.',
+                    ]);
+                }
+            }
         });
 
         $ordenFresh = Orden::with([

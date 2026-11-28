@@ -72,6 +72,7 @@ export const cambiarProductoEntregado = (id, payload) =>
 // el saldo a favor; queda como pago negativo) y la lista de órdenes con saldo
 // a favor (supervisor o facturación).
 export const devolverPlata = (id, payload) => api.post(`/ordenes/${id}/devolver-plata`, payload)
+export const marcarRecogeEnTienda = (id, recoge) => api.patch(`/ordenes/${id}/recoge-en-tienda`, { recoge })
 export const getSaldosAFavor = (params = {}) => api.get('/saldos-a-favor', { params })
 
 // ── Numeración (solo supervisor) ─────────────────────────────────────────────

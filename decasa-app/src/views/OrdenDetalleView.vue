@@ -19,6 +19,7 @@ import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
 import { devolverPlata as devolverPlataApi } from '@/api/ordenes'
+import { marcarRecogeEnTienda } from '@/api/ordenes'
 import CajaDeSalida from '@/components/common/CajaDeSalida.vue'
 import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
@@ -894,6 +895,32 @@ async function marcarListaParaEntrega() {
     toast.error(e.response?.data?.message || 'No se pudo marcar')
   } finally {
     marcandoLista.value = false
+  }
+}
+
+// "Lo recoge en la tienda" (usuario, 2026-11-28): el cliente queda de ir por
+// él después. La orden sale de la cola del camión y se entrega desde aquí con
+// "Entregar ahora". Si se puede prender lo dice el servidor
+// (`recoge_en_tienda_no_se_puede`: null = sí; si no, el motivo).
+const ESTADOS_ENTREGABLES = ['pendiente_anticipo', 'en_produccion', 'listo_entrega']
+const puedeOfrecerRecoger = computed(() =>
+  orden.value?.puede_editar && !orden.value?.recoge_en_tienda
+  && ESTADOS_ENTREGABLES.includes(orden.value?.estado)
+  && !orden.value?.recoge_en_tienda_no_se_puede
+)
+const cambiandoRecoge = ref(false)
+// Se deshace con el mismo botón: no hace falta confirmar (confirm() es solo
+// para borrar o descartar).
+async function cambiarRecogeEnTienda(recoge) {
+  cambiandoRecoge.value = true
+  try {
+    await marcarRecogeEnTienda(orden.value.id, recoge)
+    toast.success(recoge ? 'Lo recoge en la tienda' : 'Vuelve a la cola de despacho')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo cambiar')
+  } finally {
+    cambiandoRecoge.value = false
   }
 }
 
@@ -3871,6 +3898,38 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
+      <!-- "Lo recoge en la tienda": el camión no la lleva; se entrega desde aquí. -->
+      <div v-if="orden.recoge_en_tienda && ESTADOS_ENTREGABLES.includes(orden.estado)"
+        class="bg-white border border-blue-200 rounded-xl px-4 py-3 space-y-2">
+        <div class="flex items-start gap-3">
+          <span class="text-lg leading-none mt-0.5">🏬</span>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-blue-800">El cliente lo recoge en la tienda</p>
+            <p class="text-xs text-gray-500 mt-0.5">
+              No va en el camión. Cuando llegue, entrégalo con "Entregar ahora": foto, acta y, en la última entrega, el saldo.
+            </p>
+          </div>
+        </div>
+        <button
+          v-if="orden.puede_editar"
+          @click="cambiarRecogeEnTienda(false)"
+          :disabled="cambiandoRecoge"
+          class="text-xs font-semibold text-gray-600 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+        >{{ cambiandoRecoge ? '…' : 'Ya no: que lo lleve el camión' }}</button>
+      </div>
+      <div v-else-if="puedeOfrecerRecoger"
+        class="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-sm font-semibold text-gray-800">¿El cliente lo recoge en la tienda?</p>
+          <p class="text-[11px] text-gray-500">Sale de la cola del camión y lo entregas aquí cuando llegue.</p>
+        </div>
+        <button
+          @click="cambiarRecogeEnTienda(true)"
+          :disabled="cambiandoRecoge"
+          class="shrink-0 text-xs font-semibold text-blue-700 bg-white border border-blue-300 rounded-lg px-3 py-2 hover:bg-blue-50 disabled:opacity-50"
+        >{{ cambiandoRecoge ? '…' : 'Lo recoge' }}</button>
+      </div>
+
       <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
       <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto || puedeMarcarLista || despachoActivo" class="space-y-2">
         <!-- La hoja de entrega para imprimir: la que se lleva el conductor o el
@@ -3944,7 +4003,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
 
         <!-- Sin entrega directa: espera al conductor -->
-        <div v-if="!miEntregaDirectaPendiente && !puedeEntregarDirecto && orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <div v-if="!miEntregaDirectaPendiente && !puedeEntregarDirecto && orden.estado === 'listo_entrega' && (!orden.recoge_en_tienda || avisoDespacho)" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold text-purple-800">
