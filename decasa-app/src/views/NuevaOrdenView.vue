@@ -2989,7 +2989,9 @@ const resumenOrden = computed(() => {
     const etiquetas = []
     if (i._regalo)                                 etiquetas.push('Obsequio')
     if (i._cotizarPrecio)                          etiquetas.push('Precio por consultar')
-    if (i._producto_unico)                         etiquetas.push('Mueble único')
+    // La restauración va primero: obsequiada o no, es restauración, no diseño especial.
+    if (i._es_restauracion)                        etiquetas.push('Restauración')
+    else if (i._producto_unico)                    etiquetas.push('Mueble único')
     else if (i.producto_id === null)               etiquetas.push('Diseño especial')
     else if (i._fabricar_pedido)                   etiquetas.push('Para fabricar')
     else if (i.es_personalizado)                   etiquetas.push('Personalizado')
@@ -5135,6 +5137,15 @@ onBeforeUnmount(() => {
                 <span v-else-if="item._producto_unico"
                   class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
                   🏷️ Único — ya hecho
+                </span>
+                <!-- Antes que "Diseño especial": por dentro una restauración
+                     también es un personalizado sin catálogo, y salía así
+                     (sobre todo al obsequiarla: el regalo esconde lo demás que
+                     la nombra). Obsequiada sigue siendo una restauración
+                     (usuario, 2026-11-28). Misma regla que OrdenItem::tipo_item. -->
+                <span v-else-if="item._es_restauracion"
+                  class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
+                  🛠️ Restauración
                 </span>
                 <span v-else-if="item.producto_id === null && item.es_personalizado"
                   class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
